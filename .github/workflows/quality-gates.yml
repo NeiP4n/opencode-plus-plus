@@ -202,7 +202,29 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect dependency manifest changes
+        id: dependencies
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed-files.txt
+          if grep -Eq '(^|/)(package[.]json|bun[.]lockb?|pnpm-lock[.]yaml|yarn[.]lock|package-lock[.]json|npm-shrinkwrap[.]json|Cargo[.](toml|lock)|go[.](mod|sum)|pyproject[.]toml|requirements[^/]*[.]txt|Pipfile([.]lock)?|poetry[.]lock|uv[.]lock|composer[.](json|lock)|Gemfile([.]lock)?|pom[.]xml|gradle[.]properties|build[.]gradle([.]kts)?|settings[.]gradle([.]kts)?)$' changed-files.txt; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Dependency manifests or lock files changed:"
+            grep -E '(^|/)(package[.]json|bun[.]lockb?|pnpm-lock[.]yaml|yarn[.]lock|package-lock[.]json|npm-shrinkwrap[.]json|Cargo[.](toml|lock)|go[.](mod|sum)|pyproject[.]toml|requirements[^/]*[.]txt|Pipfile([.]lock)?|poetry[.]lock|uv[.]lock|composer[.](json|lock)|Gemfile([.]lock)?|pom[.]xml|gradle[.]properties|build[.]gradle([.]kts)?|settings[.]gradle([.]kts)?)$' changed-files.txt
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No dependency manifests or lock files changed; skipping dependency review."
+          fi
       - name: Review dependency changes
+        if: steps.dependencies.outputs.changed == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
