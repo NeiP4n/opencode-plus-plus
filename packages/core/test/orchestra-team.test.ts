@@ -39,6 +39,8 @@ const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 }
 const deferTaskDelivery = new Set<Session.ID>()
 // Simulates losing a terminal event while the worker answer remains durable.
 const suppressTerminalEvent = new Set<Session.ID>()
+// Simulates a crash after an input is projected but before the first assistant message is recorded.
+const suppressAssistantOutput = new Set<Session.ID>()
 
 // Stands in for the runner: a woken team session answers with its title and ends
 // its run the way the title asks ("fails", "stops at shutdown" or succeeds).
@@ -59,6 +61,19 @@ const executionNode = makeGlobalNode({
         if (task && !deferTaskDelivery.has(sessionID)) {
           yield* bus.publish(SessionEvent.InboxDelivered, { sessionID, inboxID: task.id })
           taskDelivered = true
+        } else if (!task) {
+          // A real runner continues from projected history after restart, even though the
+          // original user message is no longer present in SessionInbox.
+          const history = yield* store.messages({ sessionID, limit: 20, order: "desc" }).pipe(
+            Effect.orElseSucceed((): SessionMessage.Info[] => []),
+          )
+          const latestUser = history.find((message) => message.type === "user")
+          taskDelivered = latestUser?.type === "user" && latestUser.metadata?.orchestra !== undefined
+        }
+        if (suppressAssistantOutput.has(sessionID)) {
+          if (!suppressTerminalEvent.has(sessionID))
+            yield* bus.publish(SessionEvent.Execution.Succeeded, { sessionID })
+          return
         }
         const assistantMessageID = SessionMessage.ID.create()
         yield* bus.publish(SessionEvent.Step.Started, {
@@ -328,11 +343,109 @@ describe("Orchestra team", () => {
       expect(yield* orchestra.pending(worker.id)).toBeUndefined()
     }).pipe(Effect.scoped),
   ),
+  it.live("re-admits a task if the process dies before its prompt reaches the inbox", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-admit-recovery-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Admission recovery", directory: tmp.path, template: "bugfix" })
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          deferTaskDelivery.add(worker.id)
+          suppressTerminalEvent.add(worker.id)
+        }),
+        () =>
+          Effect.sync(() => {
+            deferTaskDelivery.delete(worker.id)
+            suppressTerminalEvent.delete(worker.id)
+          }),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Recover the missing prompt" })
+      yield* Effect.sleep("50 millis")
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      const queued = (yield* sessions.inbox(worker.id)).find(
+        (item) => item.type === "user" && item.payload.metadata?.orchestra !== undefined,
+      )
+      expect(queued).toBeDefined()
+      if (!queued || queued.type !== "user") throw new Error("Expected the dispatched prompt in the inbox")
+
+      // Remove only the inbox entry to recreate a crash after TASK was persisted but before
+      // Session.prompt durably admitted this ID. Recovery must replay the saved prompt text.
+      yield* sessions.cancelInbox({ sessionID: worker.id, inboxID: queued.id })
+      deferTaskDelivery.delete(worker.id)
+      suppressTerminalEvent.delete(worker.id)
+      yield* orchestra.mainOf(project.main!)
+
+      const [report] = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(report).toContain('state="done"')
+      expect(report).toContain("Developer: task answer")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  ),
+  it.live("resumes a delivered task when no assistant message was recorded", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-start-recovery-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const bus = yield* Bus.Service
+      const store = yield* SessionStore.Service
+      const project = yield* orchestra.create({ name: "Start recovery", directory: tmp.path, template: "bugfix" })
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          deferTaskDelivery.add(worker.id)
+          suppressTerminalEvent.add(worker.id)
+        }),
+        () =>
+          Effect.sync(() => {
+            deferTaskDelivery.delete(worker.id)
+            suppressTerminalEvent.delete(worker.id)
+            suppressAssistantOutput.delete(worker.id)
+          }),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Recover after delivery" })
+      yield* Effect.sleep("50 millis")
+      const queued = (yield* sessions.inbox(worker.id)).find(
+        (item) => item.type === "user" && item.payload.metadata?.orchestra !== undefined,
+      )
+      expect(queued).toBeDefined()
+      if (!queued || queued.type !== "user") throw new Error("Expected the dispatched prompt in the inbox")
+
+      // Simulate durable inbox delivery committing before the runner's first assistant step.
+      deferTaskDelivery.delete(worker.id)
+      yield* bus.publish(SessionEvent.InboxDelivered, { sessionID: worker.id, inboxID: queued.id })
+      yield* store.release(worker.id)
+      suppressAssistantOutput.add(worker.id)
+      yield* orchestra.mainOf(project.main!)
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      // Once the runner can respond, the recovery report contains the real answer.
+      suppressAssistantOutput.delete(worker.id)
+      suppressTerminalEvent.delete(worker.id)
+      yield* orchestra.mainOf(project.main!)
+      const [report] = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(report).toContain('state="done"')
+      expect(report).toContain("Developer: task answer")
+      expect(report).not.toContain("(no text answer)")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  ),
   it.live("does not report an unrelated completion for an undispatched queued task", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-task-")))
       const orchestra = yield* Orchestra.Service
-      const sessions = yield* Session.Service
       const project = yield* orchestra.create({ name: "Task tracking", directory: tmp.path, template: "bugfix" })
       const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
       yield* Effect.acquireRelease(
@@ -349,7 +462,7 @@ describe("Orchestra team", () => {
       expect(blocked.message).toContain("outstanding task")
 
       deferTaskDelivery.delete(worker.id)
-      yield* sessions.resume(worker.id)
+      yield* orchestra.mainOf(project.main!)
       const [report] = yield* reports(project.main!).pipe(
         Effect.filterOrFail((found) => found.length > 0),
         Effect.retry(Schedule.spaced("10 millis")),

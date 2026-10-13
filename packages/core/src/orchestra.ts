@@ -144,6 +144,9 @@ const decodeProjectID = Schema.decodeUnknownOption(ProjectID)
 const Task = Schema.Struct({
   main: SessionID,
   sent: Schema.Number,
+  // The original payload lets recovery re-admit work if the process dies before the inbox commit.
+  projectID: ProjectID.pipe(Schema.optional),
+  text: Schema.String.pipe(Schema.optional),
   // Optional for compatibility with tasks written by earlier versions.
   messageID: SessionMessage.ID.pipe(Schema.optional),
   reportID: SessionMessage.ID.pipe(Schema.optional),
@@ -413,8 +416,38 @@ const layer: Layer.Layer<Service, never, KV.Service | Session.Service | SessionS
             }
             if (task.value.messageID) {
               const input = yield* sessions.message({ sessionID, messageID: task.value.messageID })
-              // The task may still be queued while the worker finishes unrelated work.
-              if (input?.type !== "user") return
+              if (input?.type !== "user") {
+                // The marker is written before Session.prompt by design. A process can die
+                // between those writes, or after admission but before the session is woken.
+                // Replaying the same ID is idempotent: it reuses the inbox row or restores the
+                // exact prompt payload from the durable marker.
+                const pending = yield* sessions
+                  .inbox(sessionID)
+                  .pipe(Effect.orElseSucceed((): SessionInbox.Info[] => []))
+                const queued = pending.some((item) => item.id === task.value.messageID && item.type === "user")
+                if (task.value.text !== undefined) {
+                  yield* sessions
+                    .prompt({
+                      sessionID,
+                      id: task.value.messageID,
+                      delivery: "queue",
+                      text: task.value.text,
+                      metadata: {
+                        orchestra: {
+                          ...(task.value.projectID ? { project: task.value.projectID } : {}),
+                          from: task.value.main,
+                          taskID: task.value.messageID,
+                        },
+                      },
+                    })
+                    .pipe(Effect.ignore)
+                  return
+                }
+                // Legacy task markers may not contain the prompt text. If their inbox row
+                // survived, resume it without constructing a new payload.
+                if (queued) yield* sessions.resume(sessionID).pipe(Effect.ignore)
+                return
+              }
             }
             const recent = yield* sessions
               .messages({
@@ -426,9 +459,14 @@ const layer: Layer.Layer<Service, never, KV.Service | Session.Service | SessionS
                   : {}),
               })
               .pipe(Effect.orElseSucceed((): SessionMessage.Info[] => []))
-            // A legacy task without a message ID has no safe delivery proof. For current tasks,
-            // the projected user message plus an idle, non-suspended session proves the work stopped;
-            // even a run with no text answer must produce a report instead of leaking the task marker.
+            // If the user message is projected but no assistant turn exists after it, the process
+            // may have died between delivery and starting the runner. Resume instead of reporting
+            // an empty answer as completed work. A durable execution claim was checked above.
+            if (task.value.messageID && !recent.some((message) => message.type === "assistant")) {
+              yield* sessions.resume(sessionID).pipe(Effect.ignore)
+              return
+            }
+            // A legacy task without a message ID has no safe delivery proof.
             if (!task.value.messageID && !recent.some((message) => finalText(message).length > 0)) return
             yield* report(
               sessionID,
@@ -631,7 +669,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Session.Service | SessionS
             // Queue work instead of interrupting whatever the worker is doing right now.
             yield* kv.set(
               key,
-              Schema.encodeSync(Task)({ main, sent: Date.now(), messageID, reportID }),
+              Schema.encodeSync(Task)({ main, projectID: input.project.id, sent: Date.now(), text: input.text, messageID, reportID }),
             )
             yield* sessions
               .prompt({
