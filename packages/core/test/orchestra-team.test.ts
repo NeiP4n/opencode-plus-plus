@@ -401,6 +401,7 @@ describe("Orchestra team", () => {
         Effect.sync(() => {
           deferTaskDelivery.add(worker.id)
           suppressTerminalEvent.add(worker.id)
+          suppressAssistantOutput.add(worker.id)
         }),
         () =>
           Effect.sync(() => {
@@ -422,7 +423,6 @@ describe("Orchestra team", () => {
       deferTaskDelivery.delete(worker.id)
       yield* bus.publish(SessionEvent.InboxDelivered, { sessionID: worker.id, inboxID: queued.id })
       yield* store.release(worker.id)
-      suppressAssistantOutput.add(worker.id)
       yield* orchestra.mainOf(project.main!)
       expect(yield* reports(project.main!)).toHaveLength(0)
       expect(yield* orchestra.pending(worker.id)).toBeNumber()
