@@ -27,6 +27,7 @@ import { useNotes, type NotesTab } from "../context/notes"
 import { NotesPanel } from "./notes-panel"
 import { Row } from "./panel-row"
 import { RoomDodRows } from "./room-dod"
+import { HoverAction } from "./hover-action"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 
@@ -260,15 +261,16 @@ export function ProjectTree(props: { width: number }) {
                     {project.name}
                   </text>
                 </box>
-                <box
-                  flexShrink={0}
-                  onMouseUp={(event) => {
-                    event.stopPropagation()
-                    edit(project)
-                  }}
+                <HoverAction
+                  id={`project-edit:${project.id}`}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onMouseEnter={() => setHover(project.id)}
+                  onMouseLeave={() => setHover(project.id)}
+                  onClick={() => edit(project)}
                 >
                   <text fg={hover() === project.id ? theme.text.action.primary.base : theme.text.muted}> ⚙</text>
-                </box>
+                </HoverAction>
               </Row>
               <Show when={expanded[project.id]}>
                 <Row
@@ -320,41 +322,44 @@ export function ProjectTree(props: { width: number }) {
                               </text>
                             </box>
                             <Show when={!narrow() || hover() === session.id}>
-                              <box
-                                flexShrink={0}
-                                onMouseUp={(event) => {
-                                  event.stopPropagation()
-                                  categorize(session.id)
-                                }}
+                              <HoverAction
+                                id={`session-category:${session.id}`}
+                                paddingLeft={1}
+                                paddingRight={1}
+                                onMouseEnter={() => setHover(session.id)}
+                                onMouseLeave={() => setHover(session.id)}
+                                onClick={() => categorize(session.id)}
                               >
                                 <text fg={hover() === session.id ? theme.text.action.primary.base : theme.text.muted}>
                                   {" # "}
                                 </text>
-                              </box>
-                              <box
-                                flexShrink={0}
-                                onMouseUp={(event) => {
-                                  event.stopPropagation()
-                                  cycle(session.id)
-                                }}
+                              </HoverAction>
+                              <HoverAction
+                                id={`session-access:${session.id}`}
+                                paddingLeft={1}
+                                paddingRight={1}
+                                onMouseEnter={() => setHover(session.id)}
+                                onMouseLeave={() => setHover(session.id)}
+                                onClick={() => cycle(session.id)}
                               >
-                                <text
-                                  fg={theme.text.formfield.base}
-                                >{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
-                              </box>
+                                <text fg={theme.text.formfield.base}>{`[${access[session.id] ?? Orchestra.defaultAccess}]`}</text>
+                              </HoverAction>
                             </Show>
-                            <box
-                              flexShrink={0}
-                              onMouseOut={() => setArmed()}
-                              onMouseUp={(event) => {
-                                event.stopPropagation()
-                                remove(session.id)
+                            <HoverAction
+                              id={`session-delete:${session.id}`}
+                              paddingLeft={1}
+                              paddingRight={1}
+                              onMouseEnter={() => setHover(session.id)}
+                              onMouseLeave={() => {
+                                setHover(session.id)
+                                setArmed()
                               }}
+                              onClick={() => remove(session.id)}
                             >
                               <text fg={armed() === session.id ? theme.text.feedback.error.base : theme.text.muted}>
                                 {armed() === session.id ? ` ${t("delete?")}` : " ×"}
                               </text>
-                            </box>
+                            </HoverAction>
                           </Row>
                         )}
                       </For>
@@ -414,13 +419,16 @@ export function ProjectTree(props: { width: number }) {
                       {room.name}
                     </text>
                   </box>
-                  <box
-                    flexShrink={0}
-                    onMouseOut={() => setArmed()}
-                    onMouseUp={(event) => {
-                      event.stopPropagation()
-                      stopHosting(room.id)
+                  <HoverAction
+                    id={`hosted-close:${room.id}`}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    onMouseEnter={() => setHover(`hosted:${room.id}`)}
+                    onMouseLeave={() => {
+                      setHover(`hosted:${room.id}`)
+                      setArmed()
                     }}
+                    onClick={() => stopHosting(room.id)}
                   >
                     <text
                       fg={
@@ -431,7 +439,7 @@ export function ProjectTree(props: { width: number }) {
                     >
                       {armed() === `hosted:${room.id}` ? ` ${t("close?")}` : " ×"}
                     </text>
-                  </box>
+                  </HoverAction>
                 </Row>
                 <RoomDodRows
                   id={`hosted:${room.id}`}
@@ -463,13 +471,16 @@ export function ProjectTree(props: { width: number }) {
                       <span style={{ fg: theme.text.muted }}>{` · ${new URL(room.url).host}`}</span>
                     </text>
                   </box>
-                  <box
-                    flexShrink={0}
-                    onMouseOut={() => setArmed()}
-                    onMouseUp={(event) => {
-                      event.stopPropagation()
-                      leave(room)
+                  <HoverAction
+                    id={`room-leave:${roomKey(room)}`}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    onMouseEnter={() => setHover(roomKey(room))}
+                    onMouseLeave={() => {
+                      setHover(roomKey(room))
+                      setArmed()
                     }}
+                    onClick={() => leave(room)}
                   >
                     <text
                       fg={
@@ -480,7 +491,7 @@ export function ProjectTree(props: { width: number }) {
                     >
                       {armed() === roomKey(room) ? ` ${t("leave?")}` : " ×"}
                     </text>
-                  </box>
+                  </HoverAction>
                 </Row>
                 <RoomDodRows
                   id={roomKey(room)}
@@ -534,17 +545,18 @@ function MultiplayerActions(props: {
       ]}
     >
       {(action) => (
-        <box
-          flexShrink={0}
+        <HoverAction
+          id={action.id}
           paddingLeft={1}
-          onMouseOver={() => props.setHover(action.id)}
-          onMouseOut={() => props.setHover(undefined)}
-          onMouseUp={() => props.onOpen(action.window)}
+          paddingRight={1}
+          onMouseEnter={() => props.setHover(action.id)}
+          onMouseLeave={() => props.setHover(undefined)}
+          onClick={() => props.onOpen(action.window)}
         >
           <text fg={props.hover() === action.id ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
             {action.label}
           </text>
-        </box>
+        </HoverAction>
       )}
     </For>
   )
@@ -561,12 +573,13 @@ function Tab(props: {
   const id = `tab:${props.tab}`
   const active = () => notes.tab() === props.tab
   return (
-    <box
+    <HoverAction
+      id={id}
       paddingLeft={1}
       paddingRight={1}
-      onMouseOver={() => props.setHover(id)}
-      onMouseOut={() => props.setHover(undefined)}
-      onMouseUp={() => notes.setTab(props.tab)}
+      onMouseEnter={() => props.setHover(id)}
+      onMouseLeave={() => props.setHover(undefined)}
+      onClick={() => notes.setTab(props.tab)}
     >
       <text
         fg={
@@ -580,7 +593,7 @@ function Tab(props: {
       >
         {props.label}
       </text>
-    </box>
+    </HoverAction>
   )
 }
 
@@ -793,14 +806,18 @@ function RoomPeople(props: {
                     {named(item.member.name, item.room)}
                   </text>
                 </box>
-                <box onMouseUp={() => cycle(item.room, item.member)}>
+                <HoverAction
+                  id={`member-role:${item.member.id}`}
+                  onClick={() => cycle(item.room, item.member)}
+                >
                   <text fg={theme.text.formfield.base}>{` [${t(ROLE_LABEL[item.member.role])}]`}</text>
-                </box>
-                <box
+                </HoverAction>
+                <HoverAction
+                  id={`member-kick:${item.member.id}`}
                   minWidth={6}
                   justifyContent="flex-end"
-                  onMouseOut={() => setArmed()}
-                  onMouseUp={() =>
+                  onMouseLeave={() => setArmed()}
+                  onClick={() =>
                     confirm(`kick:${item.member.id}`, () =>
                       client.api.room.member.remove({ roomID: item.room.id, guestID: item.member.id }),
                     )
@@ -809,12 +826,13 @@ function RoomPeople(props: {
                   <text fg={destructive(`kick:${item.member.id}`)}>
                     {armed() === `kick:${item.member.id}` ? ` ${t("Kick?")}` : " ×"}
                   </text>
-                </box>
-                <box
+                </HoverAction>
+                <HoverAction
+                  id={`member-ban:${item.member.id}`}
                   minWidth={5}
                   justifyContent="flex-end"
-                  onMouseOut={() => setArmed()}
-                  onMouseUp={() =>
+                  onMouseLeave={() => setArmed()}
+                  onClick={() =>
                     confirm(`ban:${item.member.id}`, () =>
                       client.api.room.member.ban({ roomID: item.room.id, guestID: item.member.id }),
                     )
@@ -823,7 +841,7 @@ function RoomPeople(props: {
                   <text fg={destructive(`ban:${item.member.id}`)}>
                     {armed() === `ban:${item.member.id}` ? ` ${t("Ban?")}` : ` ${t("ban")}`}
                   </text>
-                </box>
+                </HoverAction>
               </box>
             )}
           </For>
@@ -837,11 +855,12 @@ function RoomPeople(props: {
                   {named(item.ban.name, item.room)}
                 </text>
               </box>
-              <box
-                onMouseUp={() => act(() => client.api.room.ban.remove({ roomID: item.room.id, banID: item.ban.id }))}
+              <HoverAction
+                id={`member-unban:${item.ban.id}`}
+                onClick={() => act(() => client.api.room.ban.remove({ roomID: item.room.id, banID: item.ban.id }))}
               >
                 <text fg={theme.text.action.primary.base}>{` ${t("unban")}`}</text>
-              </box>
+              </HoverAction>
             </box>
           )}
         </For>

@@ -591,7 +591,7 @@ function BarItem(props: ParentProps<{ active: boolean; onClick: () => void }>) {
         props.active
           ? theme.background.action.primary.focused
           : hovered()
-            ? theme.background.action.primary.hovered
+            ? theme.increase(theme.background.base, 4)
             : undefined
       }
       onMouseOver={() => setHovered(true)}
@@ -611,7 +611,7 @@ function Action(props: ParentProps<{ onClick: () => void; disabled?: boolean; ho
   const [hovered, setHovered] = createSignal(false)
   return (
     <box
-      backgroundColor={props.hoverBackground && hovered() && !props.disabled ? theme.background.raised.high : undefined}
+      backgroundColor={props.hoverBackground && hovered() && !props.disabled ? theme.increase(theme.background.base, 4) : undefined}
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseUp={(event) => {

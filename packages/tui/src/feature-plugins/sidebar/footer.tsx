@@ -7,6 +7,7 @@ import { usePromptMove } from "../../component/prompt/move"
 import { hasConnectedProvider } from "../../util/connected-provider"
 import { useCompactLayout } from "../../ui/compact-layout"
 import { useT } from "../../util/i18n"
+import { HoverAction } from "../../component/hover-action"
 
 export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: string }) {
   const t = useT()
@@ -45,17 +46,18 @@ export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: s
             <text fg={props.context.theme.text.base}>
               <b>{t("Getting started")}</b>
             </text>
-            <text
+            <HoverAction
               id="sidebar.footer.getting-started.dismiss"
-              fg={props.context.theme.text.muted}
-              onMouseUp={() => {
+              paddingLeft={1}
+              paddingRight={1}
+              onClick={() => {
                 void updateOnboarding((draft) => {
                   draft.dismissed = true
                 }).catch((error) => console.error("Failed to dismiss sidebar onboarding", error))
               }}
             >
-              ✕
-            </text>
+              <text fg={props.context.theme.text.muted}>✕</text>
+            </HoverAction>
           </box>
           <text fg={props.context.theme.text.muted}>
             {t("Opencode++ includes free models so you can start immediately.")}
@@ -63,16 +65,17 @@ export function SidebarOnboarding(props: { context: Plugin.Context; sessionID: s
           <text fg={props.context.theme.text.muted}>
             {t("Connect one of 75+ providers to use other models, including Claude, GPT and Gemini.")}
           </text>
-          <box
+          <HoverAction
             id="sidebar.footer.getting-started.connect"
-            flexDirection="row"
+            flexGrow={1}
+            flexShrink={1}
             gap={1}
             justifyContent="space-between"
-            onMouseUp={() => props.context.keymap.dispatch("provider.connect")}
+            onClick={() => props.context.keymap.dispatch("provider.connect")}
           >
             <text fg={props.context.theme.text.base}>{t("Connect provider")}</text>
             <text fg={props.context.theme.text.muted}>/connect</text>
-          </box>
+          </HoverAction>
         </box>
       </box>
     </Show>

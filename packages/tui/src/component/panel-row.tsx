@@ -21,7 +21,7 @@ export function Row(props: {
         props.selected
           ? theme.background.action.primary.focused
           : props.hover() === props.id
-            ? theme.background.action.primary.hovered
+            ? theme.increase(theme.background.raised.base, 4)
             : undefined
       }
       onMouseOver={() => props.setHover(props.id)}

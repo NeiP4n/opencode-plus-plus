@@ -5,6 +5,7 @@ import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
 import { Row } from "./panel-row"
+import { HoverAction } from "./hover-action"
 
 const FINISHED = new Set(["DONE", "OUT_OF_SCOPE"])
 const MARK: Record<string, string> = { DONE: "✓", IN_PROGRESS: "●", BLOCKED: "!", FAILED: "✗", OUT_OF_SCOPE: "–" }
@@ -234,19 +235,20 @@ export function RoomDodRows(props: {
             </text>
           </box>
           <Show when={props.take && ready()}>
-            <box
-              flexShrink={0}
-              onMouseUp={(event) => {
-                event.stopPropagation()
+            <HoverAction
+              id={`${props.id}:dod:next`}
+              onMouseEnter={() => props.setHover(`${props.id}:dod`)}
+              onMouseLeave={() => props.setHover(`${props.id}:dod`)}
+              onClick={() =>
                 act(
                   () => props.take!(),
                   (dod) =>
                     dod.taken && toast.show({ message: t("{item} is yours", { item: dod.taken }), variant: "info" }),
                 )
-              }}
+              }
             >
               <text fg={theme.text.action.primary.base}>{` ${t("next")}`}</text>
-            </box>
+            </HoverAction>
           </Show>
         </Row>
         <Show when={open()}>
@@ -284,9 +286,9 @@ export function RoomDodRows(props: {
                       >
                         <Show when={props.take}>
                           {(take) => (
-                            <box flexShrink={0} onMouseUp={() => act(() => take()(item.id))}>
+                            <HoverAction id={`${actionId(item)}:take`} onClick={() => act(() => take()(item.id))}>
                               <text fg={theme.text.action.primary.base}>{` ${t("take")}`}</text>
-                            </box>
+                            </HoverAction>
                           )}
                         </Show>
                       </Show>
@@ -297,16 +299,19 @@ export function RoomDodRows(props: {
                     </text>
                     <Show when={mine() && item.verify ? props.submit : undefined}>
                       {(submit) => (
-                        <box flexShrink={0} onMouseUp={() => act(() => submit()(item.id), submitted(item.id))}>
+                        <HoverAction
+                          id={`${actionId(item)}:submit`}
+                          onClick={() => act(() => submit()(item.id), submitted(item.id))}
+                        >
                           <text fg={theme.text.action.primary.base}>{` ${t("submit")}`}</text>
-                        </box>
+                        </HoverAction>
                       )}
                     </Show>
                     <Show when={mine() || !props.take}>
-                      <box
-                        flexShrink={0}
-                        onMouseOut={() => setArmed()}
-                        onMouseUp={() => {
+                      <HoverAction
+                        id={`${actionId(item)}:release`}
+                        onMouseLeave={() => setArmed()}
+                        onClick={() => {
                           // Freeing another person's item needs a second click; giving back your own does not.
                           if (!mine() && armed() !== actionId(item)) return setArmed(actionId(item))
                           setArmed()
@@ -322,7 +327,7 @@ export function RoomDodRows(props: {
                         >
                           {armed() === actionId(item) ? ` ${t("free?")}` : mine() ? ` ${t("release")}` : " ×"}
                         </text>
-                      </box>
+                      </HoverAction>
                     </Show>
                   </Show>
                 </box>

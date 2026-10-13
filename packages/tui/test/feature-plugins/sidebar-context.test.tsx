@@ -19,6 +19,9 @@ function context(options?: {
   const color = RGBA.fromInts(200, 200, 200)
   return {
     theme: {
+      // Hover tokens are intentionally absent; DoD must use its visible color fallback.
+      background: { base: RGBA.fromInts(20, 20, 20) },
+      increase: () => RGBA.fromInts(60, 60, 60),
       text: {
         base: color,
         muted: color,
@@ -112,7 +115,7 @@ test("sidebar shows usage against the model context limit", async () => {
   }
 })
 
-test("DoD heading and explicit Open button launch the existing task panel without an action theme color", async () => {
+test("only the explicit Open button launches the existing DoD task panel and keeps hover feedback without an action theme color", async () => {
   const opened: string[] = []
   const app = await testRender(
     () => (
@@ -145,14 +148,14 @@ test("DoD heading and explicit Open button launch the existing task panel withou
     await app.renderOnce()
     expect(opened).toEqual([])
 
-    // Both the DoD label and the explicit Open button launch the one existing panel.
+    // Clicking the title or progress text is informational only; only [Open] launches the panel.
     frame = app.captureCharFrame()
     lines = frame.split("\n")
     y = lines.findIndex((line) => line.includes("DoD"))
     const titleX = lines[y].indexOf("DoD")
     app.mockMouse.click(titleX, y)
     await app.renderOnce()
-    expect(opened).toEqual(["opencode.sidebar.dod"])
+    expect(opened).toEqual([])
 
     frame = app.captureCharFrame()
     lines = frame.split("\n")
@@ -161,7 +164,7 @@ test("DoD heading and explicit Open button launch the existing task panel withou
     expect(openX).toBeGreaterThanOrEqual(0)
     app.mockMouse.click(openX, y)
     await app.renderOnce()
-    expect(opened).toEqual(["opencode.sidebar.dod", "opencode.sidebar.dod"])
+    expect(opened).toEqual(["opencode.sidebar.dod"])
   } finally {
     app.renderer.destroy()
   }
