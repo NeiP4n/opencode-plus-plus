@@ -7,6 +7,7 @@ import { useEvent } from "../context/event"
 import { useStorage } from "../context/storage"
 import { useTheme } from "../context/theme"
 import { useDialog } from "../ui/dialog"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import { useToast } from "../ui/toast"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useT } from "../util/i18n"
@@ -173,7 +174,7 @@ function globalBase() {
   }
 }
 
-export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
+export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initialQuery?: string }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
   const dialog = useDialog()
@@ -184,11 +185,12 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   // The bundled ideas make the bank useful before any private-session signals are collected.
   // They are inspiration only: no market demand or novelty is claimed to have been verified.
   const [globalIdeas, setGlobalIdeas] = createSignal<IdeaSignal[]>([])
+  const [globalQuery, setGlobalQuery] = createSignal(props.initialQuery ?? "")
   const [globalStatus, setGlobalStatus] = createSignal<"loading" | "connected" | "not-configured" | "error">("loading")
   const [globalTotal, setGlobalTotal] = createSignal(0)
   const [shareArmed, setShareArmed] = createSignal<string>()
 
-  const loadGlobalIdeas = async () => {
+  const loadGlobalIdeas = async (query = globalQuery()) => {
     const base = globalBase()
     if (!base) {
       setGlobalStatus("not-configured")
@@ -196,7 +198,10 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
     }
     setGlobalStatus("loading")
     try {
-      const response = await fetch(new URL("/v1/ideas?limit=50", base), { signal: AbortSignal.timeout(8_000) })
+      const url = new URL("/v1/ideas", base)
+      url.searchParams.set("limit", "50")
+      if (query.trim()) url.searchParams.set("q", query.trim().slice(0, 120))
+      const response = await fetch(url, { signal: AbortSignal.timeout(8_000) })
       const payload: unknown = await response.json()
       if (!response.ok) throw new Error("Global Idea Bank returned HTTP " + response.status)
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid global bank response")
@@ -236,16 +241,46 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
 
   onMount(() => void loadGlobalIdeas())
 
-  const ideas = createMemo(() => [...globalIdeas(), ...(state.ideas ?? []), ...STARTER_IDEAS].sort((a, b) => {
-    if (a.global !== b.global) return a.global ? -1 : 1
-    if (a.starter !== b.starter) return a.starter ? 1 : -1
-    return b.signalCount - a.signalCount || b.updatedAt - a.updatedAt
-  }))
+  const ideas = createMemo(() => {
+    const query = globalQuery().normalize("NFKC").toLocaleLowerCase().trim()
+    const terms = query.split(/\s+/u).filter(Boolean)
+    return [...globalIdeas(), ...(state.ideas ?? []), ...STARTER_IDEAS]
+      .filter((idea) => {
+        if (terms.length === 0) return true
+        const searchable = [idea.title, idea.category, idea.kind, idea.description]
+          .join(" ")
+          .normalize("NFKC")
+          .toLocaleLowerCase()
+        return terms.every((term) => searchable.includes(term))
+      })
+      .sort((a, b) => {
+        if (a.global !== b.global) return a.global ? -1 : 1
+        if (a.starter !== b.starter) return a.starter ? 1 : -1
+        return b.signalCount - a.signalCount || b.updatedAt - a.updatedAt
+      })
+  })
   const totalSignals = createMemo(() => (state.ideas ?? []).reduce((sum, item) => sum + item.signalCount, 0))
   const [clearArmed, setClearArmed] = createSignal(false)
   // The dialog is wider and centered, so give its idea list more room while
   // reserving enough rows for the header, privacy notes, counters, and footer.
   const bodyHeight = () => Math.max(4, Math.min(24, dimensions().height - 20))
+
+  const openGlobalSearch = () => {
+    const current = globalQuery()
+    dialog.replace(() => (
+      <DialogPrompt
+        title={t("Search global ideas")}
+        placeholder={t("Search by topic, tool, or problem")}
+        value={current}
+        onCancel={() => dialog.replace(() => <DialogIdeaBank {...props} initialQuery={current} />)}
+        onConfirm={(value) => {
+          const query = value.trim()
+          setGlobalQuery(query)
+          dialog.replace(() => <DialogIdeaBank {...props} initialQuery={query} />)
+        }}
+      />
+    ))
+  }
 
   const globalStatusText = () => {
     switch (globalStatus()) {
@@ -461,7 +496,29 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
       <box flexDirection="row" gap={2}>
         <text fg={theme.text.muted}>{t("Potential directions")}: {ideas().length}</text>
         <text fg={theme.text.muted}>{t("Local signals")}: {totalSignals()}</text>
+        <box flexGrow={1} />
+        <HoverAction id="idea-bank.search-global" onClick={openGlobalSearch} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.text.action.primary.base}>{t("Search")}</text>
+        </HoverAction>
+        <Show when={globalQuery().length > 0}>
+          <HoverAction
+            id="idea-bank.clear-search"
+            onClick={() => {
+              setGlobalQuery("")
+              dialog.replace(() => <DialogIdeaBank {...props} initialQuery="" />)
+            }}
+            paddingLeft={1}
+            paddingRight={1}
+          >
+            <text fg={theme.text.muted}>{t("Clear search")}</text>
+          </HoverAction>
+        </Show>
       </box>
+      <Show when={globalQuery().length > 0}>
+        <text fg={theme.text.muted} wrapMode="word">
+          {t("Search results for")}: {globalQuery()}
+        </text>
+      </Show>
       <box height={1} border={["bottom"]} borderColor={theme.border.base} />
       <Show
         when={ideas().length > 0}
