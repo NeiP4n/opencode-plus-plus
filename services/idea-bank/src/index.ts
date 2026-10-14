@@ -108,7 +108,7 @@ async function listIdeas(request: Request, env: Env) {
     .first<{ total: number }>()
   const result = await env.DB.prepare(
     `SELECT id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, signal_count, reviewed_at
-     FROM ideas WHERE ${where} ORDER BY ${scoreOrder}updated_at DESC, title COLLATE NOCASE LIMIT ? OFFSET ?`,
+     FROM ideas WHERE ${where} ORDER BY ${scoreOrder}signal_count DESC, updated_at DESC, title COLLATE NOCASE LIMIT ? OFFSET ?`,
   )
     .bind(...bindings, ...terms, limit, offset)
     .all<IdeaRow>()

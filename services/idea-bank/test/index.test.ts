@@ -254,4 +254,14 @@ describe("Global Idea Bank API", () => {
     const search = mock.queries.find((item) => item.sql.includes("instr(search_text, ?)"))
     expect(search?.bindings.slice(0, 3)).toEqual(["translate", "old", "game"])
   })
+  test("ranks the global catalogue by community signals when no query is provided", async () => {
+    const mock = makeDB({ total: 8, items: [] })
+    const response = await Worker.fetch(request("/v1/ideas"), env(mock.db))
+    expect(response.status).toBe(200)
+    const list = mock.queries.find((item) =>
+      item.sql.includes("FROM ideas WHERE status = 'published' ORDER BY"),
+    )
+    expect(list?.sql).toContain("ORDER BY signal_count DESC, updated_at DESC")
+  })
+
 })
