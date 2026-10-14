@@ -27,6 +27,7 @@ import { openTeamEditor } from "./dialog-teams"
 import { useProjects } from "../context/projects"
 import { DialogExperiments } from "./dialog-experiments"
 import { DialogIdeaBank } from "./dialog-idea-bank"
+import { usePromptRef } from "../context/prompt"
 import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -43,6 +44,7 @@ export function DevToolsBar() {
   const client = useClient()
   const config = useConfig()
   const dialog = useDialog()
+  const promptRef = usePromptRef()
   const toast = useToast()
   const projects = useProjects()
   const data = useData()
@@ -332,7 +334,7 @@ export function DevToolsBar() {
           </PanelBox>
         </Show>
       </BarItem>
-      <BarItem active={false} onClick={() => openDialog(() => <DialogIdeaBank />)}>
+      <BarItem active={false} onClick={() => openDialog(() => <DialogIdeaBank prompt={promptRef} />)}>
         <text fg={theme.text.muted}>✦ {t("Ideas")}</text>
       </BarItem>
       <BarItem active={panel() === "ui"} onClick={() => toggle("ui")}>

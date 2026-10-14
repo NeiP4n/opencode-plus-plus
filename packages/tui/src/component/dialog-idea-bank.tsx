@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core"
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useData } from "../context/data"
-import { usePromptRef } from "../context/prompt"
+import type { PromptRef } from "../component/prompt"
 import { appendPrompt, emptyPrompt } from "../prompt/history"
 import { useEvent } from "../context/event"
 import { useStorage } from "../context/storage"
@@ -148,14 +148,14 @@ function createdMillis(value: unknown) {
   return Date.parse(String(value))
 }
 
-export function DialogIdeaBank() {
+export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
   const dialog = useDialog()
   const toast = useToast()
   const dimensions = useTerminalDimensions()
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
-  const prompt = usePromptRef()
+  const prompt = props.prompt
   // The bundled ideas make the bank useful before any private-session signals are collected.
   // They are inspiration only: no market demand or novelty is claimed to have been verified.
   const ideas = createMemo(() => [...(state.ideas ?? []), ...STARTER_IDEAS].sort((a, b) => {
