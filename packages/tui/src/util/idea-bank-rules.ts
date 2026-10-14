@@ -62,7 +62,7 @@ const SIGNAL_KINDS: SignalRule[] = [
 // Classification never returns text, only one of the fixed generic signal records below.
 const SENSITIVE = [
   /(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})/u,
-  /-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----/iu,
+  /-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/iu,
   /\b(?:password|passwd|secret|(?:api[_ -]?)?key|(?:access[_ -]?)?token|authorization|bearer)\s*[:=]/iu,
   /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/u,
   /https?:\/\/\S+/iu,
@@ -78,6 +78,11 @@ export function classifyIdeaSignal(text: string): IdeaSignalKind | undefined {
   if (text.length < 18 || text.length > 5000 || looksSensitive(text)) return undefined
   const match = SIGNAL_KINDS.find((item) => item.pattern.test(text))
   if (!match) return undefined
-  const { pattern: _pattern, ...signal } = match
-  return signal
+  return {
+    id: match.id,
+    title: match.title,
+    category: match.category,
+    kind: match.kind,
+    description: match.description,
+  }
 }
