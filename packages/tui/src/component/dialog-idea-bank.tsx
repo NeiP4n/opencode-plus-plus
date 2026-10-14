@@ -330,7 +330,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
   const submitCustomIdeaToGlobal = async (title: string, category: string, summary: string) => {
     const base = globalBase()
     if (!base) {
-      setGlobalStatus("not-configured")
+      returnToBank()
       toast.show({ variant: "error", message: t("Global Idea Bank is not connected.") })
       return
     }
@@ -357,10 +357,10 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
         toast.show({ variant: "error", message })
         return
       }
-      setGlobalQuery("")
-      await loadGlobalIdeas("", 0, false)
+      returnToBank(title)
       toast.show({ variant: "success", message: t("Your idea was added to the global bank.") })
     } catch {
+      returnToBank()
       toast.show({ variant: "error", message: t("Could not submit to global Idea Bank") })
     }
   }
@@ -436,7 +436,16 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
                               back()
                               return
                             }
-                            back()
+                            dialog.replace(() => (
+                              <DialogPrompt
+                                title={t("Submitting idea…")}
+                                size="xlarge"
+                                description={() => <text fg={theme.text.muted} wrapMode="word">{t("Please wait while the idea is checked and added to the global bank.")}</text>}
+                                value=""
+                                busy={true}
+                                busyText={t("Submitting…")}
+                              />
+                            ))
                             void submitCustomIdeaToGlobal(title, category, summary)
                           }}
                         />
