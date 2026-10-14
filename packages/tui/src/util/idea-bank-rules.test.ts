@@ -59,6 +59,6 @@ describe("Idea Bank local signal rules", () => {
       category: "Automation",
       kind: "Utility or workflow",
     })
-    expect(Object.keys(result ?? {}).sort()).toEqual(["category", "description", "id", "kind", "pattern", "title"])
+    expect(Object.keys(result ?? {}).sort()).toEqual(["category", "description", "id", "kind", "title"])
   })
 })
