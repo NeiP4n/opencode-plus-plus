@@ -179,6 +179,11 @@ export function DevToolsBar() {
     close()
     dialog.replace(view)
   }
+  const openIdeaBank = () => {
+    close()
+    dialog.replace(() => <DialogIdeaBank prompt={promptRef} />, undefined, { size: "xlarge" })
+    dialog.setCentered(true)
+  }
   const reload = () => {
     close()
     toast.show({ variant: "info", message: t("Reloading configuration…"), duration: 30000 })
@@ -334,7 +339,7 @@ export function DevToolsBar() {
           </PanelBox>
         </Show>
       </BarItem>
-      <BarItem active={false} onClick={() => openDialog(() => <DialogIdeaBank prompt={promptRef} />)}>
+      <BarItem active={false} onClick={openIdeaBank}>
         <text fg={theme.text.muted}>✦ {t("Ideas")}</text>
       </BarItem>
       <BarItem active={panel() === "ui"} onClick={() => toggle("ui")}>
