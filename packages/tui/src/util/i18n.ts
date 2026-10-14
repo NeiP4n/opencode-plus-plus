@@ -45,6 +45,47 @@ const ru: Record<string, string> = {
   "Turn token usage": "Токены за ход",
   "Turn token usage (verbose)": "Токены за ход (подробно)",
   // Side panels, prompt and footer
+  // Idea Bank
+  Ideas: "Идеи",
+  "Idea Bank": "Банк идей",
+  "Automatic local capture is on": "Автоматический локальный сбор включён",
+  "Automatic local capture is off": "Автоматический локальный сбор выключен",
+  Enable: "Включить",
+  Pause: "Приостановить",
+  "Local-only MVP: no LLM/API calls. Only broad problem categories are saved; original chat text is never stored or sent. Enabling applies to future messages only.":
+    "Локальная первая версия: без запросов к LLM/API. Сохраняются только общие категории проблем; исходный текст чатов не сохраняется и не отправляется. Сбор действует только на будущие сообщения.",
+  "Potential directions": "Возможные направления",
+  "Local signals": "Локальные сигналы",
+  "No signals yet": "Сигналов пока нет",
+  "Enable automatic local capture. After a session becomes idle, simple rules look for broad patterns such as repetitive work or missing tools. No model is run and no source sentence is kept.":
+    "Включи автоматический локальный сбор. После завершения сессии простые правила ищут общие признаки: повторяющаяся работа или отсутствие нужных инструментов. Модель не запускается, исходные фразы не сохраняются.",
+  "This first version keeps ideas on this computer. Shared publishing and deep research are not connected yet.":
+    "Первая версия хранит идеи только на этом компьютере. Общая публикация и углублённое исследование пока не подключены.",
+  "Automate repetitive work": "Автоматизировать повторяющуюся работу",
+  "Fill a missing tool or capability": "Создать недостающий инструмент или функцию",
+  "Simplify a frustrating workflow": "Упростить неудобный рабочий процесс",
+  "Make instructions easier to find": "Упростить поиск инструкций",
+  "Connect tools that do not work well together": "Связать инструменты, которые плохо работают вместе",
+  Automation: "Автоматизация",
+  "Developer tools": "Инструменты разработчика",
+  Productivity: "Продуктивность",
+  "Education and documentation": "Образование и документация",
+  Integrations: "Интеграции",
+  "Utility or workflow": "Утилита или рабочий процесс",
+  "Tool or integration": "Инструмент или интеграция",
+  "Workflow improvement": "Улучшение рабочего процесса",
+  "Knowledge tool": "Инструмент для работы со знаниями",
+  Integration: "Интеграция",
+  "Repeated manual work may point to an opportunity for a small automation.":
+    "Повторяющаяся ручная работа может указывать на возможность небольшой автоматизации.",
+  "A missing capability may be worth exploring before proposing a solution.":
+    "Перед предложением решения стоит изучить, какой функции не хватает.",
+  "Repeated friction may indicate that existing tools or steps could be simplified.":
+    "Повторяющиеся неудобства могут означать, что существующие инструменты или шаги можно упростить.",
+  "Difficulty finding or understanding documentation may be an opportunity to improve access to knowledge.":
+    "Сложности с поиском или пониманием документации могут указывать на возможность улучшить доступ к знаниям.",
+  "Repeated problems moving information between tools may point to a missing integration.":
+    "Повторяющиеся трудности с переносом информации между инструментами могут указывать на отсутствие интеграции.",
   Projects: "Проекты",
   Notes: "Заметки",
   "+ New": "+ Новый",
