@@ -67,6 +67,9 @@ const ru: Record<string, string> = {
   "Starter idea · unverified": "Стартовая идея · не проверена",
   "Detected pattern · not a validated idea": "Обнаружен сигнал · идея не проверена",
   "Next step": "Следующий шаг",
+  Explore: "Исследовать",
+  "Open a prompt to use an idea": "Открой поле запроса, чтобы использовать идею",
+  "Idea added to prompt; review it and send when ready": "Идея добавлена в запрос. Проверь его и отправь, когда будешь готов.",
   "Accessibility audit for small interfaces": "Проверка доступности небольших интерфейсов",
   "Find common keyboard, contrast, and labeling issues and create a practical repair checklist.":
     "Находить проблемы с клавиатурой, контрастом и подписями элементов и формировать практический список исправлений.",
