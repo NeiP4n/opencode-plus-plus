@@ -9,7 +9,7 @@ import { useToast } from "../ui/toast"
 import { useTerminalDimensions } from "@opentui/solid"
 import { useT } from "../util/i18n"
 import { HoverAction } from "./hover-action"
-import { classifyIdeaSignal, type IdeaSignalKind } from "../util/idea-bank-rules"
+import { classifyIdeaSignal } from "../util/idea-bank-rules"
 
 export type IdeaSignal = {
   id: string
