@@ -63,7 +63,7 @@ const SIGNAL_KINDS: SignalRule[] = [
 const SENSITIVE = [
   /(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})/u,
   /-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----/iu,
-  /\b(?:password|passwd|secret|api[_ -]?key|access[_ -]?token|authorization|bearer)\s*[:=]/iu,
+  /\b(?:password|passwd|secret|(?:api[_ -]?)?key|(?:access[_ -]?)?token|authorization|bearer)\s*[:=]/iu,
   /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/u,
   /https?:\/\/\S+/iu,
   /(?:[A-Z]:\\Users\\|\/home\/[^/\s]+\/|\/Users\/[^/\s]+\/)/iu,
