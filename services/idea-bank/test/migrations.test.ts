@@ -10,6 +10,46 @@ const migrationFiles = [
 ]
 
 describe("Global Idea Bank database migrations", () => {
+  test("upgrades an existing install without losing community ideas", () => {
+    const db = new Database(":memory:")
+    try {
+      const first = readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8")
+      db.exec(first)
+      db.query(
+        `INSERT INTO ideas
+          (id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, reviewed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "legacy-community-idea",
+        "Legacy local search helper",
+        "A tool to search old project notes and keep them available after an upgrade.",
+        "Productivity",
+        '["notes","search"]',
+        "en",
+        "published",
+        "legacy-hash",
+        "legacy-content-hash",
+        100,
+        200,
+        200,
+      )
+
+      for (const name of migrationFiles.slice(1)) {
+        const sql = readFileSync(new URL("../migrations/" + name, import.meta.url), "utf8")
+        db.exec(sql)
+      }
+
+      const legacy = db
+        .query("SELECT title, signal_count, search_text FROM ideas WHERE id = ?")
+        .get("legacy-community-idea") as { title: string; signal_count: number; search_text: string } | null
+      expect(legacy?.title).toBe("Legacy local search helper")
+      expect(legacy?.signal_count).toBe(1)
+      expect(legacy?.search_text).toContain("legacy local search helper")
+    } finally {
+      db.close()
+    }
+  })
+
   test("fresh databases can apply every migration in order", () => {
     const db = new Database(":memory:")
     try {

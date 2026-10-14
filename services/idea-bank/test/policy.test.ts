@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { clean, hasSensitiveContent, normalizeSearchText, validLanguage } from "../src/policy"
+import { clean, hasSensitiveContent, normalizeSearchTerms, normalizeSearchText, validLanguage } from "../src/policy"
 
 describe("Idea Bank input policy", () => {
   it("normalizes control characters and whitespace before enforcing length", () => {
@@ -33,6 +33,12 @@ describe("Idea Bank input policy", () => {
   it("normalizes English and Cyrillic search text consistently", () => {
     expect(normalizeSearchText("  ПЕРЕВОД   ИГРЫ  ")).toBe("перевод игры")
     expect(normalizeSearchText("ＡＰＩ   TOOL")).toBe("api tool")
+  })
+
+  it("keeps meaningful normalized terms for broad multilingual search", () => {
+    expect(normalizeSearchTerms("НАЙДИ инструмент для ПЕРЕВОДА игр")).toEqual(["найди", "инструмент", "для", "перевода", "игр"])
+    expect(normalizeSearchTerms("a b c 1234", 2)).toEqual(["1234"])
+    expect(normalizeSearchTerms("game translation tools", 2)).toEqual(["game", "translation"])
   })
 
   it("accepts only simple supported language tags", () => {

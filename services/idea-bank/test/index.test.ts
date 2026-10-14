@@ -132,6 +132,27 @@ describe("Global Idea Bank API", () => {
     expect(mock.queries[insertIndex].sql).toContain("'published'")
   })
 
+  test("deduplicates ideas after Unicode normalization", async () => {
+    const submit = async (title: string) => {
+      const mock = makeDB()
+      const response = await Worker.fetch(
+        request("/v1/ideas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.19" },
+          body: JSON.stringify(submission({ title })),
+        }),
+        env(mock.db),
+      )
+      expect(response.status).toBe(201)
+      const lookup = mock.queries.find((item) => item.sql.includes("SELECT id, status FROM ideas WHERE content_hash"))
+      return lookup?.bindings[0]
+    }
+
+    const plain = await submit("Translate an old game")
+    const fullWidth = await submit("Ｔｒａｎｓｌａｔｅ an old game")
+    expect(fullWidth).toBe(plain)
+  })
+
   test("counts a repeated signal after consuming quota", async () => {
     const mock = makeDB({ duplicate: { id: "idea-123", status: "published" }, signalCount: 8 })
     const response = await Worker.fetch(

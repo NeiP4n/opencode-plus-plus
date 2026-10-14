@@ -57,7 +57,7 @@ const ru: Record<string, string> = {
   "Confirm sharing": "Подтвердить отправку",
   "Enable local capture before sharing anonymous signals.": "Сначала включи локальный сбор, чтобы отправлять обобщённые сигналы.",
   "Confirm to share only generic idea categories, never chat text.": "Подтверди отправку только общих категорий идей; переписка не отправляется.",
-  "Anonymous global signal sharing enabled.": "Автоматическая отправка обобщённых сигналов включена.",
+  "Generic global signal sharing enabled.": "Автоматическая отправка обобщённых сигналов включена.",
   "Could not update global sharing setting": "Не удалось изменить настройку общей отправки",
   "Sharing sends only predefined generic signal labels and summaries. It never sends original messages, excerpts, file paths, or chat history.": "Отправляются только заранее определённые общие метки и описания сигналов. Исходные сообщения, цитаты, пути к файлам и история чатов не отправляются.",
   "Idea added to the global bank.": "Идея добавлена в общий банк.",

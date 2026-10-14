@@ -1,4 +1,4 @@
-import { clean, hasSensitiveContent, normalizeSearchText, validLanguage } from "./policy"
+import { clean, hasSensitiveContent, normalizeSearchTerms, normalizeSearchText, validLanguage } from "./policy"
 
 interface Env {
   DB: D1Database
@@ -85,14 +85,15 @@ async function listIdeas(request: Request, env: Env) {
   const offset = Number.isSafeInteger(rawOffset) ? Math.min(100_000, Math.max(0, rawOffset)) : 0
   const clauses = ["status = 'published'"]
   const bindings: (string | number)[] = []
-  // Search individual terms rather than requiring the exact phrase. This behaves
-  // better with natural-language queries issued by the chat agent, while retaining
-  // bounded work and parameterized SQL.
-  const terms = normalizeSearchText(query).split(/\s+/).filter((term) => term.length > 1).slice(0, 8)
-  for (const term of terms) {
-    clauses.push("instr(search_text, ?) > 0")
-    bindings.push(term)
+  // Match any meaningful query term for better recall, then rank by the
+  // number of terms present so close matches appear first.
+  const terms = normalizeSearchTerms(query)
+  if (terms.length > 0) {
+    clauses.push("(" + terms.map(() => "instr(search_text, ?) > 0").join(" OR ") + ")")
+    bindings.push(...terms)
   }
+  const scoreOrder =
+    terms.length > 0 ? terms.map(() => "(instr(search_text, ?) > 0)").join(" + ") + " DESC, " : ""
   if (category) {
     clauses.push("lower(category) = lower(?)")
     bindings.push(category)
@@ -107,9 +108,9 @@ async function listIdeas(request: Request, env: Env) {
     .first<{ total: number }>()
   const result = await env.DB.prepare(
     `SELECT id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, signal_count, reviewed_at
-     FROM ideas WHERE ${where} ORDER BY updated_at DESC, title COLLATE NOCASE LIMIT ? OFFSET ?`,
+     FROM ideas WHERE ${where} ORDER BY ${scoreOrder}updated_at DESC, title COLLATE NOCASE LIMIT ? OFFSET ?`,
   )
-    .bind(...bindings, limit, offset)
+    .bind(...bindings, ...terms, limit, offset)
     .all<IdeaRow>()
   return json({ items: result.results.map(decodeIdea), total: total?.total ?? 0, limit, offset })
 }
@@ -172,7 +173,11 @@ async function submitIdea(request: Request, env: Env) {
   if (hasSensitiveContent([title, summary, category, ...tags].join("\n")))
     return json({ error: "The idea appears to contain private or sensitive data; remove it before sharing" }, 400)
 
-  const contentHash = await hash(`${title.toLocaleLowerCase()}\n${summary.toLocaleLowerCase()}\n${category.toLocaleLowerCase()}`)
+  // Normalize Unicode before deduplication so full-width and composed text does not
+  // create separate entries for the same idea.
+  const contentHash = await hash(
+    [title, summary, category].map((part) => normalizeSearchText(part)).join("\n"),
+  )
   const duplicate = await env.DB.prepare("SELECT id, status FROM ideas WHERE content_hash = ? LIMIT 1")
     .bind(contentHash)
     .first<{ id: string; status: string }>()
@@ -182,6 +187,10 @@ async function submitIdea(request: Request, env: Env) {
   const salt = env.RATE_LIMIT_SALT
   const now = Date.now()
   const windowStart = Math.floor(now / (24 * 60 * 60 * 1000))
+  // Drop expired daily buckets so the rate-limit table does not grow forever.
+  await env.DB.prepare("DELETE FROM submission_rate_limits WHERE window_start < ?")
+    .bind(windowStart)
+    .run()
   // Rotate the pseudonymous identifier daily to avoid linking a submitter's activity across days.
   const submitterHash = await hash(`${salt}:${windowStart}:${ip}`)
   // Atomic per-IP daily counter: duplicate signals count too, so they cannot bypass the limit.
@@ -272,7 +281,7 @@ async function reviewIdea(request: Request, env: Env, id: string) {
   )
     .bind(status, now, now, id)
     .run()
-  if (result.meta.changes === 0) return json({ error: "Pending idea not found or already reviewed" }, 404)
+  if (result.meta.changes === 0) return json({ error: "Idea not found or already rejected" }, 404)
   return json({ id, status })
 }
 

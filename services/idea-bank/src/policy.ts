@@ -29,3 +29,10 @@ export function validLanguage(value: string) {
 export function normalizeSearchText(value: string) {
   return value.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim().slice(0, 3500)
 }
+
+export function normalizeSearchTerms(value: string, maxTerms = 8) {
+  return normalizeSearchText(value)
+    .split(/\s+/u)
+    .filter((term) => term.length > 1)
+    .slice(0, Math.max(1, Math.min(12, Math.floor(maxTerms))))
+}

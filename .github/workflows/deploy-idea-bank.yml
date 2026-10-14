@@ -18,6 +18,12 @@ jobs:
 
       - uses: ./.github/actions/setup-bun
 
+      - name: Test and typecheck the Idea Bank service
+        working-directory: services/idea-bank
+        run: |
+          bun run typecheck
+          bun run test
+
       - name: Validate deployment secrets
         shell: bash
         env:

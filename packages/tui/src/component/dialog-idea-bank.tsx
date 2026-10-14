@@ -244,14 +244,24 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
   const ideas = createMemo(() => {
     const query = globalQuery().normalize("NFKC").toLocaleLowerCase().trim()
     const terms = query.split(/\s+/u).filter(Boolean)
+    const seen = new Set<string>()
     return [...globalIdeas(), ...(state.ideas ?? []), ...STARTER_IDEAS]
       .filter((idea) => {
-        if (terms.length === 0) return true
-        const searchable = [idea.title, idea.category, idea.kind, idea.description]
-          .join(" ")
-          .normalize("NFKC")
-          .toLocaleLowerCase()
-        return terms.every((term) => searchable.includes(term))
+        if (terms.length > 0) {
+          const searchable = [idea.title, idea.category, idea.kind, idea.description]
+            .join(" ")
+            .normalize("NFKC")
+            .toLocaleLowerCase()
+          // Keep broad matches; the server ranks global results by number of matched terms.
+          if (!terms.some((term) => searchable.includes(term))) return false
+        }
+        const key = [idea.title, idea.category]
+          .map((value) => value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/gu, " ").trim())
+          .join("|")
+        // Prefer the shared copy when a matching local signal or starter overlaps it.
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
       })
       .sort((a, b) => {
         if (a.global !== b.global) return a.global ? -1 : 1
@@ -311,6 +321,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
         delete draft.processedMessageIDs
       })
       setClearArmed(false)
+      setShareArmed(undefined)
       toast.show({ variant: "success", message: t("Local Idea Bank data cleared") })
     } catch {
       setClearArmed(false)
@@ -388,12 +399,13 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
 
   const toggleCapture = () => {
     const enabled = !state.autoCapture
+    if (!enabled) setShareArmed(undefined)
     void update((draft) => {
       draft.autoCapture = enabled
       draft.ideas ??= []
       draft.lastProcessedBySession ??= {}
       delete draft.processedMessageIDs
-      // Turning local capture off also stops any automatic sharing.
+      // Turning local capture off also stops sharing and discards any pending confirmation.
       if (!enabled) draft.autoShareSignals = false
       // Consent applies only to future messages. Enabling never scans old chats.
       if (enabled) draft.autoCaptureSince = Date.now()
@@ -430,7 +442,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
       draft.autoShareSignals = true
       draft.lastSharedSignalAt ??= {}
     }).then(() => {
-      toast.show({ variant: "success", message: t("Anonymous global signal sharing enabled.") })
+      toast.show({ variant: "success", message: t("Generic global signal sharing enabled.") })
     }).catch(() => {
       toast.show({ variant: "error", message: t("Could not update global sharing setting") })
     })

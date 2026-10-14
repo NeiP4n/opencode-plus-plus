@@ -1385,6 +1385,42 @@ function App() {
           dialog.clear()
         },
       },
+      // Expose slash/custom commands in the searchable UI palette. Selecting one
+      // fills the composer; the user can review arguments before submitting it.
+      ...(data.location.command.list(location.ref) ?? []).map((command) => ({
+        name: `custom.command.${command.name}`,
+        title: `/${command.name}`,
+        description: command.description ?? "Run a custom command",
+        category: "Custom commands",
+        run: () => {
+          const prompt = promptRef.current
+          if (!prompt) {
+            toast.show({ variant: "warning", message: "Open the prompt before selecting a custom command." })
+            return
+          }
+          const current = prompt.current
+          if (
+            current.text.trim() ||
+            current.files?.length ||
+            current.agents?.length ||
+            current.skills?.length ||
+            current.pasted.length
+          ) {
+            toast.show({
+              variant: "warning",
+              message: "Submit or clear the current draft before selecting a custom command.",
+            })
+            return
+          }
+          prompt.setMode("normal")
+          prompt.set({ ...current, text: `/${command.name} ` })
+          prompt.focus()
+          toast.show({
+            variant: "info",
+            message: `Prepared /${command.name}. Review any arguments, then submit the prompt.`,
+          })
+        },
+      })),
     ].map(
       ({ name, category, ...command }) =>
         ({

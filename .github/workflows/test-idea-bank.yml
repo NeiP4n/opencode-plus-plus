@@ -1,0 +1,44 @@
+name: idea-bank-ci
+
+on:
+  push:
+    branches:
+      - lan-rooms
+      - main
+    paths:
+      - ".github/workflows/test-idea-bank.yml"
+      - ".github/actions/setup-bun/**"
+      - "services/idea-bank/**"
+      - "bun.lock"
+      - "package.json"
+  pull_request:
+    paths:
+      - ".github/workflows/test-idea-bank.yml"
+      - ".github/actions/setup-bun/**"
+      - "services/idea-bank/**"
+      - "bun.lock"
+      - "package.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idea-bank-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Typecheck
+        working-directory: services/idea-bank
+        run: bun run typecheck
+
+      - name: Test API, privacy policy, and migrations
+        working-directory: services/idea-bank
+        run: bun run test

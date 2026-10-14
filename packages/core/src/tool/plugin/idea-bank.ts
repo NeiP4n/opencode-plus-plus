@@ -11,6 +11,7 @@ export const description = [
   "Search and use the shared Global Idea Bank, a community catalogue hosted separately from this OpenCode++ installation.",
   "Use action=search to find published ideas, action=get to read one published idea by id, and action=submit to propose a new shared idea.",
   "Use the bank when the user asks for ideas, alternatives, similar projects, or wants to compare an idea with community entries. Search before recommending that an idea is novel.",
+  "Search is Unicode-normalized and term-based, not a semantic translator. For a non-English query (especially Russian), try the original terms and a concise English translation, then combine and deduplicate the results before choosing.",
   "Never submit just because an idea was mentioned. Submit only when the user directly asks to share or add that idea to the global bank, provide consent=true, and send only a short user-approved title, summary, category, tags and language — never a transcript, secret, personal information, or unrelated chat context.",
   "An explicitly shared idea is published only after server-side privacy checks, duplicate handling, and per-IP quotas. Never submit a chat transcript. If the global bank is not configured, explain that OPENCODE_IDEA_BANK_URL must point to the shared service.",
 ].join("\n")
