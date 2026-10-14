@@ -24,6 +24,7 @@ export const Input = Schema.Struct({
   category: Schema.optionalKey(Schema.String),
   language: Schema.optionalKey(Schema.String.annotate({ description: "Optional language code such as en or ru." })),
   limit: Schema.optionalKey(Schema.Number),
+  offset: Schema.optionalKey(Schema.Number.annotate({ description: "Zero-based offset for searching beyond the first page of published ideas." })),
   title: Schema.optionalKey(Schema.String.annotate({ description: "Short public title for a submission. Do not include private context." })),
   summary: Schema.optionalKey(Schema.String.annotate({ description: "Public summary, edited for sharing; never copy a chat transcript." })),
   tags: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -98,6 +99,9 @@ export const Plugin = {
               const limit = input.limit
               if (typeof limit === "number" && Number.isFinite(limit))
                 url.searchParams.set("limit", String(Math.max(1, Math.min(50, Math.floor(limit)))))
+              const offset = input.offset
+              if (typeof offset === "number" && Number.isFinite(offset))
+                url.searchParams.set("offset", String(Math.max(0, Math.min(100_000, Math.floor(offset)))))
             } else if (input.action === "get") {
               if (!input.id?.trim()) return yield* failure("Pass the exact idea id with action=get")
               url = new URL("/v1/ideas/" + encodeURIComponent(input.id.trim()), base)
