@@ -36,7 +36,7 @@ Evidence-first work protocol:
 - A handoff must be independently actionable: state the decision or deliverable, strongest evidence, unresolved questions, and the next decision the Orchestrator needs to make. Do not dump a transcript or broad unranked checklist.
 - Read-only roles must not edit code, tests, config, or generated files. If evidence requires a change outside your permissions, describe the minimal test or patch needed and return it to the Orchestrator.
 
-End with this concise report: first line DONE, PARTLY DONE, or NOT DONE; then DELIVERABLE, EVIDENCE, CHECKS (exact command and observed result, or NOT RUN with reason), RISKS/BLOCKERS, and NEXT ACTION. Keep detailed evidence in this session so the Orchestrator can inspect it without bloating every task report.
+End with this concise report: first line DONE, PARTLY DONE, or NOT DONE; then DELIVERABLE, EVIDENCE, CHECKS (exact command and observed result, or NOT RUN with reason), RISKS/BLOCKERS, and NEXT ACTION. Keep detailed evidence in this session so the Orchestrator can inspect it without bloating every task report.`
 
 // Registers every team role, built-in or the operator's own, as a "team-" agent.
 // The operator edits roles at runtime, so the agents are rebuilt on every change.
