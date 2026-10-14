@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           bun run deploy 2>&1 | tee "$RUNNER_TEMP/idea-bank-deploy.log"
-          url="$(grep -Eo 'https://[[:alnum:].-]+\\.workers\\.dev' "$RUNNER_TEMP/idea-bank-deploy.log" | tail -n 1 || true)"
+          url="$(grep -Eo 'https://[[:alnum:].-]+\.workers\.dev' "$RUNNER_TEMP/idea-bank-deploy.log" | tail -n 1 || true)"
           if [[ -z "$url" ]]; then
             echo "::error::Could not read the workers.dev URL from the deployment output"
             exit 1
