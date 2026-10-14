@@ -323,6 +323,135 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
     ))
   }
 
+  const returnToBank = (query = globalQuery()) => {
+    dialog.replace(() => <DialogIdeaBank {...props} initialQuery={query} />)
+  }
+
+  const submitCustomIdeaToGlobal = async (title: string, category: string, summary: string) => {
+    const base = globalBase()
+    if (!base) {
+      setGlobalStatus("not-configured")
+      toast.show({ variant: "error", message: t("Global Idea Bank is not connected.") })
+      return
+    }
+    try {
+      const response = await fetch(new URL("/v1/ideas", base), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consent: true,
+          title,
+          category,
+          summary,
+          tags: category.split(/\\s+/u).filter(Boolean).slice(0, 8),
+          language: /[\\u0400-\\u04ff]/u.test(title + " " + summary) ? "ru" : "en",
+        }),
+        signal: AbortSignal.timeout(8_000),
+      })
+      const payload: unknown = await response.json()
+      const data = payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {}
+      if (!response.ok) {
+        const message = typeof data.error === "string" ? data.error : t("Could not submit to global Idea Bank")
+        toast.show({ variant: "error", message })
+        return
+      }
+      setGlobalQuery("")
+      await loadGlobalIdeas("", 0, false)
+      toast.show({ variant: "success", message: t("Your idea was added to the global bank.") })
+    } catch {
+      toast.show({ variant: "error", message: t("Could not submit to global Idea Bank") })
+    }
+  }
+
+  const openCustomShare = () => {
+    if (!globalBase()) {
+      setGlobalStatus("not-configured")
+      toast.show({ variant: "error", message: t("Global Idea Bank is not connected.") })
+      return
+    }
+    const back = () => returnToBank()
+    dialog.replace(() => (
+      <DialogPrompt
+        title={t("Share an idea globally")}
+        size="xlarge"
+        description={() => (
+          <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">
+            {t("Only the title, category, and description you enter below will be sent. No chat history is included.")}
+          </text>
+        )}
+        placeholder={t("Idea title")}
+        onCancel={back}
+        onConfirm={(rawTitle) => {
+          const title = rawTitle.trim().slice(0, 120)
+          if (title.length < 8) {
+            toast.show({ variant: "info", message: t("The title must be at least 8 characters.") })
+            return
+          }
+          dialog.replace(() => (
+            <DialogPrompt
+              title={t("Idea category")}
+              size="xlarge"
+              description={() => <text fg={useTheme().surface("dialog").text.muted}>{t("Use a short category such as Developer tools, Productivity, Games, or Accessibility.")}</text>}
+              placeholder={t("Category")}
+              onCancel={back}
+              onConfirm={(rawCategory) => {
+                const category = rawCategory.trim().slice(0, 60)
+                if (category.length < 2) {
+                  toast.show({ variant: "info", message: t("The category must be at least 2 characters.") })
+                  return
+                }
+                dialog.replace(() => (
+                  <DialogPrompt
+                    title={t("Short public summary")}
+                    size="xlarge"
+                    description={() => <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">{t("Write a public description of at least 30 characters. Do not include names, credentials, private links, or chat excerpts.")}</text>}
+                    placeholder={t("Describe the idea in one short paragraph")}
+                    onCancel={back}
+                    onConfirm={(rawSummary) => {
+                      const summary = rawSummary.trim().slice(0, 1800)
+                      if (summary.length < 30) {
+                        toast.show({ variant: "info", message: t("The summary must be at least 30 characters.") })
+                        return
+                      }
+                      dialog.replace(() => (
+                        <DialogPrompt
+                          title={t("Confirm public submission")}
+                          size="xlarge"
+                          description={() => (
+                            <box gap={1}>
+                              <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">{t("Review the exact text that will be made public.")}</text>
+                              <text fg={useTheme().surface("dialog").text.base} wrapMode="word">{t("Title")}: {title}</text>
+                              <text fg={useTheme().surface("dialog").text.base} wrapMode="word">{t("Category")}: {category}</text>
+                              <text fg={useTheme().surface("dialog").text.base} wrapMode="word">{t("Summary")}: {summary}</text>
+                              <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">{t('Type "SHARE" to confirm public submission.')}</text>
+                            </box>
+                          )}
+                          placeholder="SHARE"
+                          onCancel={back}
+                          onConfirm={(confirmation) => {
+                            if (confirmation.trim().toUpperCase() !== "SHARE") {
+                              toast.show({ variant: "info", message: t("Public submission cancelled because SHARE was not entered.") })
+                              back()
+                              return
+                            }
+                            back()
+                            void submitCustomIdeaToGlobal(title, category, summary)
+                          }}
+                        />
+                      ))
+                    }}
+                  />
+                ))
+              }}
+            />
+          ))
+        }}
+      />
+    ))
+  }
+
   const globalStatusText = () => {
     switch (globalStatus()) {
       case "loading":
@@ -533,6 +662,9 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
         <text fg={theme.text.muted}>{t("Potential directions")}: {ideas().length}</text>
         <text fg={theme.text.muted}>{t("Local signals")}: {totalSignals()}</text>
         <box flexGrow={1} />
+        <HoverAction id="idea-bank.submit-global" onClick={openCustomShare} paddingLeft={1} paddingRight={1}>
+          <text fg={theme.text.action.primary.base}>{t("Submit idea")}</text>
+        </HoverAction>
         <HoverAction id="idea-bank.search-global" onClick={openGlobalSearch} paddingLeft={1} paddingRight={1}>
           <text fg={theme.text.action.primary.base}>{t("Search")}</text>
         </HoverAction>
