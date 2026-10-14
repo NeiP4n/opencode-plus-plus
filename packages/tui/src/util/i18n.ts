@@ -46,6 +46,9 @@ const ru: Record<string, string> = {
   "Turn token usage (verbose)": "Токены за ход (подробно)",
   // Side panels, prompt and footer
   // Idea Bank
+  "Submitting idea…": "Добавление идеи…",
+  "Please wait while the idea is checked and added to the global bank.": "Подожди, пока идея проходит проверку и добавляется в общий банк.",
+  "Submitting…": "Отправка…",
   "Submit idea": "Добавить идею",
   "Share an idea globally": "Добавить свою идею в общий банк",
   "Only the title, category, and description you enter below will be sent. No chat history is included.": "Будут отправлены только введённые название, категория и описание. История чата не передаётся.",
