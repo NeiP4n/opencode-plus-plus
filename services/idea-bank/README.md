@@ -28,13 +28,14 @@ Copy the D1 `database_id` printed by Wrangler. There are two deployment options.
 **Recommended — GitHub Actions:** in repository Settings → Secrets and variables → Actions, add these secrets:
 
 - `CLOUDFLARE_API_TOKEN` — a Cloudflare API token allowed to manage Workers and D1.
+- `CLOUDFLARE_ACCOUNT_ID` — the 32-character account ID shown in the Cloudflare dashboard.
 - `IDEA_BANK_DATABASE_ID` — the D1 UUID from `bun run db:create`.
 - `IDEA_BANK_ADMIN_TOKEN` — a long random token for admin-only review endpoints.
 - `RATE_LIMIT_SALT` — an independent long random value used to hash IPs for the daily quota.
 
 Then open Actions → **deploy-idea-bank** → **Run workflow**. The workflow substitutes the D1 ID only inside its temporary checkout, applies migrations, sets Worker secrets, and deploys the service. Secret values are not committed to Git.
 
-**Manual deployment:** replace the all-zero `database_id` in `wrangler.jsonc`, then run:
+**Manual deployment:** replace the all-zero `database_id` in `wrangler.jsonc`, export `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in your shell, then run:
 
 ```sh
 bun run db:migrate:remote
