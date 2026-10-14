@@ -377,7 +377,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
         title={t("Share an idea globally")}
         size="xlarge"
         description={() => (
-          <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">
+          <text fg={theme.text.muted} wrapMode="word">
             {t("Only the title, category, and description you enter below will be sent. No chat history is included.")}
           </text>
         )}
@@ -393,7 +393,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
             <DialogPrompt
               title={t("Idea category")}
               size="xlarge"
-              description={() => <text fg={useTheme().surface("dialog").text.muted}>{t("Use a short category such as Developer tools, Productivity, Games, or Accessibility.")}</text>}
+              description={() => <text fg={theme.text.muted}>{t("Use a short category such as Developer tools, Productivity, Games, or Accessibility.")}</text>}
               placeholder={t("Category")}
               onCancel={back}
               onConfirm={(rawCategory) => {
@@ -406,7 +406,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
                   <DialogPrompt
                     title={t("Short public summary")}
                     size="xlarge"
-                    description={() => <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">{t("Write a public description of at least 30 characters. Do not include names, credentials, private links, or chat excerpts.")}</text>}
+                    description={() => <text fg={theme.text.muted} wrapMode="word">{t("Write a public description of at least 30 characters. Do not include names, credentials, private links, or chat excerpts.")}</text>}
                     placeholder={t("Describe the idea in one short paragraph")}
                     onCancel={back}
                     onConfirm={(rawSummary) => {
@@ -421,11 +421,11 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
                           size="xlarge"
                           description={() => (
                             <box gap={1}>
-                              <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">{t("Review the exact text that will be made public.")}</text>
-                              <text fg={useTheme().surface("dialog").text.base} wrapMode="word">{t("Title")}: {title}</text>
-                              <text fg={useTheme().surface("dialog").text.base} wrapMode="word">{t("Category")}: {category}</text>
-                              <text fg={useTheme().surface("dialog").text.base} wrapMode="word">{t("Summary")}: {summary}</text>
-                              <text fg={useTheme().surface("dialog").text.muted} wrapMode="word">{t('Type "SHARE" to confirm public submission.')}</text>
+                              <text fg={theme.text.muted} wrapMode="word">{t("Review the exact text that will be made public.")}</text>
+                              <text fg={theme.text.base} wrapMode="word">{t("Title")}: {title}</text>
+                              <text fg={theme.text.base} wrapMode="word">{t("Category")}: {category}</text>
+                              <text fg={theme.text.base} wrapMode="word">{t("Summary")}: {summary}</text>
+                              <text fg={theme.text.muted} wrapMode="word">{t('Type "SHARE" to confirm public submission.')}</text>
                             </box>
                           )}
                           placeholder="SHARE"
