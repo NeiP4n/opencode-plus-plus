@@ -343,8 +343,8 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
           title,
           category,
           summary,
-          tags: category.split(/\\s+/u).filter(Boolean).slice(0, 8),
-          language: /[\\u0400-\\u04ff]/u.test(title + " " + summary) ? "ru" : "en",
+          tags: category.split(/\s+/u).filter(Boolean).slice(0, 8),
+          language: /[\u0400-\u04ff]/u.test(title + " " + summary) ? "ru" : "en",
         }),
         signal: AbortSignal.timeout(8_000),
       })
@@ -354,6 +354,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
         : {}
       if (!response.ok) {
         const message = typeof data.error === "string" ? data.error : t("Could not submit to global Idea Bank")
+        returnToBank()
         toast.show({ variant: "error", message })
         return
       }
