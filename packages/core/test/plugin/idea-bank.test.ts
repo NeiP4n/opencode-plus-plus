@@ -147,7 +147,9 @@ describe("Global Idea Bank chat tool", () => {
       expect(new URL(fixture.requests[0]!.url).pathname).toBe("/v1/ideas")
       expect(new URL(fixture.requests[0]!.url).searchParams.get("q")).toBe("перевод игр")
       expect(result.output?.output).toContain("idea-translation")
-      expect(result.content?.[0]?.text).toContain("SECURITY NOTE")
+      const visibleContent = result.content?.[0]
+      expect(visibleContent?.type).toBe("text")
+      expect(visibleContent?.type === "text" ? visibleContent.text : "").toContain("SECURITY NOTE")
       expect(fixture.assertions).toEqual([])
       expect(fixture.events).toEqual(["fetch"])
     }),
