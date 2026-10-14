@@ -34,44 +34,62 @@ const CHANNEL = await (async () => {
   return `branch-${channel}`
 })()
 const IS_PREVIEW = CHANNEL !== "latest"
-// A local build announces itself as 0.0.0-<channel>-<date>, which every provider reads as
-// version 0.0.0. The opencode.ai free tier rejects clients below 1.18.0, so a local build
-// made from a tagged checkout announces the release it was cut from instead.
+// OpenCode Zen requires a recent semver in User-Agent. Preview/branch channels are not
+// release channels, so never put their names in the version or claim the latest channel. Keep
+// the nearest supported stable release as the base and append the exact source commit as build
+// metadata; this is valid semver and lets the background service distinguish rebuilt checkouts.
 const MINIMUM_ANNOUNCED_VERSION = "1.18.0"
+const FALLBACK_VERSION =
+  typeof rootPkg.version === "string" &&
+  semver.valid(rootPkg.version) &&
+  semver.gte(rootPkg.version, MINIMUM_ANNOUNCED_VERSION)
+    ? rootPkg.version
+    : "2.0.0"
 
 const VERSION = await (async () => {
-  if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
-  if (IS_PREVIEW) {
-    const tagged = await releaseTagVersion()
-    return tagged ?? `0.0.0-${CHANNEL}-${previewBuildNumber()}`
+  if (!IS_PREVIEW) {
+    if (env.OPENCODE_VERSION) return env.OPENCODE_VERSION
+    const version = await fetch("https://registry.npmjs.org/@opencode%2fcli/latest")
+      .then((res) => {
+        if (!res.ok) throw new Error(res.statusText)
+        return res.json()
+      })
+      .then((data: any) => data.version)
+    if (semver.lt(version, "2.0.0")) return "2.0.0"
+    const [major, minor, patch] = version.split(".").map((x: string) => Number(x) || 0)
+    const t = env.OPENCODE_BUMP?.toLowerCase()
+    if (t === "major") return `${major + 1}.0.0`
+    if (t === "minor") return `${major}.${minor + 1}.0`
+    return `${major}.${minor}.${patch + 1}`
   }
-  const version = await fetch("https://registry.npmjs.org/@opencode%2fcli/latest")
-    .then((res) => {
-      if (!res.ok) throw new Error(res.statusText)
-      return res.json()
-    })
-    .then((data: any) => data.version)
-  if (semver.lt(version, "2.0.0")) return "2.0.0"
-  const [major, minor, patch] = version.split(".").map((x: string) => Number(x) || 0)
-  const t = env.OPENCODE_BUMP?.toLowerCase()
-  if (t === "major") return `${major + 1}.0.0`
-  if (t === "minor") return `${major}.${minor + 1}.0`
-  return `${major}.${minor}.${patch + 1}`
+
+  const requested = env.OPENCODE_VERSION?.split("+")[0]
+  const tagged = await releaseTagVersion()
+  const candidate = requested && semver.valid(requested) ? requested : tagged
+  const base =
+    candidate &&
+    semver.prerelease(candidate) === null &&
+    semver.gte(candidate, MINIMUM_ANNOUNCED_VERSION)
+      ? candidate
+      : FALLBACK_VERSION
+  const commit = await gitCommit()
+  return commit ? `${base}+${commit}` : base
 })()
 
-function previewBuildNumber() {
-  const runNumber = process.env["GITHUB_RUN_NUMBER"]
-  if (!runNumber) return new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")
-  const runAttempt = process.env["GITHUB_RUN_ATTEMPT"]
-  if (runAttempt && runAttempt !== "1") return `${runNumber}.${runAttempt}`
-  return runNumber
+async function gitCommit() {
+  return await $`git rev-parse --short=9 HEAD`
+    .quiet()
+    .text()
+    .then((value) => value.trim() || undefined)
+    .catch(() => undefined)
 }
 
-// Untagged checkouts, and tags below the floor, fall back to the preview build number.
+// Tags below the supported version floor and untagged checkouts use the fallback release version.
+
 async function releaseTagVersion() {
   const tag = await $`git describe --tags --abbrev=0`
     .text()
-    .then((x) => x.trim().replace(/^v/, ""))
+    .then((x) => x.trim().replace(/^(?:v|release\/)/, ""))
     .catch(() => "")
   if (!semver.valid(tag)) return undefined
   return semver.lt(tag, MINIMUM_ANNOUNCED_VERSION) ? undefined : tag

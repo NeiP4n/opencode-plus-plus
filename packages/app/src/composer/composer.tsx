@@ -7,6 +7,7 @@ import { Keybind } from "@opencode/ui/keybind"
 import { ProviderModelIcon } from "@/providers/models/provider-group"
 import { Tooltip } from "@opencode/ui/tooltip"
 import { ComposerEditor } from "./editor/editor"
+import { ComposerMiniSkills } from "./mini-skills"
 import { ModelSelectorPopover } from "@/providers/models/select-dialog"
 import { DialogSelectModelUnpaid } from "@/providers/models/unpaid"
 import { formatKeybind, useCommand } from "@/shell/commands/command"
@@ -26,31 +27,33 @@ export function Composer(props: {
 
   return (
     <div class="flex flex-col gap-3">
-      <ComposerEditor
-        controller={props.model}
-        borderUnderlay={props.borderUnderlay}
-        readOnly={props.readOnly}
-        class={props.class}
-        modelControlsVisible={!props.model.model.loading}
-        attachKeybind={command.keybindParts("file.attach")}
-        attachShortcut={command.keybind("file.attach")}
-        alternateKeybind={[formatKeybind("mod", language.t), "↵"]}
-        exitShellKeybind={[formatKeybind("esc", language.t)]}
-        suggestionBoundary={props.suggestionBoundary}
-        modelControl={
-          <ComposerModelControl
-            loading={props.model.model.loading}
-            paid={props.model.model.paid}
-            title={language.t("command.model.choose")}
-            keybind={command.keybindParts("model.choose")}
-            model={props.model.model.selection}
-            provider={props.model.model.selection.current()?.provider}
-            modelName={props.model.model.selection.current()?.name ?? language.t("dialog.model.select.title")}
-            onClose={props.model.restoreFocus}
-            onUnpaidClick={() => dialog.show(() => <DialogSelectModelUnpaid model={props.model.model.selection} />)}
-          />
-        }
-      />
+      <ComposerMiniSkills model={props.model}>
+        <ComposerEditor
+          controller={props.model}
+          borderUnderlay={props.borderUnderlay}
+          readOnly={props.readOnly}
+          class={props.class}
+          modelControlsVisible={!props.model.model.loading}
+          attachKeybind={command.keybindParts("file.attach")}
+          attachShortcut={command.keybind("file.attach")}
+          alternateKeybind={[formatKeybind("mod", language.t), "↵"]}
+          exitShellKeybind={[formatKeybind("esc", language.t)]}
+          suggestionBoundary={props.suggestionBoundary}
+          modelControl={
+            <ComposerModelControl
+              loading={props.model.model.loading}
+              paid={props.model.model.paid}
+              title={language.t("command.model.choose")}
+              keybind={command.keybindParts("model.choose")}
+              model={props.model.model.selection}
+              provider={props.model.model.selection.current()?.provider}
+              modelName={props.model.model.selection.current()?.name ?? language.t("dialog.model.select.title")}
+              onClose={props.model.restoreFocus}
+              onUnpaidClick={() => dialog.show(() => <DialogSelectModelUnpaid model={props.model.model.selection} />)}
+            />
+          }
+        />
+      </ComposerMiniSkills>
     </div>
   )
 }

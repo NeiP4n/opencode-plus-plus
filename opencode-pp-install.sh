@@ -67,7 +67,8 @@ fi
 
 if [ -d "$DIR/.git" ]; then
   echo "Updating $DIR…"
-  git -C "$DIR" fetch --tags --force origin
+  # Refresh only release tags and remove stale local release refs before selecting a version.
+  git -C "$DIR" fetch --force --prune origin '+refs/tags/release/*:refs/tags/release/*'
 else
   echo "Downloading Opencode++ into $DIR…"
   git clone --filter=blob:none "$REPO" "$DIR"
@@ -82,7 +83,9 @@ if [ -n "$TAG" ]; then
   VERSION="${TAG#release/}"
 else
   echo "No release yet; installing branch $BRANCH."
-  git -C "$DIR" fetch --force origin "$BRANCH"
+  # Refresh the tracking ref explicitly; a short branch fetch can leave origin/$BRANCH stale
+  # with a narrow/custom remote.origin.fetch refspec.
+  git -C "$DIR" fetch --quiet --force origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
   git -C "$DIR" checkout --quiet --detach "origin/$BRANCH"
   VERSION="$BRANCH (no release yet)"
 fi

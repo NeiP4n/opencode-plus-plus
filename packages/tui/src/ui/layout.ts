@@ -26,6 +26,7 @@ export function clampSessionTabsWidth(width: number, total: number) {
 
 export const SESSION_PANEL_MIN_WIDTH = 28
 export const SESSION_CHAT_MIN_WIDTH = 56
+export const SESSION_SIDEBAR_MIN_DOCKED_WIDTH = 38
 
 // When a note is open, prefer the intended document-left/chat-right layout at
 // compact terminal widths; normal sessions still stack their auxiliary content sooner.
@@ -57,13 +58,75 @@ export function clampSessionPaneWidth(width: number, total: number) {
   return Math.max(min, Math.min(width, max))
 }
 
+export function resolveSessionPaneWidth(
+  measured: { width: number; hasCanvas: boolean } | undefined,
+  initial: number,
+  hasCanvas: boolean,
+) {
+  // A measurement belongs to the layout mode it was taken in. Never apply a narrow
+  // Notes measurement to Projects; use the current allocation when OpenTUI relayouts.
+  if (!measured || measured.width <= 0 || measured.hasCanvas !== hasCanvas) return initial
+  return measured.width
+}
+
+export function sessionPaneBoxWidth(input: {
+  fullscreen: boolean
+  fullscreenWidth: number
+  hasCanvas: boolean
+  stacked: boolean
+  noteChatWidth: number
+}): number | `${number}%` {
+  if (input.fullscreen) return Math.max(0, input.fullscreenWidth)
+  if (input.hasCanvas && !input.stacked) return Math.max(0, input.noteChatWidth)
+  // Never transition from a numeric width to undefined: OpenTUI may keep the old
+  // width after switching Notes -> Projects. Explicit 100% releases the stale split.
+  return "100%"
+}
+
+export function sessionTranscriptWidth(input: {
+  availableWidth: number
+  hasCanvas: boolean
+  stacked: boolean
+  canvasHostWidth: number
+  noteChatWidth: number
+  rightPaneVisible: boolean
+  rightPaneWidth: number
+  revealRailVisible: boolean
+  revealRailWidth: number
+  fullscreenContentWidth: number
+  fullscreen: boolean
+}) {
+  if (input.fullscreen) return Math.max(0, input.fullscreenContentWidth)
+  // In a horizontal note layout, the saved divider explicitly controls the chat width.
+  if (input.hasCanvas && !input.stacked) return Math.max(0, input.noteChatWidth)
+
+  // availableWidth is the measured full SessionFrame width; its right pane is a
+  // sibling of the chat host. canvasHostWidth can retain an old Notes measurement
+  // after switching tabs, so never use it to size the Projects chat.
+  const occupiedRight = input.rightPaneVisible
+    ? input.rightPaneWidth
+    : input.revealRailVisible
+      ? input.revealRailWidth
+      : 0
+  return Math.max(0, input.availableWidth - occupiedRight)
+}
+
+export function clampSessionSidebarWidth(width: number, total: number) {
+  // Docked session sidebars contain names and live statuses, so don't let a drag
+  // shrink them into a clipped unreadable strip. Docking thresholds guarantee
+  // there is normally room for this minimum while preserving the chat width.
+  const max = Math.max(1, total - SESSION_CHAT_MIN_WIDTH)
+  const min = Math.min(SESSION_SIDEBAR_MIN_DOCKED_WIDTH, max)
+  return Math.max(min, Math.min(width, max))
+}
+
 // Compact layout keeps both side panels open on a laptop-sized terminal: the
 // project panel gets its own narrower width and the session sidebar docks beside
 // the chat as long as the chat keeps its preferred width.
 // Full layout uses the normal-width sidebar, but may dock it once the chat can still
 // retain its readable minimum. Otherwise the sidebar remains available via its toggle.
 export const SESSION_TABS_COMPACT_LAYOUT_WIDTH = 34
-export const SESSION_SIDEBAR_COMPACT_WIDTH = 32
+export const SESSION_SIDEBAR_COMPACT_WIDTH = 38
 const SESSION_SIDEBAR_DOCK_GUTTER = 8
 const COMPACT_LAYOUT_AUTO_FROM = 110
 const COMPACT_LAYOUT_AUTO_BELOW = 170

@@ -19,6 +19,8 @@ const session = (id: string, title: string) => ({
 })
 const worker = session("ses_worker", "Worker task")
 const main = session("ses_main", "Demo · Orchestrator")
+const createdProject = { ...project, id: "prj_new", name: "Created", main: "ses_created_main" }
+const createdMain = { ...session("ses_created_main", "Created · Orchestrator"), agent: "orchestrator" }
 
 type Call = { method: string; path: string; body?: unknown }
 
@@ -38,8 +40,14 @@ function render(
   projects: (typeof project)[],
   listed = worker,
   layout: "compact" | "full" = "full",
-  options: { width?: number; sidebar?: "auto" | "hide" } = {},
+  options: {
+    width?: number
+    sidebar?: "auto" | "hide"
+    createdRosterGate?: Promise<void>
+    createdMainGate?: Promise<void>
+  } = {},
 ) {
+  let projectCreated = false
   return createAppFixture({
     width: options.width ?? 120,
     state,
@@ -75,24 +83,37 @@ function render(
         })
       }
       if (url.pathname === "/api/location") return json(location)
-      if (url.pathname === "/api/orchestra/project" && request.method === "POST")
-        return json({ ...project, id: "prj_new", name: "Created" })
+      if (url.pathname === "/api/orchestra/project" && request.method === "POST") {
+        projectCreated = true
+        return json(createdProject)
+      }
       if (url.pathname === "/api/orchestra/owner") return json({})
-      if (url.pathname === "/api/orchestra/project") return json(projects)
+      if (url.pathname === "/api/orchestra/project") return json(projectCreated ? [...projects, createdProject] : projects)
       if (url.pathname === "/api/orchestra/template") return json([team])
       if (url.pathname === `/api/orchestra/project/${project.id}/session`)
         return json({ data: [listed], access: { [worker.id]: "write" }, category: { [worker.id]: "Build" } })
+      if (url.pathname === `/api/orchestra/project/${createdProject.id}/session`) {
+        // Some backends can be slow to load a newly-created project's roster.
+        // Keep the route controllably pending to verify opening the main session is independent.
+        await options.createdRosterGate
+        return json({ data: [], access: {}, category: {} })
+      }
       if (url.pathname === `/api/orchestra/project/${project.id}/main`) return json(main)
+      if (url.pathname === `/api/orchestra/project/${createdProject.id}/main`) {
+        await options.createdMainGate
+        return json(createdMain)
+      }
       if (url.pathname.startsWith("/api/orchestra/access/")) return new Response(null, { status: 204 })
       if (url.pathname.startsWith("/api/orchestra/category/")) return new Response(null, { status: 204 })
       if (url.pathname.startsWith("/api/orchestra/owner/")) return new Response(null, { status: 204 })
-      if (url.pathname === "/api/session") return json({ data: [listed], cursor: {} })
+      if (url.pathname === "/api/session") return json({ data: projectCreated ? [createdMain, listed] : [listed], cursor: {} })
       if (url.pathname === `/api/session/${worker.id}` && request.method === "DELETE") {
         calls.push({ method: "DELETE", path: url.pathname })
         return new Response(null, { status: 204 })
       }
       if (url.pathname === `/api/session/${worker.id}`) return json({ data: listed })
       if (url.pathname === `/api/session/${main.id}`) return json({ data: main })
+      if (url.pathname === `/api/session/${createdMain.id}`) return json({ data: createdMain })
       if (/^\/api\/session\/[^/]+$/.test(url.pathname))
         return json({ data: session(url.pathname.split("/")[3] ?? "ses_new", "New session") })
       if (/^\/api\/session\/[^/]+\/(message|inbox|permission)$/.test(url.pathname))
@@ -143,10 +164,13 @@ test("a new session started from a project carries its project owner metadata", 
   // run that frame before waiting for Home's asynchronously loaded prompt.
   await setup.renderOnce()
   await setup.waitForFrame(
-    (frame) =>
-      ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"].some((text) =>
-        frame.includes(text),
-      ),
+    (frame) => {
+      // Home prompt suggestions can wrap across rows at narrow transcript widths.
+      const visible = frame.replace(/\s+/g, " ")
+      return ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"].some((text) =>
+        visible.includes(text),
+      )
+    },
     { maxPasses: 100 },
   )
 
@@ -210,7 +234,18 @@ test("deleting a session takes two clicks on its ×", async () => {
 test("a project is created from a name and a path", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
-  await using setup = await render(state.path, calls, [])
+  let releaseRoster!: () => void
+  let releaseMain!: () => void
+  let rosterReleased = false
+  const createdRosterGate = new Promise<void>((resolve) => {
+    releaseRoster = resolve
+  })
+  const createdMainGate = new Promise<void>((resolve) => {
+    releaseMain = resolve
+  })
+  await using setup = await render(state.path, calls, [], worker, "full", { createdRosterGate, createdMainGate })
+  // The initial frame can still be scheduled while setup returns, particularly on Windows.
+  await setup.ready
 
   // without projects the tree still shows, for Multiplayer; the bottom bar offers to create the first project
   const frame = await setup.waitForFrame((frame) => frame.includes("+ Project"))
@@ -222,7 +257,32 @@ test("a project is created from a name and a path", async () => {
   await setup.mockInput.typeText("Created")
   await setup.mockInput.pressEnter()
   await setup.waitFor(() => calls.some((call) => call.method === "POST" && call.path === "/api/orchestra/project"))
-  expect(calls.find((call) => call.method === "POST")?.body).toEqual({ name: "Created", directory })
+  expect(calls.find((call) => call.method === "POST" && call.path === "/api/orchestra/project")?.body).toEqual({
+    name: "Created",
+    directory,
+  })
+
+  // The roster is deliberately blocked. Creation must request the main session before waiting on it.
+  try {
+    await setup.waitFor(() =>
+      calls.some((call) => call.method === "POST" && call.path === `/api/orchestra/project/${createdProject.id}/main`),
+    )
+    releaseRoster()
+    rosterReleased = true
+
+    // Flush the render scheduled by the pending main-session request. Without this, the
+    // assertion could pass on the old frame before a premature dialog close has rendered.
+    await setup.renderOnce()
+    // The main request is still held open. The create dialog must stay mounted until it
+    // completes, otherwise its close/reset can race route navigation.
+    await setup.waitForFrame((frame) => frame.includes("New project") && frame.includes("Path"), { maxPasses: 100 })
+  } finally {
+    if (!rosterReleased) releaseRoster()
+    releaseMain()
+  }
+
+  await setup.renderOnce()
+  await setup.waitForFrame((frame) => frame.includes("Created · Orchestrator"), { maxPasses: 100 })
 })
 
 test("a new project can start with an AI team from a template", async () => {

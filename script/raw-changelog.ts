@@ -31,15 +31,15 @@ const team = [
     .then((x) => x.filter((x) => x && !x.startsWith("#")))),
   ...bot,
 ]
-const order = ["Core", "TUI", "Desktop", "SDK", "Extensions"] as const
+const order = ["Core", "TUI", "Desktop", "Web", "SDK", "Extensions"] as const
 const sections = {
   core: "Core",
   tui: "TUI",
-  app: "Desktop",
-  tauri: "Desktop",
+  desktop: "Desktop",
+  web: "Web",
   sdk: "SDK",
   plugin: "SDK",
-  "extensions/vscode": "Extensions",
+  extensions: "Extensions",
   github: "Extensions",
 } as const
 
@@ -74,7 +74,7 @@ async function diff(base: string, head: string) {
 }
 
 function section(areas: Set<string>) {
-  const priority = ["core", "tui", "app", "tauri", "sdk", "plugin", "extensions/vscode", "github"]
+  const priority = ["core", "tui", "desktop", "web", "sdk", "plugin", "extensions", "github"]
   for (const area of priority) {
     if (areas.has(area)) return sections[area as keyof typeof sections]
   }
@@ -120,7 +120,7 @@ async function commits(from: string, to: string) {
   }
 
   const log =
-    await $`git log ${base}..${head} --format=%H -- packages/opencode packages/plugin packages/desktop packages/app sdks/vscode packages/extensions github`.text()
+    await $`git log ${base}..${head} --format=%H -- packages/core packages/server packages/protocol packages/schema packages/util packages/ai packages/simulation packages/tui packages/cli packages/desktop packages/app packages/console packages/ui packages/theme packages/sdk packages/client packages/plugin packages/extensions services/www sdks/vscode github`.text()
 
   const list: Commit[] = []
   for (const hash of log.split("\n").filter(Boolean)) {
@@ -132,12 +132,38 @@ async function commits(from: string, to: string) {
     const areas = new Set<string>()
 
     for (const file of diff.split("\n").filter(Boolean)) {
-      if (file.startsWith("packages/opencode/src/cli/cmd/")) areas.add("tui")
-      else if (file.startsWith("packages/opencode/")) areas.add("core")
-      else if (file.startsWith("packages/desktop/src-tauri/")) areas.add("tauri")
-      else if (file.startsWith("packages/desktop/") || file.startsWith("packages/app/")) areas.add("app")
-      else if (file.startsWith("packages/plugin/")) areas.add("sdk")
-      else if (file.startsWith("sdks/vscode/") || file.startsWith("github/")) areas.add("extensions/vscode")
+      if (file.startsWith("packages/tui/") || file.startsWith("packages/cli/")) areas.add("tui")
+      else if (file.startsWith("packages/desktop/")) areas.add("desktop")
+      else if (
+        file.startsWith("packages/app/") ||
+        file.startsWith("packages/console/") ||
+        file.startsWith("packages/ui/") ||
+        file.startsWith("packages/theme/") ||
+        file.startsWith("services/www/")
+      )
+        areas.add("web")
+      else if (
+        file.startsWith("packages/sdk/") ||
+        file.startsWith("packages/client/") ||
+        file.startsWith("packages/plugin/")
+      )
+        areas.add("sdk")
+      else if (
+        file.startsWith("packages/extensions/") ||
+        file.startsWith("sdks/vscode/") ||
+        file.startsWith("github/")
+      )
+        areas.add("extensions")
+      else if (
+        file.startsWith("packages/core/") ||
+        file.startsWith("packages/server/") ||
+        file.startsWith("packages/protocol/") ||
+        file.startsWith("packages/schema/") ||
+        file.startsWith("packages/util/") ||
+        file.startsWith("packages/ai/") ||
+        file.startsWith("packages/simulation/")
+      )
+        areas.add("core")
     }
 
     if (areas.size === 0) continue

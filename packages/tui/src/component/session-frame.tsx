@@ -24,9 +24,12 @@ import { Sidebar } from "../routes/session/sidebar"
 import {
   clampNoteChatWidth,
   clampSessionPaneWidth,
+  clampSessionSidebarWidth,
   defaultSessionPaneWidth,
   noteCanvasFlexGrow,
+  sessionPaneBoxWidth,
   sessionPanesStacked,
+  sessionTranscriptWidth,
   sessionSidebarDocks,
 } from "../ui/layout"
 import { useCompactLayout } from "../ui/compact-layout"
@@ -51,9 +54,24 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const dialog = useDialog()
   const notes = useNotes()
   const theme = useTheme()
-  const availableWidth = () => Math.max(0, dimensions().width - props.verticalTabsWidth)
+  // Derive the frame's current width from live terminal and left-rail dimensions.
+  // Cached width stayed at the note split size after switching back to Projects.
+  // SessionFrame is already rendered to the right of the project tree. Measure its
+  // actual allocation rather than subtracting the left panel from the terminal twice.
+  const [frameWidth, setFrameWidth] = createSignal(Math.max(0, dimensions().width - props.verticalTabsWidth))
+  const availableWidth = () => frameWidth()
   const [canvasHostWidth, setCanvasHostWidth] = createSignal(availableWidth())
   const compactLayout = useCompactLayout()
+  const activePanel = createMemo(() => {
+    const current = panels.current()
+    if (current?.sessionID === props.sessionID) return current
+  })
+  const fullscreen = () => activePanel() !== undefined && panels.presentation() === "fullscreen"
+  // A session bound to a note in Notes mode shows the note as its document, with the chat beside it.
+  const canvas = createMemo(() => (fullscreen() ? undefined : notes.canvas(props.sessionID)))
+  // Keep a bound note in the center with its chat on the right on narrow terminals;
+  // only stack them when there is not enough room for two usable columns.
+  const stacked = () => sessionPanesStacked(availableWidth(), canvas() !== undefined)
   const defaultPaneWidth = () => defaultSessionPaneWidth(panels.width(), compactLayout.compact())
   const [layout, updateLayout] = useStorage().store<{
     paneWidth?: number
@@ -71,8 +89,11 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       defaultPaneWidth(),
     defaultValue: defaultPaneWidth,
     clamp: (width) => clampSessionPaneWidth(width, panels.width()),
-    fromMouse: (event) => dimensions().width - event.x - 1,
-    contains: (event, width) => event.x >= dimensions().width - width - 1 && event.x <= dimensions().width - width,
+    fromMouse: (event) => availableWidth() - (event.x - props.verticalTabsWidth) - 1,
+    contains: (event, width) => {
+      const boundary = props.verticalTabsWidth + availableWidth() - width
+      return event.x >= boundary - 1 && event.x <= boundary
+    },
     onCommit: (width) => {
       void updateLayout((draft) => {
         if (compactLayout.compact()) draft.compactPaneWidth = width
@@ -86,9 +107,12 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
   const sidebarResize = createPaneResize({
     value: () => layout.sidebarWidth ?? defaultSidebarWidth(),
     defaultValue: defaultSidebarWidth,
-    clamp: (width) => clampSessionPaneWidth(width, panels.width()),
-    fromMouse: (event) => dimensions().width - event.x - 1,
-    contains: (event, width) => event.x >= dimensions().width - width - 1 && event.x <= dimensions().width - width,
+    clamp: (width) => clampSessionSidebarWidth(width, panels.width()),
+    fromMouse: (event) => availableWidth() - (event.x - props.verticalTabsWidth) - 1,
+    contains: (event, width) => {
+      const boundary = props.verticalTabsWidth + availableWidth() - width
+      return event.x >= boundary - 1 && event.x <= boundary
+    },
     onCommit: (width) => {
       void updateLayout((draft) => {
         draft.sidebarWidth = width
@@ -101,9 +125,8 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     value: () => layout.noteChatWidth ?? defaultNoteChatWidth(),
     defaultValue: defaultNoteChatWidth,
     clamp: (width) => clampNoteChatWidth(width, canvasHostWidth()),
-    // Mouse coordinates are terminal-global; subtract the note/chat divider position
-    // from the right edge of the actual split container, not the entire terminal.
-    fromMouse: (event) => props.verticalTabsWidth + canvasHostWidth() - event.x - 1,
+    // Mouse coordinates are terminal-global; translate x to this split container before resizing.
+    fromMouse: (event) => canvasHostWidth() - (event.x - props.verticalTabsWidth) - 1,
     contains: (event, width) => {
       const boundary = props.verticalTabsWidth + canvasHostWidth() - width
       return event.x >= boundary - 1 && event.x <= boundary
@@ -115,6 +138,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     },
   })
   const rightPaneResize = () => (rightPane() === "sidebar" ? sidebarResize : paneResize)
+
   let resizeRelease = false
   const finishPaneResize = (event: MouseEvent) => {
     if (paneResize.resizing() || sidebarResize.resizing() || noteChatResize.resizing()) {
@@ -129,7 +153,6 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     noteChatResize.onMouseUp(event)
   }
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
-  const [sessionWidth, setSessionWidth] = createSignal<number>()
   const [activePane, setActivePane] = createSignal<"session" | "right">("session")
   const [rightPaneHidden, setRightPaneHidden] = createSignal(false)
   const [restoreTerminalFocus, setRestoreTerminalFocus] = createSignal(false)
@@ -149,16 +172,6 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     const value = session()
     return value.terminals.find((terminal) => terminal.id === value.selectedTerminalID)
   }
-  const activePanel = createMemo(() => {
-    const current = panels.current()
-    if (current?.sessionID === props.sessionID) return current
-  })
-  const fullscreen = () => activePanel() !== undefined && panels.presentation() === "fullscreen"
-  // A session bound to a note in Notes mode shows the note as its document, with the chat beside it.
-  const canvas = createMemo(() => (fullscreen() ? undefined : notes.canvas(props.sessionID)))
-  // Keep a bound note in the center with its chat on the right on narrow terminals;
-  // only stack them when there is not enough room for two usable columns.
-  const stacked = () => sessionPanesStacked(availableWidth(), canvas() !== undefined)
   createEffect(
     on([activePanel, () => selectedTerminal()?.id], ([panel, terminal], previous) => {
       if (panel && panel !== previous?.[0]) {
@@ -188,6 +201,39 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
     if (selectedTerminal()) return "terminal"
     if (sidebarVisible()) return "sidebar"
   })
+
+  // Use the formula only for the very first render. Once OpenTUI lays out the
+  // session pane, its measured width is the source of truth. A createMemo here
+  // eagerly evaluated canvas() in older builds before canvas was initialized.
+  const initialSessionTranscriptWidth = () =>
+    sessionTranscriptWidth({
+      availableWidth: availableWidth(),
+      hasCanvas: canvas() !== undefined,
+      stacked: stacked(),
+      canvasHostWidth: canvasHostWidth(),
+      noteChatWidth: noteChatResize.size(),
+      rightPaneVisible:
+        !rightPaneHidden() &&
+        (rightPane() === "terminal" || rightPane() === "panel" || (rightPane() === "sidebar" && wide())),
+      rightPaneWidth: rightPaneResize().size(),
+      revealRailVisible:
+        !fullscreen() &&
+        (rightPaneHidden() ||
+          (rightPane() === undefined &&
+            !canvas() &&
+            !activePanel() &&
+            !selectedTerminal() &&
+            !data.session.get(props.sessionID)?.parentID)),
+      revealRailWidth: 3,
+      fullscreenContentWidth: Math.max(0, panels.width() - paneResize.size()),
+      fullscreen: fullscreen(),
+    })
+
+  // Derive the transcript width from the current layout every time. The measured
+  // parent host remains mounted across tabs; caching the inner pane can preserve a
+  // Notes width after Projects returns.
+  const transcriptWidth = () => initialSessionTranscriptWidth()
+
   const toggleSidebar = () => {
     batch(() => {
       const visible = rightPane() === "sidebar"
@@ -353,6 +399,9 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       minHeight={0}
       flexDirection="row"
       position="relative"
+      onSizeChange={function () {
+        setFrameWidth(this.width)
+      }}
       onMouseDrag={(event) => {
         paneResize.onMouseDrag(event)
         sidebarResize.onMouseDrag(event)
@@ -372,39 +421,35 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           setCanvasHostWidth(this.width)
         }}
       >
-        {/* Always mounted and only hidden, so the session pane next to it never re-anchors. */}
-        <box
-          id="note-canvas"
-          visible={canvas() !== undefined}
-          flexGrow={noteCanvasFlexGrow(canvas() !== undefined, stacked())}
-          flexBasis={canvas() && !stacked() ? undefined : 0}
-          width={
-            canvas()
-              ? stacked()
-                ? "100%"
-                : Math.max(0, canvasHostWidth() - noteChatResize.size())
-              : 0
-          }
-          minWidth={0}
-          minHeight={0}
-          border={[stacked() ? "bottom" : "right"]}
-          borderColor={theme.border.base}
-        >
-          {/* Another note gets a fresh document, never the editor state of the previous one. */}
-          <Show when={canvas()?.name} keyed>
-            {(_) => (
-              <Show when={canvas()}>
-                {(note) => (
-                  <NoteCanvas
-                    sessionID={props.sessionID}
-                    note={note()}
-                    directory={data.session.get(props.sessionID)?.location.directory ?? ""}
-                  />
-                )}
-              </Show>
-            )}
-          </Show>
-        </box>
+        {/* Remove the document column from flex layout when switching back to Projects.
+            OpenTUI's visible=false hides drawing, but the box can still reserve width. */}
+        <Show when={canvas() !== undefined}>
+          <box
+            id="note-canvas"
+            flexGrow={noteCanvasFlexGrow(true, stacked())}
+            flexBasis={stacked() ? 0 : undefined}
+            width={stacked() ? "100%" : Math.max(0, canvasHostWidth() - noteChatResize.size())}
+            minWidth={0}
+            minHeight={0}
+            border={[stacked() ? "bottom" : "right"]}
+            borderColor={theme.border.base}
+          >
+            {/* Another note gets a fresh document, never the editor state of the previous one. */}
+            <Show when={canvas()?.name} keyed>
+              {(_) => (
+                <Show when={canvas()}>
+                  {(note) => (
+                    <NoteCanvas
+                      sessionID={props.sessionID}
+                      note={note()}
+                      directory={data.session.get(props.sessionID)?.location.directory ?? ""}
+                    />
+                  )}
+                </Show>
+              )}
+            </Show>
+          </box>
+        </Show>
         <box
           id="session-pane"
           ref={(value: BoxRenderable) => (sessionNode = value)}
@@ -414,19 +459,14 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           minHeight={0}
           position={fullscreen() ? "absolute" : "relative"}
           visible={!fullscreen()}
-          width={
-            fullscreen()
-              ? Math.max(0, panels.width() - paneResize.size())
-              : canvas()
-                ? stacked()
-                  ? "100%"
-                  : noteChatResize.size()
-                : undefined
-          }
+          width={sessionPaneBoxWidth({
+            fullscreen: fullscreen(),
+            fullscreenWidth: panels.width() - paneResize.size(),
+            hasCanvas: canvas() !== undefined,
+            stacked: stacked(),
+            noteChatWidth: noteChatResize.size(),
+          })}
           height="100%"
-          onSizeChange={function () {
-            setSessionWidth(this.width)
-          }}
         >
           <InteractivityProvider enabled={activePane() === "session" && !fullscreen()}>
             <Session
@@ -438,7 +478,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
               terminals={sessions.available()}
               visibleTerminalID={rightPane() === "terminal" ? selectedTerminal()?.id : undefined}
               onTerminalPicker={(show) => (showTerminals = show)}
-              width={sessionWidth()}
+              width={transcriptWidth()}
             />
           </InteractivityProvider>
           <Show when={activePane() === "right"}>

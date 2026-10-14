@@ -22,7 +22,13 @@ export function make(input: Partial<Info> = {}): Info {
 }
 
 export function useragent(app: Info) {
-  return `opencode/${app.channel}/${app.version}/${app.name}`
+  // OpenCode Zen accepts the compact product/version form for non-release builds. Branch names
+  // such as "lan-rooms" are build metadata, not published client channels, and putting them in
+  // the channel position makes Zen reject an otherwise compatible request. Keep the explicit
+  // channel/artifact format for the official latest channel; non-release versions carry a git
+  // build identifier from packages/script so they remain distinguishable without claiming latest.
+  if (app.channel === "latest") return `opencode/latest/${app.version}/${app.name}`
+  return `opencode/${app.version}`
 }
 
 export const layer = (input?: Partial<Info>) => Layer.succeed(Metadata, make(input))

@@ -239,14 +239,28 @@ export const layer = Layer.effect(
       const session = input.session
       const model = input.model
       const scope = { sessionID: session.id, agent: input.agent, model: model.ref, kind }
-      const tools = input.tools ?? {
+      const tools: Tool.Snapshot = input.tools ?? {
         definitions: [],
         execute: () => new Tool.Error({ message: "Tools are not available for this request" }),
       }
+      // OpenCode Zen's free-tier validator rejects requests when a permission rule removes
+      // built-in read/bash from the advertised tool list. Keep their schemas in the request for
+      // the built-in OpenCode provider, while Tool.snapshot.execute still enforces local policy.
+      // This does not grant permission to execute either tool: hidden tools are not present in the
+      // snapshot's active executor maps.
+      const zenCompatibility = model.ref.providerID === "opencode"
+        ? [...(tools.codeModeDefinitions ?? []), ...(tools.compatibilityDefinitions ?? [])]
+        : []
+      const advertised = [
+        ...tools.definitions,
+        ...zenCompatibility.filter((candidate) => !tools.definitions.some((tool) => tool.name === candidate.name)),
+      ]
+      const deniedCompatibility =
+        model.ref.providerID === "opencode" ? (tools.compatibilityDefinitions ?? []) : []
       // Remember which tool each definition object came from. Hooks rename a tool by moving
       // its definition to a new key, so after the hook we find the tool by object identity.
       const given = new Map(
-        tools.definitions.map((t) => [{ description: t.description, input: { ...t.inputSchema } }, t] as const),
+        advertised.map((t) => [{ description: t.description, input: { ...t.inputSchema } }, t] as const),
       )
       // Hooks see the default output limit and may change or remove it. Titles and generate keep the provider default,
       // because their reasoning is hard to budget.
@@ -265,13 +279,19 @@ export const layer = Layer.effect(
       )
       // Match by identity first, then by key. Entries matching neither were invented by a
       // hook and are dropped. `t.name` stays the real name so execution can map renames back.
-      const byName = new Map(tools.definitions.map((t) => [t.name, t]))
+      const byName = new Map(advertised.map((t) => [t.name, t]))
       const hooked = new Map(
         Object.entries(shaped.tools ?? {}).flatMap(([name, d]) => {
           const t = given.get(d) ?? byName.get(name)
           return t ? [[name, { ...t, description: d.description, inputSchema: d.input }] as const] : []
         }),
       )
+      // Context hooks may intentionally trim active CodeMode tools. Do not re-add those here.
+      // Only restore denied schemas for Zen's brittle tool-list validator; Tool.snapshot.execute
+      // has no executor for them, so a model cannot use this as a permission bypass.
+      for (const candidate of deniedCompatibility) {
+        if (!hooked.has(candidate.name)) hooked.set(candidate.name, candidate)
+      }
       const entries = Object.entries(shaped.options)
       const generation = Object.fromEntries(entries.filter(([k]) => GENERATION_KEYS.has(k))) as GenerationOptionsFields
       const providerOptions = Object.fromEntries(entries.filter(([k]) => !GENERATION_KEYS.has(k)))

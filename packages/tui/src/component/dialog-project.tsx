@@ -1,5 +1,6 @@
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { createSignal, For, onMount, Show } from "solid-js"
+import { useTerminalDimensions } from "@opentui/solid"
 import type { OrchestraProject, OrchestraTemplate } from "@opencode/client/promise"
 import { useConfig } from "../config"
 import { useClient } from "../context/client"
@@ -15,8 +16,8 @@ import { builtinName, openTeamEditor } from "./dialog-teams"
 
 // Create a project, or rename it, move it to another directory or forget it.
 // Projects are the operator's own: a name and a directory, nothing discovered.
-// A new project may start with an AI team: the template opens its role
-// sessions next to the Orchestrator; "No team" opens nothing. Teams themselves
+// A new project always starts with an Orchestrator; a selected template also opens
+// its role sessions. Teams themselves
 // are edited in the team editor, which comes back here with the typed fields.
 type Draft = { name: string; directory: string }
 
@@ -25,6 +26,7 @@ export function DialogProject(props: {
   draft?: Draft
   onDone: () => void
   onClose: () => void
+  onCreated?: (project: OrchestraProject) => void | Promise<void>
   onEditTeams?: (draft: Draft) => void
 }) {
   const client = useClient()
@@ -32,6 +34,7 @@ export function DialogProject(props: {
   const theme = useTheme().surface("dialog")
   const config = useConfig().data
   const t = useT()
+  const dimensions = useTerminalDimensions()
   const [error, setError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const [armed, setArmed] = createSignal(false)
@@ -57,8 +60,24 @@ export function DialogProject(props: {
     setTeamFocused(false)
     field?.focus()
   }
+  const teamOptions = () => [
+    { name: t("No team"), detail: t("only the Orchestrator") },
+    ...(templates() ?? []).map((template) => ({
+      name: builtinName(t, template) ?? template.id,
+      detail:
+        template.description ||
+        template.members.map((member) => (template.origin === "builtin" ? t(member.title) : member.title)).join(", "),
+    })),
+  ]
+  const teamCount = () => teamOptions().length
+  // Keep the picker compact on short terminals and show the selected option in the visible window.
+  const visibleTeamCount = () => Math.max(1, Math.min(5, Math.floor((dimensions().height - 16) / 3)))
+  const visibleTeamStart = () =>
+    Math.max(0, Math.min(team() - Math.floor(visibleTeamCount() / 2), teamCount() - visibleTeamCount()))
+  const visibleTeamEnd = () => Math.min(teamCount(), visibleTeamStart() + visibleTeamCount())
+  const visibleTeamOptions = () => teamOptions().slice(visibleTeamStart(), visibleTeamEnd())
   const moveTeam = (direction: 1 | -1) => {
-    const count = (templates()?.length ?? 0) + 1
+    const count = teamCount()
     setTeam((team() + direction + count) % count)
   }
 
@@ -69,11 +88,19 @@ export function DialogProject(props: {
     }, 1)
   })
 
-  const run = async (action: () => Promise<unknown>) => {
+  const run = async <Result,>(
+    action: () => Promise<Result>,
+    onSuccess?: (result: Result) => void | Promise<void>,
+  ) => {
     setBusy(true)
     setError()
     await action()
-      .then(() => props.onDone())
+      .then(async (result) => {
+        // Finish the main-session handoff before closing the dialog. The callback may return
+        // a promise, but it must not wait for the project roster or project-list refresh.
+        await onSuccess?.(result)
+        props.onDone()
+      })
       .catch((cause: unknown) =>
         // The server names the field it rejected; its own text is English.
         setError(
@@ -91,10 +118,15 @@ export function DialogProject(props: {
     const directory = fields.directory?.value.trim() ?? ""
     if (!directory) return setError(t("Enter the project's path"))
     const project = props.project
-    void run(() =>
-      project
-        ? client.api.orchestra.project.update({ projectID: project.id, name, directory })
-        : client.api.orchestra.project.create({ name, directory, template: templates()?.[team() - 1]?.id }),
+    if (project) {
+      void run(() => client.api.orchestra.project.update({ projectID: project.id, name, directory }))
+      return
+    }
+    // The project owns the orchestrator from the moment creation succeeds. Open that
+    // main session immediately so the user lands in the project's control surface.
+    void run(
+      () => client.api.orchestra.project.create({ name, directory, template: templates()?.[team() - 1]?.id }),
+      (created) => props.onCreated?.(created),
     )
   }
 
@@ -185,28 +217,16 @@ export function DialogProject(props: {
           <box width={9} onMouseUp={focusTeam}>
             <text fg={teamFocused() ? theme.text.formfield.focused : theme.text.muted}>{t("Team")}</text>
           </box>
-          <box flexGrow={1}>
-            <TeamOption
-              selected={team() === 0}
-              focused={teamFocused()}
-              name={t("No team")}
-              detail={t("only the Orchestrator")}
-              onClick={() => {
-                setTeam(0)
-                focusTeam()
-              }}
-            />
-            <For each={templates()}>
-              {(template, index) => (
+          <box flexGrow={1} minWidth={0}>
+            <For each={visibleTeamOptions()}>
+              {(option, index) => (
                 <TeamOption
-                  selected={team() === index() + 1}
+                  selected={team() === visibleTeamStart() + index()}
                   focused={teamFocused()}
-                  name={builtinName(t, template) ?? template.id}
-                  detail={template.members
-                    .map((member) => (template.origin === "builtin" ? t(member.title) : member.title))
-                    .join(", ")}
+                  name={option.name}
+                  detail={option.detail}
                   onClick={() => {
-                    setTeam(index() + 1)
+                    setTeam(visibleTeamStart() + index())
                     focusTeam()
                   }}
                 />
@@ -225,9 +245,19 @@ export function DialogProject(props: {
                 </text>
               </box>
             </Show>
-            <Show when={props.onEditTeams}>
-              <box paddingLeft={2} onMouseUp={editTeams}>
-                <text fg={theme.text.action.primary.base}>{t("Edit teams and roles…")}</text>
+            <Show when={props.onEditTeams || teamCount() > visibleTeamOptions().length}>
+              <box paddingLeft={2} flexDirection="row" gap={1}>
+                <Show when={teamCount() > visibleTeamOptions().length}>
+                  <text fg={theme.text.muted}>
+                    {visibleTeamStart() + 1}–{visibleTeamEnd()} / {teamCount()} · ↑↓
+                  </text>
+                </Show>
+                <box flexGrow={1} />
+                <Show when={props.onEditTeams}>
+                  <box onMouseUp={editTeams}>
+                    <text fg={theme.text.action.primary.base}>{t("Edit teams and roles…")}</text>
+                  </box>
+                </Show>
               </box>
             </Show>
           </box>
@@ -265,8 +295,10 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
   const [hovered, setHovered] = createSignal(false)
   return (
     <box
-      flexDirection="row"
-      gap={1}
+      flexDirection="column"
+      gap={0}
+      flexGrow={1}
+      minWidth={0}
       backgroundColor={
         props.selected && props.focused
           ? theme.background.formfield.focused
@@ -278,13 +310,22 @@ function TeamOption(props: { selected: boolean; focused: boolean; name: string; 
       onMouseOut={() => setHovered(false)}
       onMouseUp={props.onClick}
     >
-      <text fg={props.selected ? theme.text.formfield.focused : theme.text.muted}>{props.selected ? "●" : "○"}</text>
-      <text fg={props.selected ? theme.text.formfield.focused : theme.text.formfield.base} wrapMode="none">
-        {props.name}
-      </text>
-      <box flexGrow={1} minWidth={0}>
-        <text fg={theme.text.muted} wrapMode="none" truncate>
-          {`· ${props.detail}`}
+      <box flexDirection="row" gap={1} minWidth={0}>
+        <text flexShrink={0} fg={props.selected ? theme.text.formfield.focused : theme.text.muted}>
+          {props.selected ? "●" : "○"}
+        </text>
+        <text
+          flexShrink={1}
+          wrapMode="none"
+          truncate
+          fg={props.selected ? theme.text.formfield.focused : theme.text.formfield.base}
+        >
+          {props.name}
+        </text>
+      </box>
+      <box paddingLeft={2} minWidth={0}>
+        <text fg={theme.text.muted} wrapMode="word">
+          {props.detail}
         </text>
       </box>
     </box>
@@ -296,6 +337,7 @@ export function openProjectDialog(
   onDone: () => void,
   project?: OrchestraProject,
   draft?: Draft,
+  onCreated?: (project: OrchestraProject) => void | Promise<void>,
 ) {
   dialog.replace(
     () => (
@@ -303,9 +345,10 @@ export function openProjectDialog(
         project={project}
         draft={draft}
         onEditTeams={(typed) =>
-          openTeamEditor(dialog, { back: () => openProjectDialog(dialog, onDone, undefined, typed) })
+          openTeamEditor(dialog, { back: () => openProjectDialog(dialog, onDone, undefined, typed, onCreated) })
         }
         onClose={() => dialog.clear()}
+        onCreated={onCreated}
         onDone={() => {
           dialog.clear()
           onDone()

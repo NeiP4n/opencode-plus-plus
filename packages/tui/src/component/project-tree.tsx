@@ -137,19 +137,35 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     void expand(projectID)
   }
 
-  const edit = (project?: OrchestraProject) => openProjectDialog(dialog, projectList.refetch, project)
-
   const openMain = (project: OrchestraProject) =>
     client.api.orchestra.project
       .main({ projectID: project.id })
       .then((session) => {
         data.session.remember(session)
-        projectList.mutate((list) =>
-          list?.map((item) => (item.id === project.id ? { ...item, main: session.id } : item)),
-        )
+        projectList.mutate((list) => {
+          const items = list ?? []
+          if (items.some((item) => item.id === project.id))
+            return items.map((item) => (item.id === project.id ? { ...item, main: session.id } : item))
+          // The create response may beat the projects-list refetch. Keep the freshly created
+          // project visible instead of silently dropping it from an initially empty resource.
+          return [...items, { ...project, main: session.id }]
+        })
         route.navigate({ type: "session", sessionID: session.id })
       })
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+
+  const openCreatedProject = async (project: OrchestraProject) => {
+    setExpanded(project.id, true)
+    // Refresh the roster in the background; opening the project's main session must not
+    // depend on a second endpoint responding first.
+    void expand(project.id)
+    // Return the promise so DialogProject keeps its completion lifecycle in the right order:
+    // finish opening the orchestrator, then close the dialog and refresh the project list.
+    await openMain(project)
+  }
+
+  const edit = (project?: OrchestraProject) =>
+    openProjectDialog(dialog, projectList.refetch, project, undefined, project ? undefined : openCreatedProject)
 
   const cycle = (sessionID: string) => {
     const now = access[sessionID] ?? Orchestra.defaultAccess

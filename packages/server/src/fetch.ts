@@ -3,6 +3,7 @@ export * as ServerFetch from "./fetch"
 import { Context, Effect, Layer } from "effect"
 import { HttpEffect, HttpMiddleware, HttpRouter, HttpServer } from "effect/unstable/http"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
+import { Orchestra } from "@opencode/core/orchestra"
 import type { LayerNode } from "@opencode/util/effect/layer-node"
 import { isAllowedCorsOrigin } from "./cors"
 import { createRoutes } from "./routes"
@@ -42,9 +43,11 @@ export const make = Effect.fn("ServerFetch.make")(function* (options: ServerOpti
   const context = yield* Layer.build(
     createRoutes(options, () => [], boot.overrides ?? []).pipe(Layer.provide(HttpServer.layerServices)),
   )
-  // Forked so the returned handler is never delayed; resumed drains are already
-  // logged and durably recorded by the execution layer.
-  yield* Effect.forkDetach(Context.get(context, SessionRestart.Service).resumeSuspendedSessions)
+  // Resume interrupted turns first, then reconcile task markers whose terminal notifications
+  // may have been lost. Suspended/active workers are skipped by the Orchestra recovery sweep.
+  const restart = Context.get(context, SessionRestart.Service)
+  const orchestra = Context.get(context, Orchestra.Service)
+  yield* Effect.forkDetach(restart.resumeSuspendedSessions.pipe(Effect.andThen(orchestra.recoverPendingTasks())))
   return Context.get(context, HttpRouter.HttpRouter)
     .asHttpEffect()
     .pipe(

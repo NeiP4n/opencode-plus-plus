@@ -69,6 +69,9 @@ test("a detached install without releases follows the installer's branch", async
     await git(["commit", "-qm", "one"])
     await $`git clone -q ${origin} ${install}`.quiet()
     await $`git -C ${install} checkout -q --detach origin/lan-rooms`.quiet()
+    // Simulate a narrow fetch refspec; update checks must refresh origin/lan-rooms itself.
+    await $`git -C ${install} config --unset-all remote.origin.fetch`.quiet()
+    await $`git -C ${install} config --add remote.origin.fetch +refs/heads/other:refs/remotes/origin/other`.quiet()
     expect(await SourceRelease.detached(install)).toBe(true)
     expect(await SourceRelease.current(install)).toBeUndefined()
     expect(await SourceRelease.install(install)).toEqual({ type: "current" })

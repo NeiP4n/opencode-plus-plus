@@ -87,6 +87,35 @@ describe("toSessionError", () => {
     })
   })
 
+  test("explains OpenCode Zen free-tier rejection with actionable next steps", () => {
+    const message =
+      "OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."
+    const body = JSON.stringify({ type: "error", error: { type: "FreeTierError", message } })
+    const error = toSessionError(
+      llm(
+        new AuthenticationError({
+          message,
+          body,
+          http: new HttpContext({
+            url: "https://opencode.ai/zen/v1/messages",
+            status: 403,
+            headers: {},
+          }),
+        }),
+      ),
+    )
+
+    expect(error.type).toBe("provider.auth")
+    expect(error.message).toContain("opencode auth login opencode")
+    expect(error.message).toContain("/connect")
+    expect(error.message).toContain("read")
+    expect(error.message).toContain("bash/shell")
+    expect(error.message).toContain("dev/branch build metadata")
+    expect(error.message).toContain("Update and rebuild OpenCode++")
+    expect(error.status).toBe(403)
+    expect(error.response).toEqual({ body })
+  })
+
   test("preserves provider HTTP status without exposing runtime diagnostics", () => {
     const http = new HttpContext({
       url: "https://example.com",

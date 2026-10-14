@@ -1,24 +1,11 @@
 ---
-description: "Bump AI sdk dependencies minor / patch versions only"
+description: Audit AI SDK dependencies and report minor or patch upgrades
 ---
 
-Please read @package.json and @packages/core/package.json.
+Audit the workspace for AI SDK and provider dependencies. Read the root `package.json`, its shared `catalog`, and every relevant workspace manifest under `packages/**/package.json` and `services/**/package.json`. Include at least `packages/ai`, `packages/core`, `packages/server`, and any package that declares an `ai` or `@ai-sdk/*` dependency.
 
-Your job is to look into AI SDK dependencies, figure out if they have versions that can be upgraded (minor or patch versions ONLY no major ignore major changes).
+Find newer stable versions that keep the same major version. Do not recommend major upgrades or change any files other than the report. Deduplicate packages and distinguish actual direct dependencies from versions that are only declared in the shared catalog.
 
-I want a report of every dependency and the version that can be upgraded to.
-What would be even better is if you can give me brief summary of the changes for each dep and a link to the changelog for each dependency, or at least some reference info so I can see what bugs were fixed or new features were added.
+For every candidate, report the package, current version, recommended version, update type (patch or minor), a brief summary of relevant fixes/features, and an official changelog or release reference. Verify versions against a trustworthy registry or upstream release source; mark anything you could not verify instead of guessing. Ignore unrelated dependencies.
 
-Consider using subagents for each dep to save your context window.
-
-Here is a short list of some deps (please be comprehensive tho):
-
-- "ai"
-- "@ai-sdk/openai"
-- "@ai-sdk/anthropic"
-- "@openrouter/ai-sdk-provider"
-- etc, etc
-
-DO NOT upgrade the dependencies yet, just make a list of all dependencies and their versions that can be upgraded to minor or patch versions only.
-
-Write up your findings to ai-sdk-updates.md
+Write the results to `ai-sdk-updates.md`. Do not modify `package.json`, workspace manifests, or lockfiles.

@@ -168,6 +168,22 @@ async function click(setup: Awaited<ReturnType<typeof render>>, needle: string, 
   await setup.mockMouse.click(target.x + offset, target.y)
 }
 
+test("switching from Notes back to Projects releases the hidden canvas column", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, { notes: [plan(), ideas()], calls, width: 150 })
+  await setup.waitForFrame((frame) => frame.includes("Projects │ Notes") && frame.includes("Note: Release plan"))
+
+  await click(setup, "Notes", 1)
+  await setup.waitForFrame((frame) => frame.includes("Ship the notes canvas."))
+  await click(setup, "Projects", 1)
+
+  const frame = await setup.waitForFrame(
+    (frame) => frame.includes("Projects │ Notes") && frame.includes("Note: Release plan") && !frame.includes("Length"),
+  )
+  expect(frame).not.toContain("Ship the notes canvas.")
+})
+
 test("the Notes tab lists the project's notes, filters them and shows an empty project", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []

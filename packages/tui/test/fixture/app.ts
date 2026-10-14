@@ -17,6 +17,7 @@ export async function createAppFixture(
     fetch?: FetchHandler
     // A managed background service; given the fixture server's endpoint to reconnect to.
     service?: (endpoint: { url: string }) => NonNullable<TuiInput["server"]["service"]>
+    updater?: TuiInput["updater"]
   } = {},
 ) {
   const { run } = await import("../../src/app")
@@ -51,6 +52,7 @@ export async function createAppFixture(
       packages: { prepare: async () => ({ directory: "" }) },
       terminalHandoff: async () => ({ renderer: setup.renderer, mode: "dark", complete: ready.resolve }),
       args: input.args ?? {},
+      updater: input.updater,
       log: () => {},
     }).pipe(
       Effect.provide(

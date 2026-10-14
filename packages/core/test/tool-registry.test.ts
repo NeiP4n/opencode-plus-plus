@@ -406,6 +406,60 @@ describe("Tool", () => {
     }),
   )
 
+  it.effect("exposes active CodeMode schemas for Zen without bypassing local tool availability", () =>
+    Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* transform(service, { echo: make() })
+      yield* transform(service, { shell: make() }, { codemode: false })
+      const snapshot = yield* service.snapshot()
+      const echo = snapshot.codeModeDefinitions?.find((tool) => tool.name === "echo")
+      expect(echo).toBeDefined()
+      expect(snapshot.definitions.map((tool) => tool.name)).toEqual(["shell", "execute"])
+
+      const visible = yield* snapshot.execute({
+        ...call("echo"),
+        definitions: new Map([[echo!.name, echo!]]),
+      })
+      expect(visible.output).toEqual({ text: "echo" })
+
+      const removed = yield* snapshot.execute({
+        ...call("echo"),
+        definitions: new Map(),
+      }).pipe(Effect.flip)
+      expect(removed).toBeInstanceOf(Tool.Error)
+    }),
+  )
+
+  it.effect("does not expose CodeMode tools directly when execute is denied", () =>
+    Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* transform(service, { echo: make() })
+      const denied: Permission.Ruleset = [{ action: "execute", resource: "*", effect: "deny" }]
+      const snapshot = yield* service.snapshot(denied)
+      expect(snapshot.definitions).toEqual([])
+      expect(snapshot.codeModeDefinitions).toEqual([])
+      expect(snapshot.codeModeCatalog).toBeUndefined()
+    }),
+  )
+
+  it.effect("advertises denied tool schemas only as compatibility and never executes them", () =>
+    Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* transform(service, { echo: make() })
+      const denied: Permission.Ruleset = [{ action: "echo", resource: "*", effect: "deny" }]
+      const snapshot = yield* service.snapshot(denied)
+      const echo = snapshot.compatibilityDefinitions?.find((tool) => tool.name === "echo")
+      expect(echo).toBeDefined()
+      expect(snapshot.codeModeDefinitions).toEqual([])
+
+      const result = yield* snapshot.execute({
+        ...call("echo"),
+        definitions: new Map([[echo!.name, echo!]]),
+      }).pipe(Effect.flip)
+      expect(result).toBeInstanceOf(Tool.Error)
+    }),
+  )
+
   it.effect("keeps healthy tools when another namespace is invalid", () =>
     Effect.gen(function* () {
       const service = yield* Tool.Service

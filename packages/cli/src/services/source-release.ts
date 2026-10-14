@@ -98,7 +98,12 @@ export type Install =
 // Where a detached install that follows the installer's branch stands against origin, after
 // a fetch: the same state running the installer again would move it to.
 export async function install(root = checkout): Promise<Install> {
-  await $`git -C ${root} fetch --quiet --force origin ${INSTALL_BRANCH}`.quiet()
+  // Name the destination ref explicitly. Fetching a branch by name alone can update
+  // FETCH_HEAD without refreshing origin/<branch> when the clone has a narrow/custom
+  // remote.origin.fetch refspec. Comparing HEAD with that stale tracking ref then falsely
+  // reports "current" on installs that are actually behind.
+  const refspec = `+refs/heads/${INSTALL_BRANCH}:refs/remotes/origin/${INSTALL_BRANCH}`
+  await $`git -C ${root} fetch --quiet origin ${refspec}`.quiet()
   const [ahead, behind] = (
     await $`git -C ${root} rev-list --left-right --count ${"HEAD...origin/" + INSTALL_BRANCH}`.quiet().text()
   )

@@ -3,6 +3,7 @@ export * as ServerProcess from "./process"
 import { NodeHttpServer } from "@effect/platform-node"
 import { Bus } from "@opencode/core/bus"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
+import { Orchestra } from "@opencode/core/orchestra"
 import { InstallationEvent } from "@opencode/schema/installation-event"
 import { hasPtyConnectTicketURL } from "@opencode/protocol/groups/pty"
 import { hasPersistentPtyConnectTicketURL } from "@opencode/protocol/groups/persistent-pty"
@@ -108,9 +109,10 @@ export const start = Effect.fn("ServerProcess.start")(function* <E, R>(
       applicationScope,
     )
     if (lifecycle) {
-      yield* installRestartContinuity(Context.get(context, SessionRestart.Service)).pipe(
-        Effect.provideService(Scope.Scope, applicationScope),
-      )
+      yield* installRestartContinuity(
+        Context.get(context, SessionRestart.Service),
+        Context.get(context, Orchestra.Service),
+      ).pipe(Effect.provideService(Scope.Scope, applicationScope))
     }
     yield* Ref.set(application, Option.some(Context.get(context, HttpRouter.HttpRouter).asHttpEffect()))
     yield* status.ready
@@ -243,8 +245,13 @@ function unavailable(status: Status.State) {
  * never released. Claims are written when execution starts (see SessionExecution), so recovery covers
  * graceful restarts and unclean deaths alike — no shutdown hook participates.
  */
-const installRestartContinuity = Effect.fnUntraced(function* (restart: SessionRestart.Interface) {
-  yield* Effect.forkScoped(restart.resumeSuspendedSessions)
+const installRestartContinuity = Effect.fnUntraced(function* (
+  restart: SessionRestart.Interface,
+  orchestra: Orchestra.Interface,
+) {
+  // This server owns the durable restart sweep; after registering resumed turns, also
+  // reconcile idle task markers whose terminal event notification may have been missed.
+  yield* Effect.forkScoped(restart.resumeSuspendedSessions.pipe(Effect.andThen(orchestra.recoverPendingTasks())))
 })
 
 function isLoopback(hostname: string) {

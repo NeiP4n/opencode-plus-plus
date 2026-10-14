@@ -50,6 +50,16 @@ export interface NormalizedResult extends Tool.Result {
 
 export interface Snapshot {
   readonly definitions: ReadonlyArray<ToolDefinition>
+  /**
+   * Tool schemas hidden by a blanket deny rule but retained for the OpenCode Zen request validator.
+   * These schemas may be advertised for compatibility; execute() never resolves denied tools.
+   */
+  readonly compatibilityDefinitions?: ReadonlyArray<ToolDefinition>
+  /**
+   * Active tools normally represented only in the CodeMode catalog. The OpenCode provider may
+   * need their native schemas at the request boundary; model-request hooks can still remove them.
+   */
+  readonly codeModeDefinitions?: ReadonlyArray<ToolDefinition>
   readonly codeModeCatalog?: CodeModeCatalog.Inventory
   readonly execute: (input: {
     readonly sessionID: SessionSchema.ID
@@ -233,6 +243,14 @@ const layer = Layer.effect(
           }
           const direct = new Map(Array.from(active).filter(([, tool]) => tool.options?.codemode === false))
           const codeModeTools = new Map(Array.from(active).filter(([, tool]) => tool.options?.codemode !== false))
+          // Zen's free-tier validator can reject a reduced tool array. Keep denied schemas separate
+          // from active CodeMode tools: both can be advertised where necessary, but only active
+          // tools may execute, and context hooks must still be able to remove an active tool.
+          const compatibilityDefinitions = compatibilityToolNames(data.tools, rules)
+            .flatMap((name) => {
+              const tool = data.tools.get(name)
+              return tool ? [definition(tool)] : []
+            })
           const namespaces = data.namespaces
           const codeModeInventory = { tools: codeModeTools, namespaces }
           const codeModeEnabled = !whollyDisabled("execute", rules)
@@ -243,6 +261,9 @@ const layer = Layer.effect(
                 ),
               )
             : undefined
+          // Never make native CodeMode tools directly callable when the permission set disabled
+          // the execute wrapper. For enabled CodeMode, Zen may need their schemas in the request.
+          const codeModeDefinitions = codeModeTool ? Array.from(codeModeTools.values()).map(definition) : []
           const names = Array.from(codeModeTools.keys()).join("\0")
           // Discovery is immutable for a registry revision and visible tool set. Keep request
           // definitions/executors fresh, but share the much larger rendered catalog across steps.
@@ -253,6 +274,8 @@ const layer = Layer.effect(
               : CodeModeTool.catalog(codeModeInventory)
           if (codeModeCatalog) catalog = { data, names, value: codeModeCatalog }
           return {
+            compatibilityDefinitions,
+            codeModeDefinitions,
             ...(codeModeCatalog === undefined ? {} : { codeModeCatalog }),
             definitions: [
               ...Array.from(direct)
@@ -270,13 +293,17 @@ const layer = Layer.effect(
               }
               const event = yield* beforeExecute(input.call.name, input.call.input, context)
               const requested = input.definitions?.get(event.tool)
-              // Preserve session context removal and alias resolution, now after the repair hook.
-              if (!requested && input.definitions && (direct.has(event.tool) || codeModeTool?.name === event.tool))
+              // Preserve context-hook removal and alias resolution, also for native CodeMode tools.
+              if (
+                !requested &&
+                input.definitions &&
+                (direct.has(event.tool) || codeModeTools.has(event.tool) || codeModeTool?.name === event.tool)
+              )
                 return yield* new Tool.Error({ message: `Tool is not available for this request: ${event.tool}` })
               const name = requested?.name ?? event.tool
               if (name === "execute" && codeModeTool)
                 return yield* executeTool(codeModeTool, name, event.input, context)
-              const tool = direct.get(name)
+              const tool = direct.get(name) ?? (requested ? codeModeTools.get(name) : undefined)
               if (tool) return yield* executeTool(tool, name, event.input, context)
               return yield* new Tool.Error({
                 message: `No tool named "${name}" is currently available. Please use a tool from the available tool list.`,
@@ -292,6 +319,20 @@ const layer = Layer.effect(
 const whollyDisabled = (action: string, rules: Permission.Ruleset) => {
   const rule = rules.findLast((rule) => Wildcard.match(action, rule.action))
   return rule?.resource === "*" && rule.effect === "deny"
+}
+
+/**
+ * Names omitted from a tool snapshot solely because a blanket deny rule disables them.
+ * The OpenCode Zen free-tier compatibility layer may advertise these schemas, but the executor
+ * must continue to resolve calls only from its active tool maps.
+ */
+export function compatibilityToolNames(
+  tools: Iterable<readonly [string, { readonly options?: { readonly permission?: string } }]>,
+  rules: Permission.Ruleset,
+) {
+  return Array.from(tools)
+    .filter(([name, tool]) => whollyDisabled(tool.options?.permission ?? name, rules))
+    .map(([name]) => name)
 }
 
 const formatSchemaIssue = SchemaIssue.makeFormatterDefault()

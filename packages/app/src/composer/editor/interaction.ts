@@ -413,6 +413,14 @@ export function createComposerEditor(input: {
     removeAttachment(id: string) {
       draft.removeAttachment(id)
     },
+    addText(content: string) {
+      draft.addText(content)
+      restoreFocus()
+    },
+    addMention(mention: NonNullable<ComposerSuggestion["mention"]>, range?: { start: number; end: number }) {
+      draft.addMention(mention, range)
+      restoreFocus()
+    },
     canSubmit() {
       if (input.view.submit.available?.() === false) return false
 

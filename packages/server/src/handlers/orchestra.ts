@@ -114,14 +114,20 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
       .handle("orchestra.project.main", (ctx) =>
         orchestra
           .main(ctx.params.projectID)
-          .pipe(Effect.catchTag("Orchestra.ProjectNotFoundError", missingProject), Effect.catchTag("Dod.Error", badDod)),
+          .pipe(
+            Effect.catchTag("Orchestra.ProjectNotFoundError", missingProject),
+            Effect.catchTag("Orchestra.ProjectMoveError", badProjectMove),
+            Effect.catchTag("Dod.Error", badDod),
+          ),
       )
       .handle(
         "orchestra.project.sessions",
         Effect.fn(function* (ctx) {
-          const data = yield* orchestra
-            .sessions(ctx.params.projectID)
-            .pipe(Effect.catchTag("Orchestra.ProjectNotFoundError", missingProject))
+          const data = yield* orchestra.sessions(ctx.params.projectID).pipe(
+            Effect.catchTag("Orchestra.ProjectNotFoundError", missingProject),
+            Effect.catchTag("Orchestra.ProjectMoveError", badProjectMove),
+            Effect.catchTag("Dod.Error", badDod),
+          )
           const ids = data.map((session) => session.id)
           return { data, access: yield* orchestra.accessMany(ids), category: yield* orchestra.categories(ids) }
         }),
@@ -133,7 +139,10 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
           yield* sessions.get(ctx.params.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           yield* orchestra
             .claim(ctx.params.sessionID, ctx.payload.projectID)
-            .pipe(Effect.catchTag("Orchestra.ProjectNotFoundError", missingProject))
+            .pipe(
+              Effect.catchTag("Orchestra.ProjectNotFoundError", missingProject),
+              Effect.catchTag("Orchestra.ProjectMoveError", badProjectMove),
+            )
           return HttpApiSchema.NoContent.make()
         }),
       )

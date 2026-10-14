@@ -477,16 +477,17 @@ export function Autocomplete(props: {
     const results: AutocompleteOption[] = keymapCommands().flatMap((command) => {
       const slash = command.slash
       if (!slash) return []
-      return [slash.name, ...(slash.aliases ?? [])].map((name) => ({
-        display: `/${name}`,
+      // Keep aliases searchable, but render only the canonical command so aliases do not
+      // create duplicate rows with identical descriptions and actions.
+      return [{
+        display: `/${slash.name}`,
+        ...(slash.aliases?.length ? { aliases: slash.aliases } : {}),
         description: t(command.description ?? command.title ?? ""),
-        onSelect: slash.arguments ? () => insertSlash(name) : command.run,
-      }))
+        onSelect: slash.arguments ? () => insertSlash(slash.name) : command.run,
+      }]
     })
-    const commandNames = new Set<string>()
 
     for (const serverCommand of data.location.command.list(location.current) ?? []) {
-      commandNames.add(serverCommand.name)
       results.push({
         display: "/" + serverCommand.name,
         description: serverCommand.description,

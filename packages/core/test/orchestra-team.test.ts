@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
-import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope } from "effect"
+import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
 import { Money } from "@opencode/schema/money"
+import { Event } from "@opencode/schema/event"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Global } from "@opencode/util/global"
@@ -40,6 +41,9 @@ const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 }
 const deferTaskDelivery = new Set<Session.ID>()
 // Simulates losing a terminal event while the worker answer remains durable.
 const suppressTerminalEvent = new Set<Session.ID>()
+// Adds a tool-heavy assistant turn to exercise report extraction beyond one message page.
+const longTurnMessages = new Map<Session.ID, number>()
+const deliverRegularInput = new Set<Session.ID>()
 
 // Stands in for the runner: a woken team session answers with its title and ends
 // its run the way the title asks ("fails", "stops at shutdown" or succeeds).
@@ -67,6 +71,9 @@ const executionNode = makeGlobalNode({
         if (task && !deferTaskDelivery.has(sessionID)) {
           yield* bus.publish(SessionEvent.InboxDelivered, { sessionID, inboxID: task.id })
           taskDelivered = true
+        } else if (deliverRegularInput.has(sessionID)) {
+          const item = pending.find((entry) => entry.type === "user")
+          if (item) yield* bus.publish(SessionEvent.InboxDelivered, { sessionID, inboxID: item.id })
         }
         const assistantMessageID = SessionMessage.ID.create()
         yield* bus.publish(SessionEvent.Step.Started, {
@@ -90,6 +97,34 @@ const executionNode = makeGlobalNode({
           cost: Money.USD.zero,
           tokens,
         })
+        const extraMessages = longTurnMessages.get(sessionID) ?? 0
+        for (let index = 0; index < extraMessages; index++) {
+          const extraID = SessionMessage.ID.create()
+          yield* bus.publish(SessionEvent.Step.Started, {
+            sessionID,
+            assistantMessageID: extraID,
+            agent: session.agent ?? Agent.ID.make("build"),
+            model,
+            started: index + 1,
+          })
+          yield* bus.publish(SessionEvent.Text.Started, { sessionID, assistantMessageID: extraID, ordinal: 0 })
+          yield* bus.publish(SessionEvent.Text.Ended, {
+            sessionID,
+            assistantMessageID: extraID,
+            ordinal: 0,
+            text:
+              index === extraMessages - 1
+                ? `${session.title}: final long-turn answer`
+                : `${session.title}: intermediate continuation ${index + 1}`,
+          })
+          yield* bus.publish(SessionEvent.Step.Ended, {
+            sessionID,
+            assistantMessageID: extraID,
+            finish: "stop",
+            cost: Money.USD.zero,
+            tokens,
+          })
+        }
         if (suppressTerminalEvent.has(sessionID)) return
         if (session.title?.includes("fails"))
           return yield* bus.publish(SessionEvent.Execution.Failed, {
@@ -129,6 +164,9 @@ const it = testEffect(
       Agent.node,
     ]),
     [
+      // Keep durable event rows in this suite so recovery can prove whether the
+      // terminal event committed even when the live subscriber never saw it.
+      Bus.node.replace(Bus.configured({ persist: true })),
       SessionExecution.node.replace(executionNode),
       Global.node.replace(tempGlobalLayer),
       Location.node.replace(
@@ -280,6 +318,80 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   ),
 
+  it.live("serializes owner claims with project deletion so no session stays claimed by a removed project", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-owner-claim-race-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Owner claim race", directory: tmp.path })
+      const worker = yield* sessions.create({
+        location: { directory: AbsolutePath.make(tmp.path) },
+        title: "Claim candidate",
+      })
+
+      // The claim either commits before removal and gets cleaned up, or removal wins and
+      // the claim sees ProjectNotFoundError. Neither schedule may leave a dangling owner key.
+      yield* Effect.all(
+        {
+          claim: orchestra.claim(worker.id, project.id).pipe(Effect.orElseSucceed(() => undefined)),
+          remove: orchestra.remove(project.id).pipe(Effect.orElseSucceed(() => undefined)),
+        },
+        { concurrency: "unbounded" },
+      )
+
+      expect((yield* orchestra.projects()).some((item) => item.id === project.id)).toBe(false)
+      expect(yield* orchestra.owners()).not.toHaveProperty(worker.id)
+    }).pipe(Effect.scoped),
+  ),
+
+  it.live("forgetting a project releases its task reservation and cancels only its queued input", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-forget-tasks-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Forgotten tasks", directory: tmp.path, template: "bugfix" })
+      const other = yield* orchestra.create({ name: "Other project", directory: tmp.path, template: "bugfix" })
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const otherWorker = (yield* orchestra.sessions(other.id)).find((session) => session.title === "Developer")!
+
+      // Keep both prompts queued so the test exercises cancellation before worker delivery.
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          deferTaskDelivery.add(worker.id)
+          deferTaskDelivery.add(otherWorker.id)
+        }),
+        () =>
+          Effect.sync(() => {
+            deferTaskDelivery.delete(worker.id)
+            deferTaskDelivery.delete(otherWorker.id)
+          }),
+      )
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Finish the forgotten project task" })
+      yield* orchestra.dispatch({ project: other, sessionID: otherWorker.id, text: "Finish the other project task" })
+      yield* Effect.sleep("50 millis")
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+      expect(yield* orchestra.pending(otherWorker.id)).toBeNumber()
+      expect((yield* sessions.inbox(worker.id)).some((item) => item.type === "user")).toBe(true)
+      expect((yield* sessions.inbox(otherWorker.id)).some((item) => item.type === "user")).toBe(true)
+
+      yield* orchestra.remove(project.id)
+
+      // Forgetting coordination records does not delete the session or its persisted history.
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+      expect(yield* sessions.get(worker.id)).toMatchObject({ id: worker.id })
+      expect(yield* sessions.get(project.main!)).toMatchObject({ id: project.main })
+      expect(yield* orchestra.owners()).not.toHaveProperty(worker.id)
+      expect((yield* sessions.inbox(worker.id)).some((item) => item.type === "user")).toBe(false)
+
+      // Reservations and queued work belonging to a different project survive.
+      expect(yield* orchestra.pending(otherWorker.id)).toBeNumber()
+      expect(yield* sessions.get(other.main!)).toMatchObject({ id: other.main })
+      expect((yield* sessions.inbox(otherWorker.id)).some((item) => item.type === "user")).toBe(true)
+      expect((yield* orchestra.projects()).map((item) => item.id)).toContain(other.id)
+      expect((yield* orchestra.projects()).map((item) => item.id)).not.toContain(project.id)
+    }).pipe(Effect.scoped),
+  ),
+
   it.live("does not resolve a removed project's main session as a live orchestrator", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-forgotten-main-")))
@@ -355,6 +467,70 @@ describe("Orchestra team", () => {
       )
     }).pipe(Effect.scoped),
   ),
+  it.live("continues a partially completed move toward a newly requested destination", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-move-recovery-")))
+      const source = path.join(tmp.path, "source")
+      const sourceNested = path.join(source, "src")
+      const firstDestination = path.join(tmp.path, "destination-a")
+      const firstDestinationNested = path.join(firstDestination, "src")
+      const destination = path.join(tmp.path, "destination-b")
+      const destinationNested = path.join(destination, "src")
+      yield* Effect.promise(() =>
+        Promise.all([
+          mkdir(sourceNested, { recursive: true }),
+          mkdir(firstDestinationNested, { recursive: true }),
+          mkdir(destinationNested, { recursive: true }),
+        ]),
+      )
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const kv = yield* KV.Service
+      const project = yield* orchestra.create({ name: "Move recovery", directory: source, template: "bugfix" })
+      const members = yield* orchestra.sessions(project.id)
+      const nested = yield* sessions.create({
+        location: { directory: AbsolutePath.make(sourceNested) },
+        title: "Nested worker",
+        agent: Orchestra.role("developer"),
+      })
+      yield* orchestra.claim(nested.id, project.id)
+      yield* orchestra.setAccess(nested.id, "full")
+
+      const moveKey = "orchestra/move-plan/" + project.id
+      // Simulate a crash after one session moved, while the project record still points at source.
+      // Management lookups must not block while the move waits for the active main session.
+      yield* kv.set(moveKey, {
+        from: source,
+        to: firstDestination,
+        members: [
+          ...members.map((member) => ({ id: member.id, relative: "", targetRelative: "", main: false })),
+          { id: nested.id, relative: "src", targetRelative: "src", main: false },
+          { id: project.main!, relative: "", targetRelative: "", main: true },
+        ],
+      })
+      expect(yield* orchestra.mainOf(project.main!)).toBeUndefined()
+      expect(yield* orchestra.sessions(project.id)).toHaveLength(0)
+      const alreadyMoved = members[0]
+      yield* sessions.move({
+        sessionID: alreadyMoved.id,
+        directory: AbsolutePath.make(firstDestination),
+        delivery: "queue",
+      })
+      yield* sessions.wait(alreadyMoved.id)
+      expect((yield* sessions.get(alreadyMoved.id)).location.directory).toBe(AbsolutePath.make(firstDestination))
+
+      // Redirect the interrupted migration. Every session, including the one already moved to A,
+      // must follow the original plan to destination B.
+      const updated = yield* orchestra.update(project.id, { directory: destination })
+      expect(updated.directory).toBe(destination)
+      for (const member of members) {
+        expect((yield* sessions.get(member.id)).location.directory).toBe(AbsolutePath.make(destination))
+      }
+      expect((yield* sessions.get(nested.id)).location.directory).toBe(AbsolutePath.make(destinationNested))
+      expect((yield* sessions.get(project.main!)).location.directory).toBe(AbsolutePath.make(destination))
+      expect(yield* kv.get(moveKey)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  ),
   it.live("rebuilds a partially created team from its durable roster plan", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-roster-recovery-")))
@@ -410,6 +586,55 @@ describe("Orchestra team", () => {
       yield* orchestra.main(project.id)
       expect((yield* orchestra.sessions(project.id)).filter((item) => item.id === existingID)).toHaveLength(1)
       expect((yield* orchestra.sessions(project.id)).filter((item) => item.id === missingID)).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  ),
+
+  it.live("lists owned sessions even when hundreds of unrelated sessions are newer", () =>
+    Effect.gen(function* () {
+      const projectDir = yield* Effect.acquireDisposable(
+        Effect.promise(() => tmpdir("opencode-orchestra-pagination-project-")),
+      )
+      const unrelatedDir = yield* Effect.acquireDisposable(
+        Effect.promise(() => tmpdir("opencode-orchestra-pagination-unrelated-")),
+      )
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Pagination", directory: projectDir.path })
+      const originalMainID = project.main!
+      const oldWorker = yield* sessions.create({
+        location: { directory: AbsolutePath.make(projectDir.path) },
+        title: "Older project worker",
+      })
+      // Separate update timestamps so all 501 unrelated chats sort strictly after the project sessions.
+      yield* Effect.sleep("10 millis")
+      yield* Effect.forEach(
+        Array.from({ length: 501 }, (_, index) => index),
+        (index) =>
+          sessions.create({
+            location: { directory: AbsolutePath.make(unrelatedDir.path) },
+            title: `Unrelated ${index}`,
+          }),
+        { concurrency: 1, discard: true },
+      )
+
+      // Simulate the legacy crash window: the main session exists, but Project.main was not saved.
+      const kv = yield* KV.Service
+      yield* kv.set(
+        `orchestra/project/${project.id}`,
+        Schema.encodeSync(Orchestra.Project)({
+          id: project.id,
+          name: project.name,
+          directory: project.directory,
+          created: project.created,
+        }),
+      )
+      const main = yield* orchestra.main(project.id)
+      expect(main.id).toBe(originalMainID)
+      expect((yield* orchestra.projects()).find((item) => item.id === project.id)?.main).toBe(originalMainID)
+      expect(yield* orchestra.mainOf(originalMainID)).toMatchObject({ id: project.id })
+
+      const listed = yield* orchestra.sessions(project.id)
+      expect(listed.map((session) => session.id)).toContain(oldWorker.id)
     }).pipe(Effect.scoped),
   ),
 
@@ -482,6 +707,44 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   )
 
+  it.live("restores a delivered task report when the project's main session is deleted", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-report-ledger-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Report ledger", directory: tmp.path, template: "bugfix" })
+      const oldMain = project.main!
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
+      const [original] = yield* reports(oldMain).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(original).toContain("Developer: task answer")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+
+      // The worker reservation is gone, but the unacknowledged report is still project-owned.
+      yield* sessions.remove(oldMain)
+      yield* orchestra.recoverPendingTasks()
+      const repaired = (yield* orchestra.projects()).find((item) => item.id === project.id)!
+      expect(repaired.main).toBeDefined()
+      expect(repaired.main).not.toBe(oldMain)
+      const restored = yield* reports(repaired.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(restored).toHaveLength(1)
+      expect(restored[0]).toContain("Developer: task answer")
+
+      // Re-running startup reconciliation does not duplicate a report already in the Inbox.
+      yield* orchestra.recoverPendingTasks()
+      expect(yield* reports(repaired.main!)).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  ),
+
   it.live("reattaches outstanding task reports when a deleted main session is recreated", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-main-recovery-")))
@@ -517,6 +780,133 @@ describe("Orchestra team", () => {
     }).pipe(Effect.scoped),
   ),
 
+  it.live("uses a durable terminal event when its live notification was missed", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-durable-terminal-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const bus = yield* Bus.Service
+      const project = yield* orchestra.create({ name: "Durable terminal", directory: tmp.path, template: "bugfix" })
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      yield* Effect.acquireRelease(
+        Effect.sync(() => suppressTerminalEvent.add(worker.id)),
+        () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
+      yield* Effect.sleep("50 millis")
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      // Simulate the crash window: persist Execution.Succeeded without publishing a live
+      // notification to the Orchestra subscriber. Recovery must trust the ordered durable log.
+      const events = yield* Stream.runCollect(sessions.log({ sessionID: worker.id, follow: false }))
+      const lastSequence = events.reduce(
+        (last, item) =>
+          item.type === "log.synced" ? Math.max(last, Number(item.seq ?? -1)) : Math.max(last, Number(item.durable.seq)),
+        -1,
+      )
+      yield* bus.replay(
+        {
+          id: Event.ID.create(),
+          type: Bus.versionedType(
+            SessionEvent.Execution.Succeeded.type,
+            SessionEvent.Execution.Succeeded.durable.version,
+          ),
+          created: Date.now(),
+          seq: lastSequence + 1,
+          aggregateID: worker.id,
+          data: { sessionID: worker.id },
+        },
+        { publish: false },
+      )
+
+      yield* orchestra.recoverPendingTasks()
+      const [report] = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(report).toContain('state="done"')
+      expect(report).not.toContain('state="recovered"')
+      expect(report).toContain("Developer: task answer")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  ),
+
+  it.live("recovers the final answer after a long tool-heavy worker turn", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-long-turn-")))
+      const orchestra = yield* Orchestra.Service
+      const project = yield* orchestra.create({ name: "Long turn", directory: tmp.path, template: "bugfix" })
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      const extraMessages = 65
+      yield* Effect.acquireRelease(
+        Effect.sync(() => suppressTerminalEvent.add(worker.id)),
+        () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
+      )
+      yield* Effect.acquireRelease(
+        Effect.sync(() => longTurnMessages.set(worker.id, extraMessages)),
+        () => Effect.sync(() => longTurnMessages.delete(worker.id)),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the bug" })
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      // The final answer is more than one 50-message page after the dispatched user message.
+      yield* orchestra.recoverPendingTasks()
+      const [report] = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(report).toContain('state="recovered"')
+      expect(report).toContain("Developer: final long-turn answer")
+      expect(report).not.toContain("intermediate continuation")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  ),
+  it.live("does not report a later user prompt as the assigned worker task's answer", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-answer-boundary-")))
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Answer boundary", directory: tmp.path, template: "bugfix" })
+      const worker = (yield* orchestra.sessions(project.id)).find((session) => session.title === "Developer")!
+      yield* Effect.acquireRelease(
+        Effect.sync(() => suppressTerminalEvent.add(worker.id)),
+        () => Effect.sync(() => suppressTerminalEvent.delete(worker.id)),
+      )
+
+      yield* orchestra.dispatch({ project, sessionID: worker.id, text: "Fix the assigned bug" })
+      yield* Effect.sleep("50 millis")
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      // A direct user prompt arrives before the missing terminal event is reconciled.
+      // Its completion must not overwrite the answer to the task already assigned by the orchestrator.
+      yield* Effect.acquireRelease(
+        Effect.sync(() => deliverRegularInput.add(worker.id)),
+        () => Effect.sync(() => deliverRegularInput.delete(worker.id)),
+      )
+      yield* sessions.prompt({ sessionID: worker.id, text: "Now answer an unrelated question" })
+      yield* sessions.prompt({ sessionID: worker.id, text: "One more unrelated question" })
+      expect(yield* reports(project.main!)).toHaveLength(0)
+      expect(yield* orchestra.pending(worker.id)).toBeNumber()
+
+      yield* orchestra.recoverPendingTasks()
+      const [report] = yield* reports(project.main!).pipe(
+        Effect.filterOrFail((items) => items.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(report).toContain('state="recovered"')
+      expect(report).toContain("Developer: task answer")
+      expect(report).not.toContain("Developer: unrelated answer")
+      expect(yield* orchestra.pending(worker.id)).toBeUndefined()
+    }).pipe(Effect.scoped),
+  ),
   it.live("recovers a completed worker task when its terminal event was missed", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-recovery-")))
@@ -984,6 +1374,22 @@ describe("Orchestra team", () => {
           return event.effect
         })
       expect(String((yield* agents.get(Orchestra.role("developer")))?.name)).toBe("Developer")
+      const availableRoles = yield* orchestra.roles()
+      const counterexampleRole = availableRoles.find((item) => item.id === "counterexample-engineer")
+      expect(counterexampleRole).toMatchObject({
+        name: "Counterexample Engineer",
+        readOnly: true,
+        category: "Quality",
+      })
+      const counterexample = yield* agents.get(Orchestra.role("counterexample-engineer")).pipe(
+        Effect.filterOrFail((item) => item !== undefined),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(counterexample.system.toLowerCase()).toContain("falsify")
+      expect(counterexample.permissions).toContainEqual({ action: "edit", resource: "*", effect: "deny" })
+      const counterexampleEditEffect = yield* evaluate(Orchestra.role("counterexample-engineer"), "edit")
+      expect(counterexampleEditEffect).toBe("deny")
 
       const role = yield* orchestra.saveRole(undefined, {
         name: "Translator",

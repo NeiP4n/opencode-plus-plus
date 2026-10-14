@@ -1,29 +1,20 @@
 ---
-description: git commit and push
+description: Review the working tree, create a conventional commit, and push the current branch
 model: opencode/kimi-k2.5
-subtask: true
+subagent: true
 ---
 
-commit and push
+Create a commit for the changes relevant to the current task and push the current branch to its configured upstream.
 
-Use `type(scope): summary` with one of these types: `feat`, `fix`, `docs`, `chore`, `refactor`, or `test`. The scope is optional.
+Before acting:
 
-prefer to explain WHY something was done from an end user perspective instead of
-WHAT was done.
+1. Inspect `git status --short --branch`, the combined tracked diff (`git diff HEAD`), and the names/content of relevant untracked files.
+2. If a merge, rebase, cherry-pick, or unresolved conflict is in progress, stop and report it. Do not resolve conflicts.
+3. Stage only files related to this task. Do not blindly run `git add -A`; inspect staged and unstaged diffs, and exclude secrets, credentials, build output, and unrelated user changes.
+4. If there are no relevant changes, do not create an empty commit.
 
-do not do generic messages like "improved agent experience" be very specific
-about what user facing changes were made
+Use `type(scope): summary` with a type of `feat`, `fix`, `docs`, `chore`, `refactor`, or `test`; the scope is optional. Explain the user-facing reason rather than merely describing the code. Avoid generic messages.
 
-if there are conflicts DO NOT FIX THEM. notify me and I will fix them
+After reviewing the final staged diff, create the commit. Push only the current branch to its configured upstream. If there is no upstream or the push would require guessing a remote/branch, stop and report the exact command needed rather than guessing. Do not force-push.
 
-## GIT DIFF
-
-!`git diff`
-
-## GIT DIFF --cached
-
-!`git diff --cached`
-
-## GIT STATUS --short
-
-!`git status --short`
+Finally, verify the commit and push result, then report the commit hash, branch, and final `git status --short --branch`. Never claim success if a command failed.

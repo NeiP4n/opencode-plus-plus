@@ -1,23 +1,16 @@
 ---
-description: "find issue(s) on github"
+description: Search GitHub issues in the current repository
 model: opencode/claude-haiku-4-5
 ---
 
-Search through existing issues in anomalyco/opencode using the gh cli to find issues matching this query:
+Search existing GitHub issues that match this query:
 
 $ARGUMENTS
 
-Consider:
+By default, resolve the current repository from the project directory with `gh repo view --json nameWithOwner --jq .nameWithOwner` and search that repository. Do not hard-code `anomalyco/opencode`: this command is also used in forks.
 
-1. Similar titles or descriptions
-2. Same error messages or symptoms
-3. Related functionality or components
-4. Similar feature requests
+If the user explicitly starts the query with `--upstream`, remove that flag and search `anomalyco/opencode` instead. If the current repository cannot be resolved, explain the problem and ask before falling back to another repository.
 
-Please list any matching issues with:
+Search open and closed issues. Consider similar titles/descriptions, error messages or symptoms, related components, and feature requests. Quote the query as a single argument when invoking `gh`; never turn untrusted query text into shell syntax.
 
-- Issue number and title
-- Brief explanation of why it matches the query
-- Link to the issue
-
-If no clear matches are found, say so.
+List matching issues with number, title, a short explanation of why each matches, state, and link. If no good matches are found, say so; do not present loosely related issues as exact matches.

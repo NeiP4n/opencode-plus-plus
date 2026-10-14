@@ -30,6 +30,20 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      - name: Diagnose changed-file parser errors
+        run: |
+          for file in \
+            packages/schema/src/orchestra.ts \
+            packages/core/src/plugin/team.ts \
+            packages/core/src/plugin/agent.ts \
+            packages/core/src/tool/plugin/orchestra.ts \
+            packages/core/test/orchestra-team.test.ts \
+            packages/tui/src/util/i18n.ts; do
+            echo "::group::oxlint $file"
+            bun x oxlint "$file" || true
+            echo "::endgroup::"
+          done
+
       - name: Run checks
         run: bun run check
 
