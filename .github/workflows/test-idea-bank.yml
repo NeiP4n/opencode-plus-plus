@@ -8,11 +8,14 @@ on:
       - feature/idea-bank-mvp
     paths:
       - ".github/workflows/test-idea-bank.yml"
+      - ".github/workflows/deploy-idea-bank.yml"
       - ".github/actions/setup-bun/**"
       - "services/idea-bank/**"
       - "packages/core/src/tool/plugin/idea-bank.ts"
       - "packages/core/src/plugin/internal.ts"
       - "packages/tui/src/component/dialog-idea-bank.tsx"
+      - "packages/tui/src/app.tsx"
+      - "packages/tui/src/component/devtools-bar.tsx"
       - "packages/tui/src/util/idea-bank-*.ts"
       - "packages/tui/src/util/i18n.ts"
       - "bun.lock"
