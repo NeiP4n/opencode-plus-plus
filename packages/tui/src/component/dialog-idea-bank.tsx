@@ -237,7 +237,7 @@ export function IdeaBankCapture() {
       const messages = data.session.message.list(sessionID)
       if (!state.autoCapture) return
       const since = state.autoCaptureSince
-      const candidates = messages.toReversed().flatMap((message) => {
+      const candidates = messages.flatMap((message) => {
         if (message.type !== "user" || state.processedMessageIDs.includes(message.id)) return []
         const created = createdMillis(message.time.created)
         if (!Number.isFinite(created) || created < since) return []
