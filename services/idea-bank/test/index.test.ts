@@ -53,8 +53,8 @@ function makeDB(options: MockOptions = {}) {
   return { db: db as never, queries }
 }
 
-function env(db: unknown, salt = "test-only-salt") {
-  return { DB: db, RATE_LIMIT_SALT: salt }
+function env(db: unknown, salt = "test-only-salt", adminToken?: string) {
+  return { DB: db, RATE_LIMIT_SALT: salt, IDEA_BANK_ADMIN_TOKEN: adminToken }
 }
 
 function request(path: string, init?: RequestInit) {
@@ -255,4 +255,40 @@ describe("Global Idea Bank API", () => {
     expect(search?.bindings.slice(0, 3)).toEqual(["translate", "old", "game"])
     expect(search?.sql).toContain("DESC, signal_count DESC, updated_at DESC")
   })
+  test("blocks the admin queue and review endpoints without an admin token", async () => {
+    const mock = makeDB()
+    const queue = await Worker.fetch(request("/v1/admin/submissions"), env(mock.db))
+    const review = await Worker.fetch(
+      request("/v1/admin/submissions/idea-123/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "rejected" }),
+      }),
+      env(mock.db),
+    )
+    expect(queue.status).toBe(401)
+    expect(review.status).toBe(401)
+    expect(mock.queries).toEqual([])
+  })
+
+  test("allows an authenticated moderator to remove an idea from public search", async () => {
+    const mock = makeDB()
+    const response = await Worker.fetch(
+      request("/v1/admin/submissions/idea-123/review", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-admin-secret",
+        },
+        body: JSON.stringify({ status: "rejected" }),
+      }),
+      env(mock.db, "test-only-salt", "test-admin-secret"),
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: "idea-123", status: "rejected" })
+    const update = mock.queries.find((item) => item.sql.includes("UPDATE ideas SET status = ?"))
+    expect(update?.bindings.slice(0, 1)).toEqual(["rejected"])
+    expect(update?.sql).toContain("status != 'rejected'")
+  })
+
 })
