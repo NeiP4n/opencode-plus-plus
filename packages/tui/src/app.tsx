@@ -121,6 +121,7 @@ import { SessionTerminalsProvider } from "./context/session-terminals"
 import { PanelProvider, usePanel } from "./context/panel"
 import { SessionFrame } from "./component/session-frame"
 import { createTuiClipboard } from "./clipboard"
+import { IdeaBankCapture } from "./component/dialog-idea-bank"
 
 registerOpencodeSpinner()
 
@@ -1572,6 +1573,7 @@ function App() {
         <Reconnecting managed={client.restart !== undefined} />
       </Show>
       <MigrationOverlay />
+      <IdeaBankCapture />
       <Toast />
     </box>
   )
