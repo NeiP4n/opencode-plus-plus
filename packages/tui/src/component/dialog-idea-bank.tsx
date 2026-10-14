@@ -20,6 +20,8 @@ export type IdeaSignal = {
   signalCount: number
   createdAt: number
   updatedAt: number
+  starter?: boolean
+  nextStep?: string
 }
 
 type IdeaBankState = {
@@ -37,6 +39,105 @@ const INITIAL: IdeaBankState = {
   ideas: [],
 }
 
+const STARTER_IDEAS: IdeaSignal[] = [
+  {
+    id: "starter-accessibility-audit",
+    title: "Accessibility audit for small interfaces",
+    category: "Accessibility",
+    kind: "CLI tool",
+    description: "Find common keyboard, contrast, and labeling issues and create a practical repair checklist.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Test the report against a few open-source interfaces and compare it with a manual audit.",
+  },
+  {
+    id: "starter-open-source-revival",
+    title: "Open-source project revival radar",
+    category: "Open source",
+    kind: "Research tool",
+    description: "Find useful projects that are neglected, have unresolved user problems, or need maintainers.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Choose one ecosystem and rank public repositories using activity, open issues, and dependency health.",
+  },
+  {
+    id: "starter-game-localization",
+    title: "Toolkit for translating older games",
+    category: "Games and creativity",
+    kind: "CLI tool and plugin",
+    description: "Help locate text resources, preserve formatting, check translation context, and package language patches.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Validate one game format end to end before trying to support every engine.",
+  },
+  {
+    id: "starter-docs-navigator",
+    title: "Offline documentation navigator",
+    category: "Education",
+    kind: "Desktop utility",
+    description: "Search local documentation, connect related pages, and show exact source passages instead of unsupported answers.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Index one documentation set with full-text search and verify that every result points to its source.",
+  },
+  {
+    id: "starter-science-reproducibility",
+    title: "Reproducibility checklist for research",
+    category: "Science",
+    kind: "Research workflow",
+    description: "Help researchers record data versions, dependencies, parameters, and steps needed to repeat an experiment.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Try a template against a public paper with available code and note which steps are missing.",
+  },
+  {
+    id: "starter-local-energy",
+    title: "Private home-energy explainer",
+    category: "Environment",
+    kind: "Local dashboard",
+    description: "Turn a user's own electricity readings into understandable trends and possible waste indicators without cloud uploads.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Start by importing a CSV and explaining peaks without making claims about their cause.",
+  },
+  {
+    id: "starter-note-garden",
+    title: "Local knowledge garden",
+    category: "Productivity",
+    kind: "Desktop utility",
+    description: "Find duplicate notes, stale instructions, and disconnected pieces of personal knowledge while keeping them on-device.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Prototype duplicate detection with local full-text search before adding embeddings.",
+  },
+  {
+    id: "starter-agent-audit",
+    title: "AI-agent permissions auditor",
+    category: "Developer tools",
+    kind: "Open-source developer tool",
+    description: "Explain which actions an agent can perform, identify broad permissions, and show a readable history of risky operations.",
+    signalCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    starter: true,
+    nextStep: "Create a read-only report for one agent configuration and verify it against actual runtime behavior.",
+  },
+]
+
 function createdMillis(value: unknown) {
   if (typeof value === "number") return value
   if (value instanceof Date) return value.getTime()
@@ -50,7 +151,12 @@ export function DialogIdeaBank() {
   const toast = useToast()
   const dimensions = useTerminalDimensions()
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
-  const ideas = createMemo(() => [...state.ideas].sort((a, b) => b.signalCount - a.signalCount || b.updatedAt - a.updatedAt))
+  // The bundled ideas make the bank useful before any private-session signals are collected.
+  // They are inspiration only: no market demand or novelty is claimed to have been verified.
+  const ideas = createMemo(() => [...state.ideas, ...STARTER_IDEAS].sort((a, b) => {
+    if (a.starter !== b.starter) return a.starter ? 1 : -1
+    return b.signalCount - a.signalCount || b.updatedAt - a.updatedAt
+  }))
   const totalSignals = createMemo(() => state.ideas.reduce((sum, item) => sum + item.signalCount, 0))
   const [clearArmed, setClearArmed] = createSignal(false)
   const bodyHeight = () => Math.max(5, Math.min(18, dimensions().height - 12))
@@ -123,6 +229,9 @@ export function DialogIdeaBank() {
       <text fg={theme.text.muted} wrapMode="word">
         {t("Local-only MVP: no LLM/API calls. Only broad problem categories are saved; original chat text is never stored or sent. Enabling applies to future messages only.")}
       </text>
+      <text fg={theme.text.muted} wrapMode="word">
+        {t("Starter ideas are unverified prompts for exploration, not claims of market demand or originality.")}
+      </text>
       <box flexDirection="row" gap={2}>
         <text fg={theme.text.muted}>{t("Potential directions")}: {ideas().length}</text>
         <text fg={theme.text.muted}>{t("Local signals")}: {totalSignals()}</text>
@@ -153,9 +262,15 @@ export function DialogIdeaBank() {
                   <text fg={theme.text.muted} wrapMode="none">{idea.signalCount}×</text>
                 </box>
                 <text fg={theme.text.muted} wrapMode="word">{t(idea.description)}</text>
+                <text fg={idea.starter ? theme.text.muted : theme.text.action.primary.base} wrapMode="word">
+                  {idea.starter ? t("Starter idea · unverified") : t("Detected pattern · not a validated idea")}
+                </text>
                 <text fg={theme.text.muted} wrapMode="word">
                   {t(idea.category)} · {t(idea.kind)}
                 </text>
+                <Show when={idea.nextStep}>
+                  {(step) => <text fg={theme.text.muted} wrapMode="word">{t("Next step")}: {t(step())}</text>}
+                </Show>
                 <box height={1} border={["bottom"]} borderColor={theme.border.base} />
               </box>
             )}
