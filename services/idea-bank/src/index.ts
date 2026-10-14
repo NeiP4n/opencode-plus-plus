@@ -181,10 +181,11 @@ async function submitIdea(request: Request, env: Env) {
 
   const ip = request.headers.get("CF-Connecting-IP") ?? "unknown"
   const salt = env.RATE_LIMIT_SALT
-  const submitterHash = await hash(`${salt}:${ip}`)
   const now = Date.now()
-  // Atomic per-IP daily counter: duplicate signals count too, so they cannot bypass the limit.
   const windowStart = Math.floor(now / (24 * 60 * 60 * 1000))
+  // Rotate the pseudonymous identifier daily to avoid linking a submitter's activity across days.
+  const submitterHash = await hash(`${salt}:${windowStart}:${ip}`)
+  // Atomic per-IP daily counter: duplicate signals count too, so they cannot bypass the limit.
   const quota = await env.DB.prepare(
     `INSERT INTO submission_rate_limits (submitter_hash, window_start, count)
      VALUES (?, ?, 1)
