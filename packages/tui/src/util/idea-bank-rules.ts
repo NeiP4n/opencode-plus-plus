@@ -4,12 +4,13 @@ export type IdeaSignalKind = {
   category: string
   kind: string
   description: string
-  pattern: RegExp
 }
+
+type SignalRule = IdeaSignalKind & { pattern: RegExp }
 
 // These deliberately emit fixed, generic labels. Source text is inspected transiently and
 // never returned, normalized into storage, or included in diagnostics.
-const SIGNAL_KINDS: IdeaSignalKind[] = [
+const SIGNAL_KINDS: SignalRule[] = [
   {
     id: "manual-work",
     title: "Automate repetitive work",
@@ -75,5 +76,8 @@ export function looksSensitive(text: string): boolean {
 
 export function classifyIdeaSignal(text: string): IdeaSignalKind | undefined {
   if (text.length < 18 || text.length > 5000 || looksSensitive(text)) return undefined
-  return SIGNAL_KINDS.find((item) => item.pattern.test(text))
+  const match = SIGNAL_KINDS.find((item) => item.pattern.test(text))
+  if (!match) return undefined
+  const { pattern: _pattern, ...signal } = match
+  return signal
 }
