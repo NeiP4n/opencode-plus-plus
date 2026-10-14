@@ -204,7 +204,7 @@ export function DialogIdeaBank() {
                 <text fg={theme.text.muted} wrapMode="word">
                   {t(idea.category)} · {t(idea.kind)}
                 </text>
-                <box height={1} border={["bottom"]} borderColor={theme.border.subtle} />
+                <box height={1} border={["bottom"]} borderColor={theme.border.base} />
               </box>
             )}
           </For>
