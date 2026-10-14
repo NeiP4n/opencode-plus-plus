@@ -57,6 +57,11 @@ const ru: Record<string, string> = {
   "Potential directions": "Возможные направления",
   "Local signals": "Локальные сигналы",
   "No signals yet": "Сигналов пока нет",
+  "Clear local data": "Очистить локальные данные",
+  "Confirm clear": "Подтвердить очистку",
+  "Click again to erase all local ideas and stop collection.": "Нажми ещё раз, чтобы удалить все локальные идеи и остановить сбор.",
+  "Local Idea Bank data cleared": "Локальные данные банка идей очищены",
+  "Could not clear local Idea Bank data": "Не удалось очистить локальные данные банка идей",
   "Enable automatic local capture. After a session becomes idle, simple rules look for broad patterns such as repetitive work or missing tools. No model is run and no source sentence is kept.":
     "Включи автоматический локальный сбор. После завершения сессии простые правила ищут общие признаки: повторяющаяся работа или отсутствие нужных инструментов. Модель не запускается, исходные фразы не сохраняются.",
   "This first version keeps ideas on this computer. Shared publishing and deep research are not connected yet.":
