@@ -226,13 +226,41 @@ async function submitIdea(request: Request, env: Env) {
   }
   const id = crypto.randomUUID()
   const searchText = normalizeSearchText([title, summary, category, ...tags].join(" "))
-  await env.DB.prepare(
-    `INSERT INTO ideas
-      (id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, signal_count, reviewed_at, search_text)
-     VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, 1, ?, ?)`,
-  )
-    .bind(id, title, summary, category, JSON.stringify(tags), language, submitterHash, contentHash, now, now, now, searchText)
-    .run()
+  try {
+    await env.DB.prepare(
+      `INSERT INTO ideas
+        (id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, signal_count, reviewed_at, search_text)
+       VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, 1, ?, ?)`,
+    )
+      .bind(id, title, summary, category, JSON.stringify(tags), language, submitterHash, contentHash, now, now, now, searchText)
+      .run()
+  } catch (error) {
+    // Another request may have inserted the same content after our initial lookup.
+    // Resolve the unique-index race as a duplicate instead of returning a false 500.
+    const concurrent = await env.DB.prepare("SELECT id, status FROM ideas WHERE content_hash = ? LIMIT 1")
+      .bind(contentHash)
+      .first<{ id: string; status: string }>()
+    if (!concurrent) throw error
+    if (concurrent.status !== "published") {
+      return json({ error: "A matching idea already exists", existingId: concurrent.id, status: concurrent.status }, 409)
+    }
+
+    await env.DB.prepare(
+      "UPDATE ideas SET signal_count = signal_count + 1, updated_at = ? WHERE id = ? AND status = 'published'",
+    )
+      .bind(now, concurrent.id)
+      .run()
+    const updated = await env.DB.prepare("SELECT signal_count FROM ideas WHERE id = ?")
+      .bind(concurrent.id)
+      .first<{ signal_count: number }>()
+
+    return json({
+      id: concurrent.id,
+      status: "published",
+      signalCount: updated?.signal_count ?? 1,
+      message: "Similar idea was added concurrently; its community signal was counted.",
+    })
+  }
 
   return json({ id, status: "published", signalCount: 1, message: "Idea added to the public global bank after privacy and duplicate checks." }, 201)
 }
