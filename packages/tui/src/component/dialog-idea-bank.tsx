@@ -33,7 +33,7 @@ export type IdeaSignal = {
 type IdeaBankState = {
   autoCapture: boolean
   autoCaptureSince: number
-  processedMessageIDs: string[]
+  lastProcessedBySession: Record<string, { messageID: string; createdAt: number }>
   ideas: IdeaSignal[]
 }
 
@@ -41,7 +41,7 @@ const STORE_KEY = "idea-bank"
 const INITIAL: IdeaBankState = {
   autoCapture: false,
   autoCaptureSince: 0,
-  processedMessageIDs: [],
+  lastProcessedBySession: {},
   ideas: [],
 }
 
@@ -235,23 +235,47 @@ export function IdeaBankCapture() {
       // Read only the transcript already cached by the TUI. This feature performs no HTTP
       // requests and never asks a model to inspect the conversation.
       const messages = data.session.message.list(sessionID)
-      if (!state.autoCapture) return
+      if (!state.autoCapture || messages.length === 0) return
       const since = state.autoCaptureSince
-      const candidates = messages.flatMap((message) => {
-        if (message.type !== "user" || state.processedMessageIDs.includes(message.id)) return []
+      const cursor = state.lastProcessedBySession[sessionID]
+      let fresh = messages.slice(0)
+
+      // Walk backward from the end and stop at the last cursor (or the consent time).
+      // This avoids rescanning the entire transcript after every turn.
+      if (cursor) {
+        let index = messages.length - 1
+        while (index >= 0 && messages[index].id !== cursor.messageID) index--
+        if (index >= 0) {
+          fresh = messages.slice(index + 1)
+        } else {
+          let start = messages.length
+          while (start > 0 && createdMillis(messages[start - 1].time.created) > cursor.createdAt) start--
+          fresh = messages.slice(start)
+        }
+      } else {
+        let start = messages.length
+        while (start > 0 && createdMillis(messages[start - 1].time.created) >= since) start--
+        fresh = messages.slice(start)
+      }
+      if (fresh.length === 0) return
+
+      const candidates = fresh.flatMap((message) => {
+        if (message.type !== "user") return []
         const created = createdMillis(message.time.created)
         if (!Number.isFinite(created) || created < since) return []
-        return [{ id: message.id, signal: classify(message.text) }]
+        return [{ signal: classify(message.text) }]
       })
-      if (candidates.length === 0) return
+      const lastMessage = messages[messages.length - 1]
+      const lastCreatedAt = createdMillis(lastMessage.time.created)
+      const nextCursor = {
+        messageID: lastMessage.id,
+        createdAt: Number.isFinite(lastCreatedAt) ? lastCreatedAt : since,
+      }
 
       await update((draft) => {
-        const processed = new Set(draft.processedMessageIDs)
+        if (!draft.autoCapture) return
         for (const candidate of candidates) {
-          if (processed.has(candidate.id)) continue
-          processed.add(candidate.id)
           if (!candidate.signal) continue
-
           const now = Date.now()
           const existing = draft.ideas.find((idea) => idea.id === candidate.signal!.id)
           if (existing) {
@@ -270,7 +294,7 @@ export function IdeaBankCapture() {
             })
           }
         }
-        draft.processedMessageIDs = [...processed].slice(-3000)
+        draft.lastProcessedBySession[sessionID] = nextCursor
       })
     } catch {
       // Do not log message text or prompt-derived data from background collection.
