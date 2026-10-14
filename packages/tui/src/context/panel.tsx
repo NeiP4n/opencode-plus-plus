@@ -12,7 +12,9 @@ export function createPanelState() {
   const [requested, setRequested] = createSignal<PanelPresentation>("panel")
   const [width, setWidth] = createSignal(0)
   const canSplit = () => width() > 80
-  const presentation = createMemo(() => (canSplit() ? requested() : "fullscreen"))
+  // Side panels always remain in their own column. Automatically switching to
+  // fullscreen on a narrower terminal made them cover the conversation.
+  const presentation = createMemo(() => (requested() === "fullscreen" ? "panel" : requested()))
   return {
     current,
     width,

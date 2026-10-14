@@ -25,7 +25,7 @@ export function PaneResizeHandle(props: {
         height="100%"
         marginLeft={props.highlight === "right" ? 1 : 0}
         backgroundColor={
-          props.resize.hovered() || props.resize.resizing() ? theme.background.raised.high : undefined
+          props.resize.hovered() || props.resize.resizing() ? theme.background.raised.high : theme.border.base
         }
       />
     </box>

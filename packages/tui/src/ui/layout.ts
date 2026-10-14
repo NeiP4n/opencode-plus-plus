@@ -24,10 +24,37 @@ export function clampSessionTabsWidth(width: number, total: number) {
   return Math.max(Math.min(min, max), Math.min(width, max))
 }
 
+export const SESSION_PANEL_MIN_WIDTH = 28
+export const SESSION_CHAT_MIN_WIDTH = 56
+
+// When a note is open, prefer the intended document-left/chat-right layout at
+// compact terminal widths; normal sessions still stack their auxiliary content sooner.
+export const NOTE_CANVAS_MIN_WIDTH = 48
+export const NOTE_CHAT_MIN_WIDTH = 48
+
+// A canvas hidden in full-chat mode must not keep a flex share and leave a
+// blank column beside the chat.
+export function noteCanvasFlexGrow(hasCanvas: boolean, stacked: boolean) {
+  if (!hasCanvas) return 0
+  return stacked ? 3 : 0
+}
+
+export function clampNoteChatWidth(width: number, available: number) {
+  const max = Math.max(1, available - NOTE_CANVAS_MIN_WIDTH)
+  const min = Math.min(NOTE_CHAT_MIN_WIDTH, max)
+  return Math.max(min, Math.min(width, max))
+}
+
+export function sessionPanesStacked(available: number, hasNoteCanvas: boolean) {
+  return available < (hasNoteCanvas ? NOTE_CANVAS_MIN_WIDTH + NOTE_CHAT_MIN_WIDTH : 100)
+}
+
 export function clampSessionPaneWidth(width: number, total: number) {
-  const half = Math.max(1, Math.floor(total / 2))
-  // Preserve the equal split when there is not enough room for both pane minima.
-  return Math.max(Math.min(24, half), Math.min(width, Math.max(half, total - SESSION_CONTENT_MIN_WIDTH)))
+  // The right pane can never take the chat below its readable minimum. On very
+  // narrow terminals it shrinks with the available space instead of covering chat.
+  const max = Math.max(1, total - SESSION_CHAT_MIN_WIDTH)
+  const min = Math.min(SESSION_PANEL_MIN_WIDTH, max)
+  return Math.max(min, Math.min(width, max))
 }
 
 // Compact layout keeps both side panels open on a laptop-sized terminal: the
@@ -56,7 +83,14 @@ export function sessionSidebarDocks(available: number, compact: boolean) {
 // for the centered prompt and cap the panel so it cannot swallow the main content.
 export const HOME_PROJECT_PANEL_MIN_WIDTH = 30
 export const HOME_PROJECT_PANEL_WIDTH = 42
-const HOME_CONTENT_MIN_WIDTH = 64
+export const HOME_PROJECT_PANEL_MAX_WIDTH = 64
+export const HOME_CONTENT_MIN_WIDTH = 64
+
+export function clampHomeProjectPanelWidth(width: number, available: number) {
+  const max = Math.max(1, Math.min(HOME_PROJECT_PANEL_MAX_WIDTH, available - HOME_CONTENT_MIN_WIDTH))
+  const min = Math.min(HOME_PROJECT_PANEL_MIN_WIDTH, max)
+  return Math.max(min, Math.min(width, max))
+}
 
 export function homeProjectPanelWidth(total: number, leftPanelWidth: number) {
   const available = total - leftPanelWidth - HOME_CONTENT_MIN_WIDTH
@@ -67,5 +101,7 @@ export function homeProjectPanelWidth(total: number, leftPanelWidth: number) {
 // A terminal or plugin panel opens at half the room in the full layout and at
 // two fifths in the compact one, so the chat beside it stays readable.
 export function defaultSessionPaneWidth(total: number, compact: boolean) {
-  return Math.max(1, Math.floor(compact ? (total * 2) / 5 : total / 2))
+  // Leave more room to the conversation by default; users can drag the divider
+  // to widen the task board when they need it.
+  return Math.max(1, Math.floor(compact ? total * 0.36 : total * 0.4))
 }

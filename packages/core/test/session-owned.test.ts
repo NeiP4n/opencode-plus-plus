@@ -314,7 +314,12 @@ describe("Session-owned handles", () => {
         metadata: prompt.payload.metadata,
       })
       expect(deliveredRetry.payload.files).toBeUndefined()
-      expect((yield* second.synthetic({ ...retry, id: synthetic.id })).payload).toEqual(synthetic.payload)
+      const deliveredSyntheticRetry = yield* second.synthetic({ ...retry, id: synthetic.id })
+      // resumeOnStart and absent optional metadata belong to the pending inbox item, not message history.
+      expect(deliveredSyntheticRetry.payload).toMatchObject({
+        text: synthetic.payload.text,
+        description: synthetic.payload.description,
+      })
       expect(yield* other.synthetic({ ...retry, id: synthetic.id }).pipe(Effect.flip)).toMatchObject({
         _tag: "Session.SyntheticConflictError",
         sessionID: otherID,

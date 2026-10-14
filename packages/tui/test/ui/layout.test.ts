@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test"
 import {
+  clampHomeProjectPanelWidth,
+  clampNoteChatWidth,
+  clampSessionPaneWidth,
+  noteCanvasFlexGrow,
   clampSessionTabsWidth,
+  defaultSessionPaneWidth,
   homeProjectPanelWidth,
+  sessionPanesStacked,
   sessionSidebarDocks,
   sessionTabsFitVertically,
   SESSION_SIDEBAR_MAX_WIDTH,
@@ -55,4 +61,44 @@ test("home project panel respects width bounds and preserves usable prompt space
   expect(homeProjectPanelWidth(128, 34)).toBe(30)
   expect(homeProjectPanelWidth(127, 34)).toBe(0)
   expect(homeProjectPanelWidth(90, 0)).toBe(0)
+})
+
+test("right panel resizing keeps the chat readable and allows useful width changes", () => {
+  expect(clampSessionPaneWidth(10, 108)).toBe(28)
+  expect(clampSessionPaneWidth(43, 108)).toBe(43)
+  expect(clampSessionPaneWidth(100, 108)).toBe(52)
+  expect(clampSessionPaneWidth(100, 90)).toBe(34)
+  expect(clampSessionPaneWidth(30, 54)).toBe(1)
+  expect(defaultSessionPaneWidth(108, false)).toBe(43)
+  expect(defaultSessionPaneWidth(108, true)).toBe(38)
+})
+
+test("home panel resizing stays inside bounds and reserves room for the chat", () => {
+  expect(clampHomeProjectPanelWidth(10, 108)).toBe(30)
+  expect(clampHomeProjectPanelWidth(38, 108)).toBe(38)
+  expect(clampHomeProjectPanelWidth(100, 108)).toBe(44)
+  expect(clampHomeProjectPanelWidth(100, 150)).toBe(64)
+  expect(clampHomeProjectPanelWidth(20, 80)).toBe(16)
+})
+
+test("a bound note stays centered with its chat on the right at compact widths", () => {
+  expect(sessionPanesStacked(95, true)).toBe(true)
+  expect(sessionPanesStacked(96, true)).toBe(false)
+  expect(sessionPanesStacked(110, true)).toBe(false)
+  expect(sessionPanesStacked(99, false)).toBe(true)
+  expect(sessionPanesStacked(100, false)).toBe(false)
+})
+
+test("the note/chat divider keeps both columns readable and can move in either direction", () => {
+  expect(clampNoteChatWidth(10, 140)).toBe(48)
+  expect(clampNoteChatWidth(56, 140)).toBe(56)
+  expect(clampNoteChatWidth(120, 140)).toBe(92)
+  expect(clampNoteChatWidth(100, 96)).toBe(48)
+})
+
+test("a hidden note canvas releases its layout space to the chat", () => {
+  expect(noteCanvasFlexGrow(false, false)).toBe(0)
+  expect(noteCanvasFlexGrow(false, true)).toBe(0)
+  expect(noteCanvasFlexGrow(true, false)).toBe(0)
+  expect(noteCanvasFlexGrow(true, true)).toBe(3)
 })

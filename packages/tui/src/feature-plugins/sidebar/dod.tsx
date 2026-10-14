@@ -272,13 +272,7 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
   const theme = props.context.theme
   const t = useT()
   const [closeHovered, setCloseHovered] = createSignal(false)
-  const [fullscreenHovered, setFullscreenHovered] = createSignal(false)
   const closeHoverColor = () => theme.text.action?.primary?.hovered ?? theme.increase(theme.text.action?.primary?.base ?? theme.text.base, 2)
-  const fullscreenHoverColor = () => theme.text.action?.primary?.hovered ?? theme.increase(theme.text.action?.primary?.base ?? theme.text.base, 2)
-  const fullscreen = () => props.panel.presentation === "fullscreen"
-  const fullscreenLabel = () => fullscreen() ? t("Restore panel") : t("Full screen")
-  const fullscreenControl = () =>
-    props.panel.width >= 54 ? `${fullscreen() ? "↙" : "⛶"} ${fullscreenLabel()}` : fullscreenLabel()
   const [board, setBoard] = createSignal<BoardState>({ type: "loading" })
   const [boardRoot, setBoardRoot] = createSignal<string>()
   let revision = 0
@@ -364,30 +358,7 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
             {(root) => <text fg={theme.text.muted} wrapMode="none" truncate>{props.context.ui.format.path(root())}</text>}
           </Show>
         </box>
-        <box flexDirection={props.panel.width >= 54 ? "row" : "column"} gap={1} flexShrink={0}>
-          <box
-            id="dod.panel.fullscreen"
-            flexShrink={0}
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={fullscreenHovered() ? hoverBackground(theme) : undefined}
-            onMouseOver={() => setFullscreenHovered(true)}
-            onMouseOut={() => setFullscreenHovered(false)}
-            onMouseUp={(event) => {
-              event.stopPropagation()
-              props.panel.toggleFullscreen()
-            }}
-          >
-            <text
-              fg={
-                fullscreenHovered()
-                  ? fullscreenHoverColor()
-                  : (theme.text.action?.primary?.base ?? theme.text.base)
-              }
-            >
-              {fullscreenControl()}
-            </text>
-          </box>
+        <box flexShrink={0}>
           <box
             id="dod.panel.close"
             flexShrink={0}

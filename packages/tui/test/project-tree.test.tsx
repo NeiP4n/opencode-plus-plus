@@ -285,7 +285,8 @@ test("a session is moved to another category from the tree", async () => {
   expect(calls.find((call) => call.path === `/api/orchestra/category/${worker.id}`)?.body).toEqual({
     category: "Quality",
   })
-  await setup.waitForFrame((frame) => frame.split("\n").some((line) => line.trim() === "Quality"))
+  // Tree rows span the full terminal width, so their padded line also contains the right border.
+  await setup.waitForFrame((frame) => frame.split("\n").some((line) => line.trimStart().startsWith("Quality")))
 })
 
 test("a long session title in the narrow compact panel stays on one row", async () => {

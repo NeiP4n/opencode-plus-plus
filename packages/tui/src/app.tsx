@@ -82,6 +82,7 @@ import { ProjectsProvider } from "./context/projects"
 import { NotesProvider } from "./context/notes"
 import { NotesCommands } from "./component/notes-commands"
 import {
+  clampHomeProjectPanelWidth,
   clampSessionTabsWidth,
   homeProjectPanelWidth,
   sessionTabsFitVertically,
@@ -92,6 +93,7 @@ import { createPaneResize } from "./ui/pane-resize"
 import { useCompactLayout } from "./ui/compact-layout"
 import { PaneResizeHandle } from "./ui/pane-resize-handle"
 import { ThemeErrorToast } from "./component/theme-error-toast"
+import { IdeaBankCapture } from "./component/dialog-idea-bank"
 import { createThemeSource, ThemeProvider, useTheme, useThemes } from "./context/theme"
 import { Home } from "./routes/home"
 import { PromptHistoryProvider } from "./prompt/history"
@@ -121,7 +123,6 @@ import { SessionTerminalsProvider } from "./context/session-terminals"
 import { PanelProvider, usePanel } from "./context/panel"
 import { SessionFrame } from "./component/session-frame"
 import { createTuiClipboard } from "./clipboard"
-import { IdeaBankCapture } from "./component/dialog-idea-bank"
 
 registerOpencodeSpinner()
 
@@ -531,7 +532,11 @@ function App() {
       .environment({ sessionID: session.id, variables: terminalEnvironment.variables })
       .catch(toast.error)
   })
-  const [layout, updateLayout] = useStorage().store<{ verticalTabsWidth?: number; compactTabsWidth?: number }>(
+  const [layout, updateLayout] = useStorage().store<{
+    verticalTabsWidth?: number
+    compactTabsWidth?: number
+    homePanelWidth?: number
+  }>(
     "layout",
     {
       initial: { verticalTabsWidth: SESSION_SIDEBAR_WIDTH },
@@ -628,11 +633,42 @@ function App() {
   const leftPanelOccupiedWidth = () =>
     verticalTabsVisible() ? (leftPanelHidden() ? PANEL_RAIL_WIDTH : tabsResize.size()) : 0
 
-  // Home gets the same right-hand project DoD panel as a session, but only when
-  // the terminal can fit it without squeezing the prompt below a readable width.
-  const homePanelWidth = createMemo(() =>
-    route.data.type === "home" ? homeProjectPanelWidth(dimensions().width, leftPanelOccupiedWidth()) : 0,
-  )
+  // The home DoD panel has its own persisted resize boundary. Its maximum width
+  // always leaves at least 64 columns for the main prompt/chat.
+  const defaultHomePanelWidth = () => homeProjectPanelWidth(dimensions().width, leftPanelOccupiedWidth())
+  const homePanelResize = createPaneResize({
+    value: () => layout.homePanelWidth ?? defaultHomePanelWidth(),
+    defaultValue: defaultHomePanelWidth,
+    clamp: (width) => clampHomeProjectPanelWidth(width, dimensions().width - leftPanelOccupiedWidth()),
+    fromMouse: (event) => dimensions().width - event.x - 1,
+    contains: (event, width) =>
+      event.x >= dimensions().width - width - 1 && event.x <= dimensions().width - width,
+    onCommit: (width) => {
+      void updateLayout((draft) => {
+        draft.homePanelWidth = width
+      }).catch((error) => console.error("Failed to persist home panel width", error))
+    },
+  })
+  const homePanelWidth = createMemo(() => {
+    if (route.data.type !== "home") return 0
+    if (defaultHomePanelWidth() <= 0) return 0
+    return homePanelResize.size()
+  })
+
+  // Dispatch drag events to the active boundary. The inactive resizer ignores them,
+  // so the left and right separators never resize each other.
+  const onPaneMouseDrag = (event: Parameters<typeof tabsResize.onMouseDrag>[0]) => {
+    tabsResize.onMouseDrag(event)
+    homePanelResize.onMouseDrag(event)
+  }
+  const onPaneMouseDragEnd = (event: Parameters<typeof tabsResize.onMouseDragEnd>[0]) => {
+    tabsResize.onMouseDragEnd(event)
+    homePanelResize.onMouseDragEnd(event)
+  }
+  const onPaneMouseUp = (event: Parameters<typeof tabsResize.onMouseUp>[0]) => {
+    tabsResize.onMouseUp(event)
+    homePanelResize.onMouseUp(event)
+  }
 
   // Measure the prospective split layout using the width the left panel currently occupies.
   createEffect(() => panels.setWidth(dimensions().width - leftPanelOccupiedWidth()))
@@ -1486,9 +1522,9 @@ function App() {
         minHeight={0}
         flexDirection="row"
         position="relative"
-        onMouseDrag={tabsResize.onMouseDrag}
-        onMouseDragEnd={tabsResize.onMouseDragEnd}
-        onMouseUp={tabsResize.onMouseUp}
+        onMouseDrag={onPaneMouseDrag}
+        onMouseDragEnd={onPaneMouseDragEnd}
+        onMouseUp={onPaneMouseUp}
       >
         <Show when={verticalTabsVisible()}>
           <ProjectTree
@@ -1561,6 +1597,13 @@ function App() {
         </box>
         <Show when={leftPanelVisible()}>
           <PaneResizeHandle resize={tabsResize} left={tabsResize.size() - 1} />
+        </Show>
+        <Show when={route.data.type === "home" && homePanelWidth() > 0 && !homePanelHidden()}>
+          <PaneResizeHandle
+            resize={homePanelResize}
+            left={dimensions().width - homePanelResize.size() - 1}
+            highlight="right"
+          />
         </Show>
       </box>
       <Show when={devtools() && !(route.data.type === "plugin" && route.data.id === "opencode.stats")}>
