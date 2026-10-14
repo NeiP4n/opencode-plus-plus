@@ -1386,7 +1386,7 @@ describe("Orchestra team", () => {
         Effect.retry(Schedule.spaced("10 millis")),
         Effect.timeout("2 seconds"),
       )
-      expect(counterexample.system.toLowerCase()).toContain("falsify")
+      expect((counterexample.system ?? "").toLowerCase()).toContain("falsify")
       expect(counterexample.permissions).toContainEqual({ action: "edit", resource: "*", effect: "deny" })
       const counterexampleEditEffect = yield* evaluate(Orchestra.role("counterexample-engineer"), "edit")
       expect(counterexampleEditEffect).toBe("deny")
