@@ -85,6 +85,20 @@ describe("Global Idea Bank API", () => {
     expect(mock.queries).toHaveLength(0)
   })
 
+  test("rejects oversized bodies even when Content-Length is absent", async () => {
+    const mock = makeDB()
+    const response = await Worker.fetch(
+      request("/v1/ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(submission({ summary: "x".repeat(20_000) })),
+      }),
+      env(mock.db),
+    )
+    expect(response.status).toBe(413)
+    expect(mock.queries).toHaveLength(0)
+  })
+
   test("blocks private-looking content before writing to D1", async () => {
     const mock = makeDB()
     const response = await Worker.fetch(
