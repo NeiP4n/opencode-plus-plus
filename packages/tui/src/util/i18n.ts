@@ -52,8 +52,8 @@ const ru: Record<string, string> = {
   "Automatic local capture is off": "Автоматический локальный сбор выключен",
   Enable: "Включить",
   Pause: "Приостановить",
-  "Local-only MVP: no LLM/API calls. Only broad problem categories are saved; original chat text is never stored or sent. Enabling applies to future messages only.":
-    "Локальная первая версия: без запросов к LLM/API. Сохраняются только общие категории проблем; исходный текст чатов не сохраняется и не отправляется. Сбор действует только на будущие сообщения.",
+  "Local-only MVP: no extra LLM/API calls. The bank stores broad categories and local processing cursors; original chat text is not sent to external services. Enabling applies to future messages only.":
+    "Локальная первая версия: без дополнительных запросов к LLM/API. Банк хранит общие категории и локальные курсоры обработки; исходный текст чатов не отправляется во внешние сервисы. Сбор действует только на будущие сообщения.",
   "Potential directions": "Возможные направления",
   "Local signals": "Локальные сигналы",
   "No signals yet": "Сигналов пока нет",
