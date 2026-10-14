@@ -4,6 +4,8 @@ import Worker from "../src/index"
 type Query = { sql: string; bindings: unknown[] }
 type MockOptions = {
   duplicate?: { id: string; status: string } | null
+  raceDuplicate?: { id: string; status: string } | null
+  insertConflict?: boolean
   quota?: { count: number } | null
   signalCount?: number
   items?: unknown[]
@@ -12,6 +14,7 @@ type MockOptions = {
 
 function makeDB(options: MockOptions = {}) {
   const queries: Query[] = []
+  let duplicateLookups = 0
   const db = {
     prepare(sql: string) {
       const statement = {
@@ -24,7 +27,10 @@ function makeDB(options: MockOptions = {}) {
         async first() {
           queries.push({ sql: this.sql, bindings: this.bindings })
           if (this.sql.includes("SELECT COUNT(*) AS total")) return { total: options.total ?? 0 }
-          if (this.sql.includes("SELECT id, status FROM ideas WHERE content_hash")) return options.duplicate ?? null
+          if (this.sql.includes("SELECT id, status FROM ideas WHERE content_hash")) {
+            duplicateLookups++
+            return duplicateLookups === 1 ? (options.duplicate ?? null) : (options.raceDuplicate ?? null)
+          }
           if (this.sql.includes("INSERT INTO submission_rate_limits")) return options.quota === undefined ? { count: 1 } : options.quota
           if (this.sql.includes("SELECT signal_count FROM ideas")) return { signal_count: options.signalCount ?? 2 }
           return null
@@ -35,6 +41,9 @@ function makeDB(options: MockOptions = {}) {
         },
         async run() {
           queries.push({ sql: this.sql, bindings: this.bindings })
+          if (options.insertConflict && this.sql.includes("INSERT INTO ideas")) {
+            throw new Error("UNIQUE constraint failed: ideas.content_hash")
+          }
           return { meta: { changes: 1 } }
         },
       }
@@ -168,6 +177,31 @@ describe("Global Idea Bank API", () => {
     const quotaIndex = mock.queries.findIndex((item) => item.sql.includes("INSERT INTO submission_rate_limits"))
     const updateIndex = mock.queries.findIndex((item) => item.sql.includes("signal_count = signal_count + 1"))
     expect(updateIndex).toBeGreaterThan(quotaIndex)
+  })
+
+  test("counts a duplicate inserted concurrently instead of returning a server error", async () => {
+    const mock = makeDB({
+      raceDuplicate: { id: "raced-idea", status: "published" },
+      insertConflict: true,
+      signalCount: 6,
+    })
+    const response = await Worker.fetch(
+      request("/v1/ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.33" },
+        body: JSON.stringify(submission()),
+      }),
+      env(mock.db),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      id: "raced-idea",
+      status: "published",
+      signalCount: 6,
+    })
+    expect(mock.queries.filter((item) => item.sql.includes("SELECT id, status FROM ideas WHERE content_hash"))).toHaveLength(2)
+    expect(mock.queries.some((item) => item.sql.includes("signal_count = signal_count + 1"))).toBe(true)
   })
 
   test("normalizes Cyrillic queries before binding database search terms", async () => {
