@@ -3,3 +3,5 @@ afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-repl
 afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-replay.test.ts:generic-api-key:92
 afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-replay.test.ts:generic-api-key:146
 afa57acfda894e0ebf3c637dd710310b705c0a2f:packages/http-recorder/test/record-replay.test.ts:gcp-api-key:71
+# Synthetic credential fixture from a historical test commit; the current test constructs it at runtime.
+d0b2310d6509d73db558bebe82dd310580902c30:services/idea-bank/test/policy.test.ts:generic-api-key:12
