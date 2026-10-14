@@ -164,7 +164,9 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   }))
   const totalSignals = createMemo(() => (state.ideas ?? []).reduce((sum, item) => sum + item.signalCount, 0))
   const [clearArmed, setClearArmed] = createSignal(false)
-  const bodyHeight = () => Math.max(5, Math.min(18, dimensions().height - 12))
+  // The dialog is wider and centered, so give its idea list more room while
+  // reserving enough rows for the header, privacy notes, counters, and footer.
+  const bodyHeight = () => Math.max(4, Math.min(24, dimensions().height - 20))
 
   const clearLocalData = async () => {
     if (!clearArmed()) {
@@ -224,7 +226,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   }
 
   return (
-    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+    <box width="100%" maxHeight={Math.max(12, dimensions().height - 2)} paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <box flexDirection="row" justifyContent="space-between" gap={2}>
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {t("Idea Bank")}
