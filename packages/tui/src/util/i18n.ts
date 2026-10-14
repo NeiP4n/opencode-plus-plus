@@ -46,6 +46,11 @@ const ru: Record<string, string> = {
   "Turn token usage (verbose)": "Токены за ход (подробно)",
   // Side panels, prompt and footer
   // Idea Bank
+  "Search global ideas": "Поиск по глобальному банку",
+  "Search by topic, tool, or problem": "Ищи по теме, инструменту или проблеме",
+  Search: "Искать",
+  "Clear search": "Сбросить поиск",
+  "Search results for": "Результаты поиска",
   "Automatic global sharing is on": "Автоматическая отправка в общий банк включена",
   "Automatic global sharing is off": "Автоматическая отправка в общий банк выключена",
   "Enable sharing": "Включить отправку",
