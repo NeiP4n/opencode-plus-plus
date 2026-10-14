@@ -2005,7 +2005,7 @@ export function Prompt(props: PromptProps) {
             paddingLeft={1}
             paddingRight={1}
           >
-            <text fg={theme.text.action.primary.base}>{"✦ " + t("Ideas")}</text>
+            <text fg={theme.text.action.primary.base}>{dimensions().width >= 112 ? "✦ " + t("Ideas") : "✦"}</text>
           </HoverAction>
         </box>
       </box>
