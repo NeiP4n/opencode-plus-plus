@@ -1,5 +1,5 @@
 import { TextAttributes } from "@opentui/core"
-import { createMemo, For, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useData } from "../context/data"
 import { useEvent } from "../context/event"
 import { useStorage } from "../context/storage"
@@ -131,7 +131,28 @@ export function DialogIdeaBank() {
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
   const ideas = createMemo(() => [...state.ideas].sort((a, b) => b.signalCount - a.signalCount || b.updatedAt - a.updatedAt))
   const totalSignals = createMemo(() => state.ideas.reduce((sum, item) => sum + item.signalCount, 0))
+  const [clearArmed, setClearArmed] = createSignal(false)
   const bodyHeight = () => Math.max(5, Math.min(18, dimensions().height - 12))
+
+  const clearLocalData = async () => {
+    if (!clearArmed()) {
+      setClearArmed(true)
+      return
+    }
+    try {
+      await update((draft) => {
+        draft.autoCapture = false
+        draft.autoCaptureSince = 0
+        draft.lastProcessedBySession = {}
+        draft.ideas = []
+      })
+      setClearArmed(false)
+      toast.show({ variant: "success", message: t("Local Idea Bank data cleared") })
+    } catch {
+      setClearArmed(false)
+      toast.show({ variant: "error", message: t("Could not clear local Idea Bank data") })
+    }
+  }
 
   const toggleCapture = () => {
     const enabled = !state.autoCapture
@@ -167,7 +188,17 @@ export function DialogIdeaBank() {
             {state.autoCapture ? t("Pause") : t("Enable")}
           </text>
         </HoverAction>
+        <HoverAction id="idea-bank.clear" onClick={() => void clearLocalData()} paddingLeft={1} paddingRight={1}>
+          <text fg={clearArmed() ? theme.text.feedback.warning.base : theme.text.muted}>
+            {clearArmed() ? t("Confirm clear") : t("Clear local data")}
+          </text>
+        </HoverAction>
       </box>
+      <Show when={clearArmed()}>
+        <text fg={theme.text.feedback.warning.base} wrapMode="word">
+          {t("Click again to erase all local ideas and stop collection.")}
+        </text>
+      </Show>
       <text fg={theme.text.muted} wrapMode="word">
         {t("Local-only MVP: no LLM/API calls. Only broad problem categories are saved; original chat text is never stored or sent. Enabling applies to future messages only.")}
       </text>
