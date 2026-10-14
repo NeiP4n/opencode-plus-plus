@@ -258,7 +258,7 @@ export function DialogIdeaBank() {
         </text>
       </Show>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("Local-only MVP: no LLM/API calls. Only broad problem categories are saved; original chat text is never stored or sent. Enabling applies to future messages only.")}
+        {t("Local-only MVP: no extra LLM/API calls. The bank stores broad categories and local processing cursors; original chat text is not sent to external services. Enabling applies to future messages only.")}
       </text>
       <text fg={theme.text.muted} wrapMode="word">
         {t("Starter ideas are unverified prompts for exploration, not claims of market demand or originality.")}
