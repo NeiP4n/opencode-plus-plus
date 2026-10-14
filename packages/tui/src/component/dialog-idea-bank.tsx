@@ -1,5 +1,5 @@
 import { TextAttributes } from "@opentui/core"
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useData } from "../context/data"
 import type { PromptRef } from "../component/prompt"
 import { appendPrompt, emptyPrompt } from "../prompt/history"
@@ -23,12 +23,15 @@ export type IdeaSignal = {
   createdAt: number
   updatedAt: number
   starter?: boolean
+  global?: boolean
   nextStep?: string
 }
 
 type IdeaBankState = {
   autoCapture: boolean
   autoCaptureSince: number
+  autoShareSignals?: boolean
+  lastSharedSignalAt?: Record<string, number>
   lastProcessedBySession: Record<string, { messageID: string; createdAt: number }>
   ideas: IdeaSignal[]
   // Migration from earlier development snapshots; removed after state is next saved.
@@ -39,6 +42,8 @@ const STORE_KEY = "idea-bank"
 const INITIAL: IdeaBankState = {
   autoCapture: false,
   autoCaptureSince: 0,
+  autoShareSignals: false,
+  lastSharedSignalAt: {},
   lastProcessedBySession: {},
   ideas: [],
 }
@@ -158,7 +163,80 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   const prompt = props.prompt
   // The bundled ideas make the bank useful before any private-session signals are collected.
   // They are inspiration only: no market demand or novelty is claimed to have been verified.
-  const ideas = createMemo(() => [...(state.ideas ?? []), ...STARTER_IDEAS].sort((a, b) => {
+  const globalBase = () => {
+    const configured = process.env.OPENCODE_IDEA_BANK_URL?.trim()
+    if (!configured) return undefined
+    try {
+      const url = new URL(configured)
+      if (
+        url.username ||
+        url.password ||
+        (url.protocol !== "https:" &&
+          url.hostname !== "localhost" &&
+          url.hostname !== "127.0.0.1" &&
+          url.hostname !== "[::1]")
+      )
+        return undefined
+      return url.origin
+    } catch {
+      return undefined
+    }
+  }
+  const [globalIdeas, setGlobalIdeas] = createSignal<IdeaSignal[]>([])
+  const [globalStatus, setGlobalStatus] = createSignal<"loading" | "connected" | "not-configured" | "error">("loading")
+  const [globalTotal, setGlobalTotal] = createSignal(0)
+  const [shareArmed, setShareArmed] = createSignal<string>()
+
+  const loadGlobalIdeas = async () => {
+    const base = globalBase()
+    if (!base) {
+      setGlobalStatus("not-configured")
+      return
+    }
+    setGlobalStatus("loading")
+    try {
+      const response = await fetch(new URL("/v1/ideas?limit=50", base), { signal: AbortSignal.timeout(8_000) })
+      const payload: unknown = await response.json()
+      if (!response.ok) throw new Error("Global Idea Bank returned HTTP " + response.status)
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid global bank response")
+      const data = payload as Record<string, unknown>
+      const rows = Array.isArray(data.items) ? data.items : []
+      const normalized = rows.flatMap((value): IdeaSignal[] => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return []
+        const item = value as Record<string, unknown>
+        if (
+          typeof item.id !== "string" ||
+          typeof item.title !== "string" ||
+          typeof item.summary !== "string" ||
+          typeof item.category !== "string"
+        )
+          return []
+        return [{
+          id: item.id,
+          title: item.title,
+          category: item.category,
+          kind: "Community idea",
+          description: item.summary,
+          signalCount: typeof item.signalCount === "number" ? Math.max(0, item.signalCount) : 1,
+          createdAt: typeof item.createdAt === "number" ? item.createdAt : 0,
+          updatedAt: typeof item.updatedAt === "number" ? item.updatedAt : 0,
+          global: true,
+        }]
+      })
+      setGlobalIdeas(normalized)
+      setGlobalTotal(typeof data.total === "number" ? data.total : normalized.length)
+      setGlobalStatus("connected")
+    } catch {
+      setGlobalIdeas([])
+      setGlobalTotal(0)
+      setGlobalStatus("error")
+    }
+  }
+
+  onMount(() => void loadGlobalIdeas())
+
+  const ideas = createMemo(() => [...globalIdeas(), ...(state.ideas ?? []), ...STARTER_IDEAS].sort((a, b) => {
+    if (a.global !== b.global) return a.global ? -1 : 1
     if (a.starter !== b.starter) return a.starter ? 1 : -1
     return b.signalCount - a.signalCount || b.updatedAt - a.updatedAt
   }))
@@ -167,6 +245,19 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   // The dialog is wider and centered, so give its idea list more room while
   // reserving enough rows for the header, privacy notes, counters, and footer.
   const bodyHeight = () => Math.max(4, Math.min(24, dimensions().height - 20))
+
+  const globalStatusText = () => {
+    switch (globalStatus()) {
+      case "loading":
+        return t("Connecting to global bank…")
+      case "connected":
+        return t("Global bank connected") + " · " + globalTotal()
+      case "not-configured":
+        return t("Global bank not configured. Set OPENCODE_IDEA_BANK_URL to use the shared catalogue.")
+      case "error":
+        return t("Global bank unavailable; local ideas are still available.")
+    }
+  }
 
   const clearLocalData = async () => {
     if (!clearArmed()) {
@@ -177,6 +268,8 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
       await update((draft) => {
         draft.autoCapture = false
         draft.autoCaptureSince = 0
+        draft.autoShareSignals = false
+        draft.lastSharedSignalAt = {}
         draft.lastProcessedBySession = {}
         draft.ideas = []
         delete draft.processedMessageIDs
@@ -211,6 +304,52 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
     dialog.clear()
     toast.show({ variant: "info", message: t("Idea added to prompt; review it and send when ready") })
   }
+  const shareIdea = async (idea: IdeaSignal) => {
+    const base = globalBase()
+    if (!base) {
+      toast.show({ variant: "error", message: t("Global Idea Bank is not connected.") })
+      setGlobalStatus("not-configured")
+      return
+    }
+    if (idea.global) {
+      toast.show({ variant: "info", message: t("This idea is already in the global bank.") })
+      return
+    }
+    if (shareArmed() !== idea.id) {
+      setShareArmed(idea.id)
+      toast.show({ variant: "info", message: t("Click share again to add this idea to the public global bank. Only this generic idea text is sent.") })
+      return
+    }
+    setShareArmed(undefined)
+    try {
+      const response = await fetch(new URL("/v1/ideas", base), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consent: true,
+          title: idea.title,
+          summary: idea.description,
+          category: idea.category,
+          tags: [idea.category, idea.kind].map((value) => value.toLowerCase()).slice(0, 8),
+          language: "en",
+        }),
+        signal: AbortSignal.timeout(8_000),
+      })
+      const payload: unknown = await response.json()
+      const data = payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {}
+      if (!response.ok) {
+        const message = typeof data.error === "string" ? data.error : t("Could not submit to global Idea Bank")
+        toast.show({ variant: "error", message })
+        return
+      }
+      toast.show({ variant: "success", message: t("Idea added to the global bank.") })
+    } catch {
+      toast.show({ variant: "error", message: t("Could not submit to global Idea Bank") })
+    }
+  }
+
   const toggleCapture = () => {
     const enabled = !state.autoCapture
     void update((draft) => {
@@ -218,10 +357,46 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
       draft.ideas ??= []
       draft.lastProcessedBySession ??= {}
       delete draft.processedMessageIDs
-      // Consent applies only to future messages. Enabling the feature never scans old chats.
+      // Turning local capture off also stops any automatic sharing.
+      if (!enabled) draft.autoShareSignals = false
+      // Consent applies only to future messages. Enabling never scans old chats.
       if (enabled) draft.autoCaptureSince = Date.now()
     }).catch((error) => {
       toast.show({ variant: "error", message: `Idea Bank: ${String(error)}` })
+    })
+  }
+
+  const toggleGlobalSignalSharing = () => {
+    if (state.autoShareSignals) {
+      void update((draft) => {
+        draft.autoShareSignals = false
+      }).then(() => setShareArmed(undefined)).catch(() => {
+        toast.show({ variant: "error", message: t("Could not update global sharing setting") })
+      })
+      return
+    }
+    if (!state.autoCapture) {
+      toast.show({ variant: "info", message: t("Enable local capture before sharing anonymous signals.") })
+      return
+    }
+    if (!globalBase()) {
+      toast.show({ variant: "error", message: t("Global Idea Bank is not connected.") })
+      setGlobalStatus("not-configured")
+      return
+    }
+    if (shareArmed() !== "automatic-signals") {
+      setShareArmed("automatic-signals")
+      toast.show({ variant: "info", message: t("Confirm to share only generic idea categories, never chat text.") })
+      return
+    }
+    setShareArmed(undefined)
+    void update((draft) => {
+      draft.autoShareSignals = true
+      draft.lastSharedSignalAt ??= {}
+    }).then(() => {
+      toast.show({ variant: "success", message: t("Anonymous global signal sharing enabled.") })
+    }).catch(() => {
+      toast.show({ variant: "error", message: t("Could not update global sharing setting") })
     })
   }
 
@@ -259,11 +434,28 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
           {t("Click again to erase all local ideas and stop collection.")}
         </text>
       </Show>
+      <box flexDirection="row" gap={1}>
+        <text fg={state.autoShareSignals ? theme.text.feedback.success.base : theme.text.muted}>
+          {state.autoShareSignals ? t("Automatic global sharing is on") : t("Automatic global sharing is off")}
+        </text>
+        <box flexGrow={1} />
+        <HoverAction id="idea-bank.toggle-global-sharing" onClick={toggleGlobalSignalSharing} paddingLeft={1} paddingRight={1}>
+          <text fg={shareArmed() === "automatic-signals" ? theme.text.feedback.warning.base : theme.text.action.primary.base}>
+            {state.autoShareSignals ? t("Pause sharing") : shareArmed() === "automatic-signals" ? t("Confirm sharing") : t("Enable sharing")}
+          </text>
+        </HoverAction>
+      </box>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("Local-only MVP: no extra LLM/API calls. The bank stores broad categories and local processing cursors; original chat text is not sent to external services. Enabling applies to future messages only.")}
+        {t("Sharing sends only predefined generic signal labels and summaries. It never sends original messages, excerpts, file paths, or chat history.")}
+      </text>
+      <text fg={theme.text.muted} wrapMode="word">
+        {t("Local capture stays on this computer. Global search reads published ideas; chat text is never uploaded automatically.")}
       </text>
       <text fg={theme.text.muted} wrapMode="word">
         {t("Starter ideas are unverified prompts for exploration, not claims of market demand or originality.")}
+      </text>
+      <text fg={globalStatus() === "connected" ? theme.text.feedback.success.base : theme.text.muted} wrapMode="word">
+        {globalStatusText()}
       </text>
       <box flexDirection="row" gap={2}>
         <text fg={theme.text.muted}>{t("Potential directions")}: {ideas().length}</text>
@@ -296,7 +488,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
                 </box>
                 <text fg={theme.text.muted} wrapMode="word">{t(idea.description)}</text>
                 <text fg={idea.starter ? theme.text.muted : theme.text.action.primary.base} wrapMode="word">
-                  {idea.starter ? t("Starter idea · unverified") : t("Detected pattern · not a validated idea")}
+                  {idea.global ? t("Public idea from the global bank") : idea.starter ? t("Starter idea · unverified") : t("Detected pattern · not a validated idea")}
                 </text>
                 <text fg={theme.text.muted} wrapMode="word">
                   {t(idea.category)} · {t(idea.kind)}
@@ -304,7 +496,19 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
                 <Show when={idea.nextStep}>
                   {(step) => <text fg={theme.text.muted} wrapMode="word">{t("Next step")}: {t(step())}</text>}
                 </Show>
-                <box flexDirection="row" justifyContent="flex-end">
+                <box flexDirection="row" justifyContent="flex-end" gap={1}>
+                  <Show when={!idea.global}>
+                    <HoverAction
+                      id={"idea-bank.share." + idea.id}
+                      onClick={() => void shareIdea(idea)}
+                      paddingLeft={1}
+                      paddingRight={1}
+                    >
+                      <text fg={shareArmed() === idea.id ? theme.text.feedback.warning.base : theme.text.muted}>
+                        {shareArmed() === idea.id ? t("Confirm public share") : t("Share globally")}
+                      </text>
+                    </HoverAction>
+                  </Show>
                   <HoverAction
                     id={"idea-bank.use." + idea.id}
                     onClick={() => useIdea(idea)}
@@ -321,7 +525,7 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
         </scrollbox>
       </Show>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("This first version keeps ideas on this computer. Shared publishing and deep research are not connected yet.")}
+        {t("Accepted ideas are published after automatic privacy, duplicate, and rate-limit checks. You can pause global sharing at any time.")}
       </text>
     </box>
   )
@@ -329,16 +533,13 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
 
 /**
  * Lightweight background collector. It runs only after explicit opt-in and only when a
- * session reaches idle. Source text exists in memory briefly for rule matching, but is
- * never written to storage, logged, sent to a model, or sent over the network by this feature.
+ * session reaches idle. Source text is inspected in memory for rule matching, but is never
+ * stored, logged, sent to a model, or sent over the network. If global sharing is separately
+ * enabled, only a fixed, generic classifier result is sent — never the original message.
  */
 export function IdeaBankCapture() {
   const data = useData()
   const events = useEvent()
-  const dialog = useDialog()
-  const theme = useTheme()
-  const t = useT()
-  const dimensions = useTerminalDimensions()
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
   const busy = new Set<string>()
 
@@ -346,8 +547,8 @@ export function IdeaBankCapture() {
     if (!state.autoCapture || busy.has(sessionID)) return
     busy.add(sessionID)
     try {
-      // Read only the transcript already cached by the TUI. This feature performs no HTTP
-      // requests and never asks a model to inspect the conversation.
+      // Read only the transcript already cached by the TUI. Only generic classifier output
+      // may be sent, and only after the separate global-sharing opt-in; no model is called.
       const messages = data.session.message.list(sessionID)
       if (!state.autoCapture || messages.length === 0) return
       const since = state.autoCaptureSince
@@ -413,6 +614,45 @@ export function IdeaBankCapture() {
         }
         draft.lastProcessedBySession[sessionID] = nextCursor
       })
+
+      // Only fixed classifier output is eligible for global sharing. Never reuse the
+      // user's message, its excerpt, or any transcript-derived free-form text.
+      if (state.autoCapture && state.autoShareSignals && globalBase()) {
+        const uniqueSignals = new Map<string, NonNullable<(typeof candidates)[number]["signal"]>>()
+        for (const candidate of candidates) {
+          if (candidate.signal) uniqueSignals.set(candidate.signal.id, candidate.signal)
+        }
+        for (const signal of uniqueSignals.values()) {
+          if (!state.autoCapture || !state.autoShareSignals) break
+          const lastSharedAt = state.lastSharedSignalAt?.[signal.id] ?? 0
+          if (Date.now() - lastSharedAt < 24 * 60 * 60 * 1000) continue
+          try {
+            const base = globalBase()
+            if (!base) break
+            const response = await fetch(new URL("/v1/ideas", base), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                consent: true,
+                title: signal.title,
+                summary: signal.description,
+                category: signal.category,
+                tags: [signal.category, signal.kind.toLowerCase()].slice(0, 8),
+                language: "en",
+              }),
+              signal: AbortSignal.timeout(8_000),
+            })
+            if (response.ok) {
+              await update((draft) => {
+                draft.lastSharedSignalAt ??= {}
+                draft.lastSharedSignalAt[signal.id] = Date.now()
+              })
+            }
+          } catch {
+            // Never log classifier input, submitted summaries, or service responses.
+          }
+        }
+      }
     } catch {
       // Do not log message text or prompt-derived data from background collection.
     } finally {

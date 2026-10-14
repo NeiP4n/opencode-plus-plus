@@ -1,0 +1,75 @@
+name: deploy-idea-bank
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-idea-bank
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Validate deployment secrets
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          IDEA_BANK_DATABASE_ID: ${{ secrets.IDEA_BANK_DATABASE_ID }}
+          IDEA_BANK_ADMIN_TOKEN: ${{ secrets.IDEA_BANK_ADMIN_TOKEN }}
+          RATE_LIMIT_SALT: ${{ secrets.RATE_LIMIT_SALT }}
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN IDEA_BANK_DATABASE_ID IDEA_BANK_ADMIN_TOKEN RATE_LIMIT_SALT; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+          if [[ ! "$IDEA_BANK_DATABASE_ID" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+            echo "::error::IDEA_BANK_DATABASE_ID must be the D1 UUID"
+            exit 1
+          fi
+
+      - name: Configure D1 binding for this deployment
+        working-directory: services/idea-bank
+        env:
+          IDEA_BANK_DATABASE_ID: ${{ secrets.IDEA_BANK_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          sed -i "s/00000000-0000-0000-0000-000000000000/$IDEA_BANK_DATABASE_ID/" wrangler.jsonc
+          if grep -q "00000000-0000-0000-0000-000000000000" wrangler.jsonc; then
+            echo "::error::D1 placeholder was not replaced"
+            exit 1
+          fi
+
+      - name: Apply D1 migrations
+        working-directory: services/idea-bank
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bun run db:migrate:remote
+
+      - name: Configure Worker secrets
+        working-directory: services/idea-bank
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          IDEA_BANK_ADMIN_TOKEN: ${{ secrets.IDEA_BANK_ADMIN_TOKEN }}
+          RATE_LIMIT_SALT: ${{ secrets.RATE_LIMIT_SALT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$IDEA_BANK_ADMIN_TOKEN" | bunx wrangler secret put IDEA_BANK_ADMIN_TOKEN
+          printf '%s' "$RATE_LIMIT_SALT" | bunx wrangler secret put RATE_LIMIT_SALT
+
+      - name: Deploy shared Idea Bank API
+        working-directory: services/idea-bank
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: bun run deploy
