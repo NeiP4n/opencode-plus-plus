@@ -13,6 +13,7 @@ on:
       - "services/idea-bank/**"
       - "packages/core/src/tool/plugin/idea-bank.ts"
       - "packages/core/src/plugin/internal.ts"
+      - "packages/core/test/plugin/idea-bank.test.ts"
       - "packages/tui/src/component/dialog-idea-bank.tsx"
       - "packages/tui/src/app.tsx"
       - "packages/tui/src/component/devtools-bar.tsx"
@@ -28,6 +29,7 @@ on:
       - "services/idea-bank/**"
       - "packages/core/src/tool/plugin/idea-bank.ts"
       - "packages/core/src/plugin/internal.ts"
+      - "packages/core/test/plugin/idea-bank.test.ts"
       - "packages/tui/src/component/dialog-idea-bank.tsx"
       - "packages/tui/src/app.tsx"
       - "packages/tui/src/component/devtools-bar.tsx"
@@ -58,6 +60,9 @@ jobs:
 
       - name: Typecheck the core chat tool
         run: bun run --cwd packages/core typecheck
+
+      - name: Test global Idea Bank chat tool permissions and privacy
+        run: bun --cwd packages/core test test/plugin/idea-bank.test.ts
 
       - name: Typecheck the TUI Idea Bank
         run: bun run --cwd packages/tui typecheck
