@@ -62,6 +62,65 @@ const ru: Record<string, string> = {
   "Click again to erase all local ideas and stop collection.": "Нажми ещё раз, чтобы удалить все локальные идеи и остановить сбор.",
   "Local Idea Bank data cleared": "Локальные данные банка идей очищены",
   "Could not clear local Idea Bank data": "Не удалось очистить локальные данные банка идей",
+  "Starter ideas are unverified prompts for exploration, not claims of market demand or originality.":
+    "Стартовые идеи — это направления для изучения, а не подтверждение спроса или оригинальности.",
+  "Starter idea · unverified": "Стартовая идея · не проверена",
+  "Detected pattern · not a validated idea": "Обнаружен сигнал · идея не проверена",
+  "Next step": "Следующий шаг",
+  "Accessibility audit for small interfaces": "Проверка доступности небольших интерфейсов",
+  "Find common keyboard, contrast, and labeling issues and create a practical repair checklist.":
+    "Находить проблемы с клавиатурой, контрастом и подписями элементов и формировать практический список исправлений.",
+  "Test the report against a few open-source interfaces and compare it with a manual audit.":
+    "Проверить отчёт на нескольких открытых интерфейсах и сравнить его с ручным аудитом.",
+  "Open-source project revival radar": "Поиск забытых open-source проектов",
+  "Find useful projects that are neglected, have unresolved user problems, or need maintainers.":
+    "Находить полезные заброшенные проекты, нерешённые проблемы пользователей и проекты без сопровождающих.",
+  "Choose one ecosystem and rank public repositories using activity, open issues, and dependency health.":
+    "Выбрать одну экосистему и ранжировать открытые репозитории по активности, проблемам и состоянию зависимостей.",
+  "Toolkit for translating older games": "Набор инструментов для перевода старых игр",
+  "Help locate text resources, preserve formatting, check translation context, and package language patches.":
+    "Помогать находить текстовые ресурсы, сохранять форматирование, проверять контекст и собирать языковые патчи.",
+  "Validate one game format end to end before trying to support every engine.":
+    "Полностью проверить один игровой формат, прежде чем поддерживать все движки.",
+  "Offline documentation navigator": "Офлайн-навигатор по документации",
+  "Search local documentation, connect related pages, and show exact source passages instead of unsupported answers.":
+    "Искать по локальной документации, связывать страницы и показывать точные фрагменты источников вместо неподтверждённых ответов.",
+  "Index one documentation set with full-text search and verify that every result points to its source.":
+    "Индексировать один набор документации и проверять, что каждый результат указывает на источник.",
+  "Reproducibility checklist for research": "Контрольный список воспроизводимости исследований",
+  "Help researchers record data versions, dependencies, parameters, and steps needed to repeat an experiment.":
+    "Помогать фиксировать версии данных, зависимости, параметры и шаги для повторения эксперимента.",
+  "Try a template against a public paper with available code and note which steps are missing.":
+    "Проверить шаблон на открытой научной работе с кодом и отметить недостающие шаги.",
+  "Private home-energy explainer": "Локальный анализатор энергопотребления дома",
+  "Turn a user's own electricity readings into understandable trends and possible waste indicators without cloud uploads.":
+    "Превращать собственные показания счётчика в понятные графики и признаки возможных потерь без отправки данных в облако.",
+  "Start by importing a CSV and explaining peaks without making claims about their cause.":
+    "Начать с импорта CSV и объяснения пиков, не утверждая заранее, чем они вызваны.",
+  "Local knowledge garden": "Локальная база личных знаний",
+  "Find duplicate notes, stale instructions, and disconnected pieces of personal knowledge while keeping them on-device.":
+    "Находить дубликаты заметок, устаревшие инструкции и несвязанные знания, не покидая устройство.",
+  "Prototype duplicate detection with local full-text search before adding embeddings.":
+    "Сначала проверить поиск дубликатов локальным полнотекстовым поиском, а не эмбеддингами.",
+  "AI-agent permissions auditor": "Аудитор разрешений ИИ-агентов",
+  "Explain which actions an agent can perform, identify broad permissions, and show a readable history of risky operations.":
+    "Объяснять доступные агенту действия, находить слишком широкие разрешения и показывать историю рискованных операций.",
+  "Create a read-only report for one agent configuration and verify it against actual runtime behavior.":
+    "Создать отчёт только для чтения по одной конфигурации агента и сравнить его с реальным поведением.",
+  "CLI tool": "Утилита командной строки",
+  "Research tool": "Инструмент исследования",
+  "CLI tool and plugin": "Утилита командной строки и плагин",
+  "Desktop utility": "Настольная утилита",
+  "Research workflow": "Исследовательский процесс",
+  "Local dashboard": "Локальная панель",
+  "Open-source developer tool": "Открытый инструмент разработчика",
+  Accessibility: "Доступность",
+  "Open source": "Открытое ПО",
+  "Games and creativity": "Игры и творчество",
+  Education: "Образование",
+  Science: "Наука",
+  Environment: "Экология",
+  "Detected pattern": "Обнаруженный сигнал",
   "Enable automatic local capture. After a session becomes idle, simple rules look for broad patterns such as repetitive work or missing tools. No model is run and no source sentence is kept.":
     "Включи автоматический локальный сбор. После завершения сессии простые правила ищут общие признаки: повторяющаяся работа или отсутствие нужных инструментов. Модель не запускается, исходные фразы не сохраняются.",
   "This first version keeps ideas on this computer. Shared publishing and deep research are not connected yet.":
