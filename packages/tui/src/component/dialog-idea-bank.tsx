@@ -1,6 +1,6 @@
 import { TextAttributes } from "@opentui/core"
 import { createMemo, For, onCleanup, Show } from "solid-js"
-import { useClient } from "../context/client"
+import { useData } from "../context/data"
 import { useEvent } from "../context/event"
 import { useStorage } from "../context/storage"
 import { useTheme } from "../context/theme"
@@ -223,7 +223,7 @@ export function DialogIdeaBank() {
  * never written to storage, logged, sent to a model, or sent over the network by this feature.
  */
 export function IdeaBankCapture() {
-  const client = useClient()
+  const data = useData()
   const events = useEvent()
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
   const busy = new Set<string>()
@@ -232,12 +232,15 @@ export function IdeaBankCapture() {
     if (!state.autoCapture || busy.has(sessionID)) return
     busy.add(sessionID)
     try {
-      const response = await client.api.message.list({ sessionID, limit: 100, order: "desc" })
+      // Read only the transcript already cached by the TUI. This feature performs no HTTP
+      // requests and never asks a model to inspect the conversation.
+      const messages = data.session.message.list(sessionID)
       if (!state.autoCapture) return
       const since = state.autoCaptureSince
-      const candidates = response.data.toReversed().flatMap((message) => {
+      const candidates = messages.toReversed().flatMap((message) => {
         if (message.type !== "user" || state.processedMessageIDs.includes(message.id)) return []
-        if (createdMillis(message.time.created) < since) return []
+        const created = createdMillis(message.time.created)
+        if (!Number.isFinite(created) || created < since) return []
         return [{ id: message.id, signal: classify(message.text) }]
       })
       if (candidates.length === 0) return
