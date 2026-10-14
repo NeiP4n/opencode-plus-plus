@@ -191,18 +191,26 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
   const [globalQuery, setGlobalQuery] = createSignal(props.initialQuery ?? "")
   const [globalStatus, setGlobalStatus] = createSignal<"loading" | "connected" | "not-configured" | "error">("loading")
   const [globalTotal, setGlobalTotal] = createSignal(0)
+  const [globalLoadingMore, setGlobalLoadingMore] = createSignal(false)
   const [shareArmed, setShareArmed] = createSignal<string>()
 
-  const loadGlobalIdeas = async (query = globalQuery()) => {
+  const loadGlobalIdeas = async (query = globalQuery(), offset = 0, append = false) => {
     const base = globalBase()
     if (!base) {
-      setGlobalStatus("not-configured")
+      if (!append) {
+        setGlobalStatus("not-configured")
+        setGlobalIdeas([])
+        setGlobalTotal(0)
+      }
+      setGlobalLoadingMore(false)
       return
     }
-    setGlobalStatus("loading")
+    if (append) setGlobalLoadingMore(true)
+    else setGlobalStatus("loading")
     try {
       const url = new URL("/v1/ideas", base)
       url.searchParams.set("limit", "50")
+      url.searchParams.set("offset", String(Math.max(0, Math.min(100_000, Math.floor(offset)))))
       if (query.trim()) url.searchParams.set("q", query.trim().slice(0, 120))
       const response = await fetch(url, { signal: AbortSignal.timeout(8_000) })
       const payload: unknown = await response.json()
@@ -232,14 +240,32 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
           global: true,
         }]
       })
-      setGlobalIdeas(normalized)
-      setGlobalTotal(typeof data.total === "number" ? data.total : normalized.length)
+      setGlobalIdeas((previous) => {
+        if (!append) return normalized
+        const seen = new Set(previous.map((idea) => idea.id))
+        return [...previous, ...normalized.filter((idea) => !seen.has(idea.id))]
+      })
+      setGlobalTotal(typeof data.total === "number" ? Math.max(0, data.total) : normalized.length)
       setGlobalStatus("connected")
     } catch {
-      setGlobalIdeas([])
-      setGlobalTotal(0)
+      if (!append) {
+        setGlobalIdeas([])
+        setGlobalTotal(0)
+      }
       setGlobalStatus("error")
+    } finally {
+      setGlobalLoadingMore(false)
     }
+  }
+
+  const loadMoreGlobalIdeas = () => {
+    if (
+      globalLoadingMore() ||
+      globalStatus() !== "connected" ||
+      globalIdeas().length >= globalTotal()
+    )
+      return
+    void loadGlobalIdeas(globalQuery(), globalIdeas().length, true)
   }
 
   onMount(() => void loadGlobalIdeas())
@@ -594,6 +620,16 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef }; initial
             )}
           </For>
         </scrollbox>
+      </Show>
+      <Show when={globalStatus() === "connected" && globalIdeas().length < globalTotal()}>
+        <box flexDirection="row" justifyContent="center" gap={2}>
+          <HoverAction id="idea-bank.load-more" onClick={loadMoreGlobalIdeas} paddingLeft={1} paddingRight={1}>
+            <text fg={globalLoadingMore() ? theme.text.muted : theme.text.action.primary.base}>
+              {globalLoadingMore() ? t("Loading more ideas…") : t("Load more global ideas")}
+            </text>
+          </HoverAction>
+          <text fg={theme.text.muted}>{globalIdeas().length} / {globalTotal()}</text>
+        </box>
       </Show>
       <text fg={theme.text.muted} wrapMode="word">
         {t("Accepted ideas are published after automatic privacy, duplicate, and rate-limit checks. You can pause global sharing at any time.")}
