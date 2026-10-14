@@ -205,7 +205,7 @@ export function DialogIdeaBank() {
       "First check existing alternatives and evidence with sources. Separate verified facts from assumptions. Do not modify files yet; propose a small validation plan first.",
     ].filter(Boolean).join("\n")
     const current = prompt.current
-    current.set(current.current.text.trim() ? appendPrompt(current.current, draft) : draft)
+    current.set(appendPrompt(current.current, draft))
     dialog.clear()
     toast.show({ variant: "info", message: t("Idea added to prompt; review it and send when ready") })
   }
