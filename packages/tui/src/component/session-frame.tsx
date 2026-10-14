@@ -381,7 +381,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           width={
             canvas()
               ? stacked()
-                ? undefined
+                ? "100%"
                 : Math.max(0, canvasHostWidth() - noteChatResize.size())
               : 0
           }
@@ -417,8 +417,10 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
           width={
             fullscreen()
               ? Math.max(0, panels.width() - paneResize.size())
-              : canvas() && !stacked()
-                ? noteChatResize.size()
+              : canvas()
+                ? stacked()
+                  ? "100%"
+                  : noteChatResize.size()
                 : undefined
           }
           height="100%"
@@ -570,7 +572,7 @@ export function SessionFrame(props: { sessionID: string; verticalTabsWidth: numb
       <Show when={canvas() !== undefined && !stacked()}>
         <PaneResizeHandle
           resize={noteChatResize}
-          left={canvasHostWidth() - noteChatResize.size() - 1}
+          left={Math.max(0, canvasHostWidth() - noteChatResize.size() - 1)}
           highlight="right"
         />
       </Show>

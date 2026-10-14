@@ -29,8 +29,8 @@ export const SESSION_CHAT_MIN_WIDTH = 56
 
 // When a note is open, prefer the intended document-left/chat-right layout at
 // compact terminal widths; normal sessions still stack their auxiliary content sooner.
-export const NOTE_CANVAS_MIN_WIDTH = 48
-export const NOTE_CHAT_MIN_WIDTH = 48
+export const NOTE_CANVAS_MIN_WIDTH = 40
+export const NOTE_CHAT_MIN_WIDTH = 40
 
 // A canvas hidden in full-chat mode must not keep a flex share and leave a
 // blank column beside the chat.

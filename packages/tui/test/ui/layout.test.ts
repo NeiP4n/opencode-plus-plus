@@ -82,18 +82,18 @@ test("home panel resizing stays inside bounds and reserves room for the chat", (
 })
 
 test("a bound note stays centered with its chat on the right at compact widths", () => {
-  expect(sessionPanesStacked(95, true)).toBe(true)
-  expect(sessionPanesStacked(96, true)).toBe(false)
-  expect(sessionPanesStacked(110, true)).toBe(false)
+  expect(sessionPanesStacked(79, true)).toBe(true)
+  expect(sessionPanesStacked(80, true)).toBe(false)
+  expect(sessionPanesStacked(90, true)).toBe(false)
   expect(sessionPanesStacked(99, false)).toBe(true)
   expect(sessionPanesStacked(100, false)).toBe(false)
 })
 
 test("the note/chat divider keeps both columns readable and can move in either direction", () => {
-  expect(clampNoteChatWidth(10, 140)).toBe(48)
-  expect(clampNoteChatWidth(56, 140)).toBe(56)
-  expect(clampNoteChatWidth(120, 140)).toBe(92)
-  expect(clampNoteChatWidth(100, 96)).toBe(48)
+  expect(clampNoteChatWidth(10, 100)).toBe(40)
+  expect(clampNoteChatWidth(56, 100)).toBe(56)
+  expect(clampNoteChatWidth(120, 100)).toBe(60)
+  expect(clampNoteChatWidth(48, 80)).toBe(40)
 })
 
 test("a hidden note canvas releases its layout space to the chat", () => {
