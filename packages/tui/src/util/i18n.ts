@@ -67,7 +67,6 @@ const ru: Record<string, string> = {
   "Make instructions easier to find": "Упростить поиск инструкций",
   "Connect tools that do not work well together": "Связать инструменты, которые плохо работают вместе",
   Automation: "Автоматизация",
-  "Developer tools": "Инструменты разработчика",
   Productivity: "Продуктивность",
   "Education and documentation": "Образование и документация",
   Integrations: "Интеграции",
