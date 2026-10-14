@@ -86,3 +86,15 @@ export function classifyIdeaSignal(text: string): IdeaSignalKind | undefined {
     description: match.description,
   }
 }
+
+
+export const GLOBAL_SHARE_SUCCESS_COOLDOWN_MS = 24 * 60 * 60 * 1000
+export const GLOBAL_SHARE_RETRY_COOLDOWN_MS = 5 * 60 * 1000
+
+export function shouldAttemptGlobalShare(now: number, lastSharedAt: number, lastAttemptAt: number): boolean {
+  if (![now, lastSharedAt, lastAttemptAt].every(Number.isFinite)) return false
+  return (
+    now - lastSharedAt >= GLOBAL_SHARE_SUCCESS_COOLDOWN_MS &&
+    now - lastAttemptAt >= GLOBAL_SHARE_RETRY_COOLDOWN_MS
+  )
+}

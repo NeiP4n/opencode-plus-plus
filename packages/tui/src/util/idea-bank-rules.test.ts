@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { classifyIdeaSignal, looksSensitive } from "./idea-bank-rules"
+import { classifyIdeaSignal, looksSensitive, shouldAttemptGlobalShare } from "./idea-bank-rules"
 
 describe("Idea Bank local signal rules", () => {
   test("recognizes repetitive work in Russian without returning source text", () => {
@@ -60,5 +60,17 @@ describe("Idea Bank local signal rules", () => {
       kind: "Utility or workflow",
     })
     expect(Object.keys(result ?? {}).sort()).toEqual(["category", "description", "id", "kind", "title"])
+  })
+
+  test("global sharing backs off after failures and after successful submission", () => {
+    const day = 24 * 60 * 60 * 1000
+    const retry = 5 * 60 * 1000
+    const now = day * 3
+
+    expect(shouldAttemptGlobalShare(now, 0, 0)).toBe(true)
+    expect(shouldAttemptGlobalShare(now, now - retry + 1, 0)).toBe(false)
+    expect(shouldAttemptGlobalShare(now, 0, now - retry + 1)).toBe(false)
+    expect(shouldAttemptGlobalShare(now, 0, now - retry - 1)).toBe(true)
+    expect(shouldAttemptGlobalShare(Number.NaN, 0, 0)).toBe(false)
   })
 })
