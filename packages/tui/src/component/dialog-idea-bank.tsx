@@ -1,6 +1,8 @@
 import { TextAttributes } from "@opentui/core"
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useData } from "../context/data"
+import { usePromptRef } from "../context/prompt"
+import { appendPrompt, emptyPrompt } from "../prompt/history"
 import { useEvent } from "../context/event"
 import { useStorage } from "../context/storage"
 import { useTheme } from "../context/theme"
@@ -29,6 +31,8 @@ type IdeaBankState = {
   autoCaptureSince: number
   lastProcessedBySession: Record<string, { messageID: string; createdAt: number }>
   ideas: IdeaSignal[]
+  // Migration from earlier development snapshots; removed after state is next saved.
+  processedMessageIDs?: string[]
 }
 
 const STORE_KEY = "idea-bank"
@@ -151,13 +155,14 @@ export function DialogIdeaBank() {
   const toast = useToast()
   const dimensions = useTerminalDimensions()
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
+  const prompt = usePromptRef()
   // The bundled ideas make the bank useful before any private-session signals are collected.
   // They are inspiration only: no market demand or novelty is claimed to have been verified.
-  const ideas = createMemo(() => [...state.ideas, ...STARTER_IDEAS].sort((a, b) => {
+  const ideas = createMemo(() => [...(state.ideas ?? []), ...STARTER_IDEAS].sort((a, b) => {
     if (a.starter !== b.starter) return a.starter ? 1 : -1
     return b.signalCount - a.signalCount || b.updatedAt - a.updatedAt
   }))
-  const totalSignals = createMemo(() => state.ideas.reduce((sum, item) => sum + item.signalCount, 0))
+  const totalSignals = createMemo(() => (state.ideas ?? []).reduce((sum, item) => sum + item.signalCount, 0))
   const [clearArmed, setClearArmed] = createSignal(false)
   const bodyHeight = () => Math.max(5, Math.min(18, dimensions().height - 12))
 
@@ -172,6 +177,7 @@ export function DialogIdeaBank() {
         draft.autoCaptureSince = 0
         draft.lastProcessedBySession = {}
         draft.ideas = []
+        delete draft.processedMessageIDs
       })
       setClearArmed(false)
       toast.show({ variant: "success", message: t("Local Idea Bank data cleared") })
@@ -181,10 +187,35 @@ export function DialogIdeaBank() {
     }
   }
 
+  const useIdea = (idea: IdeaSignal) => {
+    if (!prompt.current) {
+      toast.show({ variant: "info", message: t("Open a prompt to use an idea") })
+      return
+    }
+    const draft = emptyPrompt()
+    draft.text = [
+      "Explore this project idea for OpenCode++.",
+      "",
+      "Idea: " + idea.title,
+      "Area: " + idea.category,
+      "Project type: " + idea.kind,
+      "Description: " + idea.description,
+      idea.nextStep ? "Suggested first step: " + idea.nextStep : "",
+      "",
+      "First check existing alternatives and evidence with sources. Separate verified facts from assumptions. Do not modify files yet; propose a small validation plan first.",
+    ].filter(Boolean).join("\n")
+    const current = prompt.current
+    current.set(current.current.text.trim() ? appendPrompt(current.current, draft) : draft)
+    dialog.clear()
+    toast.show({ variant: "info", message: t("Idea added to prompt; review it and send when ready") })
+  }
   const toggleCapture = () => {
     const enabled = !state.autoCapture
     void update((draft) => {
       draft.autoCapture = enabled
+      draft.ideas ??= []
+      draft.lastProcessedBySession ??= {}
+      delete draft.processedMessageIDs
       // Consent applies only to future messages. Enabling the feature never scans old chats.
       if (enabled) draft.autoCaptureSince = Date.now()
     }).catch((error) => {
@@ -271,6 +302,16 @@ export function DialogIdeaBank() {
                 <Show when={idea.nextStep}>
                   {(step) => <text fg={theme.text.muted} wrapMode="word">{t("Next step")}: {t(step())}</text>}
                 </Show>
+                <box flexDirection="row" justifyContent="flex-end">
+                  <HoverAction
+                    id={"idea-bank.use." + idea.id}
+                    onClick={() => useIdea(idea)}
+                    paddingLeft={1}
+                    paddingRight={1}
+                  >
+                    <text fg={theme.text.action.primary.base}>{t("Explore")}</text>
+                  </HoverAction>
+                </box>
                 <box height={1} border={["bottom"]} borderColor={theme.border.base} />
               </box>
             )}
@@ -304,7 +345,7 @@ export function IdeaBankCapture() {
       const messages = data.session.message.list(sessionID)
       if (!state.autoCapture || messages.length === 0) return
       const since = state.autoCaptureSince
-      const cursor = state.lastProcessedBySession[sessionID]
+      const cursor = state.lastProcessedBySession?.[sessionID]
       let fresh = messages.slice(0)
 
       // Walk backward from the end and stop at the last cursor (or the consent time).
@@ -341,6 +382,9 @@ export function IdeaBankCapture() {
 
       await update((draft) => {
         if (!draft.autoCapture) return
+        draft.ideas ??= []
+        draft.lastProcessedBySession ??= {}
+        delete draft.processedMessageIDs
         for (const candidate of candidates) {
           if (!candidate.signal) continue
           const now = Date.now()
