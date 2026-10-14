@@ -55,6 +55,24 @@ OPENCODE_IDEA_BANK_URL=https://opencode-idea-bank.<your-account>.workers.dev
 
 Restart OpenCode++ after changing the environment variable. If it is not set, the built-in tool explains how to configure it instead of silently contacting some other server.
 
+On Windows PowerShell, set the variable in the same terminal before launching OpenCode++:
+
+```powershell
+$env:OPENCODE_IDEA_BANK_URL = "https://opencode-idea-bank.<your-account>.workers.dev"
+```
+
+In Windows Command Prompt:
+
+```bat
+set "OPENCODE_IDEA_BANK_URL=https://opencode-idea-bank.<your-account>.workers.dev"
+```
+
+On Linux/macOS:
+
+```sh
+export OPENCODE_IDEA_BANK_URL="https://opencode-idea-bank.<your-account>.workers.dev"
+```
+
 ## API
 
 - `GET /v1/health` — service health.

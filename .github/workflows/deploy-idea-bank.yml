@@ -83,8 +83,34 @@ jobs:
           printf '%s' "$RATE_LIMIT_SALT" | bunx wrangler secret put RATE_LIMIT_SALT
 
       - name: Deploy shared Idea Bank API
+        id: deploy
         working-directory: services/idea-bank
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: bun run deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run deploy 2>&1 | tee "$RUNNER_TEMP/idea-bank-deploy.log"
+          url="$(grep -Eo 'https://[[:alnum:].-]+\\.workers\\.dev' "$RUNNER_TEMP/idea-bank-deploy.log" | tail -n 1 || true)"
+          if [[ -z "$url" ]]; then
+            echo "::error::Could not read the workers.dev URL from the deployment output"
+            exit 1
+          fi
+          echo "base_url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Verify deployed API health
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.base_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..10}; do
+            if curl --fail --silent --max-time 5 "$BASE_URL/v1/health"; then
+              echo
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::The Idea Bank Worker did not pass its /v1/health smoke test"
+          exit 1
