@@ -95,6 +95,7 @@ function resourceServer(
     listChanged?: boolean
     emptyElicitation?: boolean
     urlElicitation?: boolean
+    readOnly?: boolean
     respond?: (request: Request) => Response | undefined | Promise<Response | undefined>
   } = {},
 ) {
@@ -146,7 +147,7 @@ function resourceServer(
               ? [{ name: "empty-elicitation", inputSchema: { type: "object" as const, properties: {} } }]
               : input.urlElicitation
                 ? [{ name: "url-elicitation", inputSchema: { type: "object" as const, properties: {} } }]
-                : [{ name: "echo", inputSchema: { type: "object" as const, properties: {} } }],
+                : [{ name: "echo", inputSchema: { type: "object" as const, properties: {} }, ...(input.readOnly ? { annotations: { readOnlyHint: true } } : {}) }],
           })
         })
         if (input.emptyElicitation) {
@@ -885,6 +886,39 @@ test("closes a stdio process that finishes spawning after close", async () => {
   )
 
   expect(signals).toEqual(["SIGTERM"])
+})
+
+test("retries transient failures only for read-only MCP tool calls", async () => {
+  for (const readOnly of [true, false]) {
+    let attempts = 0
+    const result = Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* resourceServer({
+            readOnly,
+            respond: async (request) => {
+              if (request.method !== "POST") return
+              const body: unknown = await request.clone().json().catch(() => undefined)
+              if (typeof body !== "object" || body === null || !("method" in body) || body.method !== "tools/call") return
+              attempts += 1
+              if (attempts === 1) return new Response("temporarily unavailable", { status: 503 })
+              return
+            },
+          })
+          const connection = yield* connect("readonly-retry", new ConfigMCP.Remote({ type: "remote", url: server.url, oauth: false }), import.meta.dir)
+          expect((yield* connection.tools())[0]?.annotations?.readOnlyHint === true).toBe(readOnly)
+          const outcome = yield* connection.callTool({ name: "echo", readOnly }).pipe(Effect.exit)
+          if (readOnly) {
+            expect(Exit.isSuccess(outcome)).toBe(true)
+          } else {
+            expect(Exit.isFailure(outcome)).toBe(true)
+          }
+        }),
+      ),
+    )
+    await expect(result).resolves.toBeUndefined()
+    expect(attempts).toBe(readOnly ? 2 : 1)
+  }
 })
 
 test("applies the configured MCP catalog timeout", async () => {

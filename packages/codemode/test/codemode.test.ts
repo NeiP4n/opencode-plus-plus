@@ -9,6 +9,13 @@ class HostError extends Schema.TaggedError<HostError>()("HostError", {
   message: Schema.String,
 }) {}
 
+describe("CodeMode output helpers", () => {
+  test("supports text() as captured output instead of an unknown global", async () => {
+    const result = await Effect.runPromise(CodeMode.make({ tools: {} }).execute('text("DoD search started", 2)'))
+    expect(result).toMatchObject({ ok: true, logs: ["DoD search started 2"] })
+  })
+})
+
 describe("CodeMode host failure boundary", () => {
   test("preserves explicit tool failures", async () => {
     const result = await run(
