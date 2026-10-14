@@ -423,22 +423,5 @@ export function IdeaBankCapture() {
   })
   onCleanup(unsubscribe)
 
-  return (
-    <box position="absolute" bottom={0} right={6} zIndex={2500}>
-      <HoverAction
-        id="idea-bank.footer"
-        onClick={() => dialog.replace(() => <DialogIdeaBank />)}
-        paddingLeft={1}
-        paddingRight={1}
-      >
-        <text
-          fg={theme.text.action.primary.base}
-          backgroundColor={theme.decrease(theme.background.base)}
-          wrapMode="none"
-        >
-          {dimensions().width >= 112 ? "✦ " + t("Ideas") : "✦"}
-        </text>
-      </HoverAction>
-    </box>
-  )
+  return null
 }

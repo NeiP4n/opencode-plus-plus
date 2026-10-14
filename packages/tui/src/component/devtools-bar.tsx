@@ -26,6 +26,7 @@ import { openProjectDialog } from "./dialog-project"
 import { openTeamEditor } from "./dialog-teams"
 import { useProjects } from "../context/projects"
 import { DialogExperiments } from "./dialog-experiments"
+import { DialogIdeaBank } from "./dialog-idea-bank"
 import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -330,6 +331,9 @@ export function DevToolsBar() {
             </Show>
           </PanelBox>
         </Show>
+      </BarItem>
+      <BarItem active={false} onClick={() => openDialog(() => <DialogIdeaBank />)}>
+        <text fg={theme.text.muted}>✦ {t("Ideas")}</text>
       </BarItem>
       <BarItem active={panel() === "ui"} onClick={() => toggle("ui")}>
         <text
