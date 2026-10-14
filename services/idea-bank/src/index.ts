@@ -1,4 +1,4 @@
-import { clean, hasSensitiveContent, validLanguage } from "./policy"
+import { clean, hasSensitiveContent, normalizeSearchText, validLanguage } from "./policy"
 
 interface Env {
   DB: D1Database
@@ -88,10 +88,9 @@ async function listIdeas(request: Request, env: Env) {
   // Search individual terms rather than requiring the exact phrase. This behaves
   // better with natural-language queries issued by the chat agent, while retaining
   // bounded work and parameterized SQL.
-  const terms = query.split(/\s+/).filter((term) => term.length > 1).slice(0, 8)
-  const searchable = "lower(title || ' ' || summary || ' ' || category || ' ' || tags)"
+  const terms = normalizeSearchText(query).split(/\s+/).filter((term) => term.length > 1).slice(0, 8)
   for (const term of terms) {
-    clauses.push(`instr(${searchable}, lower(?)) > 0`)
+    clauses.push("instr(search_text, ?) > 0")
     bindings.push(term)
   }
   if (category) {
@@ -217,12 +216,13 @@ async function submitIdea(request: Request, env: Env) {
     return json({ error: "A matching idea already exists", existingId: duplicate.id, status: duplicate.status }, 409)
   }
   const id = crypto.randomUUID()
+  const searchText = normalizeSearchText([title, summary, category, ...tags].join(" "))
   await env.DB.prepare(
     `INSERT INTO ideas
-      (id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, signal_count, reviewed_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, 1, ?)`,
+      (id, title, summary, category, tags, language, status, submitter_hash, content_hash, created_at, updated_at, signal_count, reviewed_at, search_text)
+     VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, 1, ?, ?)`,
   )
-    .bind(id, title, summary, category, JSON.stringify(tags), language, submitterHash, contentHash, now, now, now)
+    .bind(id, title, summary, category, JSON.stringify(tags), language, submitterHash, contentHash, now, now, now, searchText)
     .run()
 
   return json({ id, status: "published", signalCount: 1, message: "Idea added to the public global bank after privacy and duplicate checks." }, 201)

@@ -25,3 +25,7 @@ export function hasSensitiveContent(value: string) {
 export function validLanguage(value: string) {
   return /^[a-z]{2}(?:-[A-Z]{2})?$/.test(value)
 }
+
+export function normalizeSearchText(value: string) {
+  return value.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim().slice(0, 3500)
+}

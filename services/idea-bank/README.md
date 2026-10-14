@@ -56,7 +56,7 @@ Restart OpenCode++ after changing the environment variable. If it is not set, th
 ## API
 
 - `GET /v1/health` — service health.
-- `GET /v1/ideas?q=translation&limit=20` — search published ideas; also supports `category`, `language`, and `offset`.
+- `GET /v1/ideas?q=translation&limit=20` — search published ideas using Unicode-normalized terms, including Cyrillic; also supports `category`, `language`, and `offset`.
 - `GET /v1/ideas/:id` — retrieve one published idea.
 - `POST /v1/ideas` — share an idea with `consent: true`; returns `201` and status `published`. Duplicate content returns the existing id and increments `signalCount`.
 - `GET /v1/admin/submissions` — list pending entries; requires `Authorization: Bearer <IDEA_BANK_ADMIN_TOKEN>`.

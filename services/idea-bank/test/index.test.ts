@@ -149,6 +149,14 @@ describe("Global Idea Bank API", () => {
     expect(updateIndex).toBeGreaterThan(quotaIndex)
   })
 
+  test("normalizes Cyrillic queries before binding database search terms", async () => {
+    const mock = makeDB({ total: 1, items: [] })
+    const response = await Worker.fetch(request("/v1/ideas?q=%D0%9F%D0%95%D0%A0%D0%95%D0%92%D0%9E%D0%94%20%D0%98%D0%93%D0%A0%D0%AB"), env(mock.db))
+    expect(response.status).toBe(200)
+    const search = mock.queries.find((item) => item.sql.includes("instr(search_text, ?)"))
+    expect(search?.bindings.slice(0, 2)).toEqual(["перевод", "игры"])
+  })
+
   test("rejects contributions after the daily quota without inserting an idea", async () => {
     const mock = makeDB({ quota: null })
     const response = await Worker.fetch(
@@ -188,7 +196,7 @@ describe("Global Idea Bank API", () => {
       total: 1,
       items: [{ id: "idea-123", signalCount: 4, title: "Translate an old game" }],
     })
-    const search = mock.queries.find((item) => item.sql.includes("instr(lower(title"))
+    const search = mock.queries.find((item) => item.sql.includes("instr(search_text, ?)"))
     expect(search?.bindings.slice(0, 3)).toEqual(["translate", "old", "game"])
   })
 })

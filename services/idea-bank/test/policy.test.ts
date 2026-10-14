@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { clean, hasSensitiveContent, validLanguage } from "../src/policy"
+import { clean, hasSensitiveContent, normalizeSearchText, validLanguage } from "../src/policy"
 
 describe("Idea Bank input policy", () => {
   it("normalizes control characters and whitespace before enforcing length", () => {
@@ -28,6 +28,11 @@ describe("Idea Bank input policy", () => {
     expect(
       hasSensitiveContent("Build a local tool that explains API-key rotation without storing credentials."),
     ).toBe(false)
+  })
+
+  it("normalizes English and Cyrillic search text consistently", () => {
+    expect(normalizeSearchText("  ПЕРЕВОД   ИГРЫ  ")).toBe("перевод игры")
+    expect(normalizeSearchText("ＡＰＩ   TOOL")).toBe("api tool")
   })
 
   it("accepts only simple supported language tags", () => {

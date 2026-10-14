@@ -6,6 +6,7 @@ const migrationFiles = [
   "0001_init.sql",
   "0002_seed_content_hashes.sql",
   "0003_global_signal_counts.sql",
+  "0004_unicode_search_text.sql",
 ]
 
 describe("Global Idea Bank database migrations", () => {
@@ -24,6 +25,11 @@ describe("Global Idea Bank database migrations", () => {
       expect(seeds).toHaveLength(8)
       expect(new Set(seeds.map((idea) => idea.content_hash)).size).toBe(8)
       expect(seeds.every((idea) => idea.signal_count === 1)).toBe(true)
+
+      const searchSeed = db.query("SELECT search_text FROM ideas WHERE id = 'seed-accessibility-audit'").get() as
+        | { search_text: string }
+        | null
+      expect(searchSeed?.search_text).toContain("accessibility")
 
       const rateTable = db.query(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'submission_rate_limits'",
