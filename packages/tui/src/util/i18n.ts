@@ -46,10 +46,6 @@ const ru: Record<string, string> = {
   "Turn token usage (verbose)": "Токены за ход (подробно)",
   // Side panels, prompt and footer
   // Idea Bank
-  "Pause": "Пауза",
-  "Enable": "Включить",
-  "Search": "Поиск",
-  "Explore": "Изучить",
   "Refresh": "Обновить",
   "Search global ideas": "Поиск по глобальному банку",
   "Search by topic, tool, or problem": "Ищи по теме, инструменту или проблеме",
