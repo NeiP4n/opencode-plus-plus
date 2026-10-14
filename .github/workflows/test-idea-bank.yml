@@ -5,6 +5,7 @@ on:
     branches:
       - lan-rooms
       - main
+      - feature/idea-bank-mvp
     paths:
       - ".github/workflows/test-idea-bank.yml"
       - ".github/actions/setup-bun/**"
