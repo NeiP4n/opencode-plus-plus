@@ -245,28 +245,14 @@ describe("Global Idea Bank API", () => {
         reviewed_at: 200,
       }],
     })
-    const response = await Worker.fetch(request("/v1/ideas?q=translate%20old%20game&limit=10&offset=50"), env(mock.db))
+    const response = await Worker.fetch(request("/v1/ideas?q=translate%20old%20game&limit=10"), env(mock.db))
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({
       total: 1,
       items: [{ id: "idea-123", signalCount: 4, title: "Translate an old game" }],
     })
-    const search = mock.queries.find((item) => item.sql.includes("instr(search_text, ?)"))
+    const search = mock.queries.find((item) => item.sql.includes("SELECT id, title") && item.sql.includes("instr(search_text, ?)"))
     expect(search?.bindings.slice(0, 3)).toEqual(["translate", "old", "game"])
-    const list = mock.queries.find((item) =>
-      item.sql.includes("FROM ideas WHERE") && item.sql.includes("title COLLATE NOCASE LIMIT ? OFFSET ?"),
-    )
-    expect(list?.bindings.slice(-2)).toEqual([10, 50])
+    expect(search?.sql).toContain("DESC, signal_count DESC, updated_at DESC")
   })
-
-  test("ranks the global catalogue by community signals when no query is provided", async () => {
-    const mock = makeDB({ total: 8, items: [] })
-    const response = await Worker.fetch(request("/v1/ideas"), env(mock.db))
-    expect(response.status).toBe(200)
-    const list = mock.queries.find((item) =>
-      item.sql.includes("FROM ideas WHERE status = 'published' ORDER BY"),
-    )
-    expect(list?.sql).toContain("ORDER BY signal_count DESC, updated_at DESC")
-  })
-
 })

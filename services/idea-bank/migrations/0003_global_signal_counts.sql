@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS submission_rate_limits (
   PRIMARY KEY (submitter_hash, window_start)
 );
 
+CREATE INDEX IF NOT EXISTS ideas_search_order ON ideas(status, signal_count DESC, updated_at DESC);
+
 UPDATE ideas
 SET signal_count = 1
 WHERE status = 'published' AND signal_count = 0;
