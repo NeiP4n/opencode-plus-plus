@@ -29,6 +29,25 @@ describe("Idea Bank local signal rules", () => {
     )
   })
 
+  test("recognizes broader opportunity types without using an LLM", () => {
+    expect(classifyIdeaSignal("I want a local-first tool because I don't want to upload these files to the cloud.")?.id).toBe(
+      "local-privacy",
+    )
+    expect(classifyIdeaSignal("There is no translation and this game is not available in my language.")?.id).toBe(
+      "localization",
+    )
+    expect(classifyIdeaSignal("The app is impossible to use with a screen reader.")?.id).toBe("accessibility")
+    expect(classifyIdeaSignal("I have to monitor this every day and need an alert when it changes.")?.id).toBe(
+      "monitoring",
+    )
+    expect(classifyIdeaSignal("I don't understand this topic and need an interactive tutorial to practice.")?.id).toBe(
+      "learning",
+    )
+    expect(classifyIdeaSignal("Preparing these reports means cleaning data and merging spreadsheets every week.")?.id).toBe(
+      "data-work",
+    )
+  })
+
   test("ignores short, long, and unrelated text", () => {
     expect(classifyIdeaSignal("неудобно")).toBeUndefined()
     expect(classifyIdeaSignal("Build a linked list from these values please.")).toBeUndefined()
@@ -44,6 +63,7 @@ describe("Idea Bank local signal rules", () => {
       "Server 192.168.1.44 does not work and is frustrating.",
       "-----BEGIN PRIVATE KEY-----\nsecret material\n-----END PRIVATE KEY-----",
       "Use token: abcdefghijklmnopqrstuvwxyz when the repeated job fails.",
+      "The decoded session is eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signaturevalue12345.",
     ]
     for (const text of sensitive) {
       expect(looksSensitive(text)).toBe(true)
