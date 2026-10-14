@@ -75,6 +75,8 @@ import { PromptMetadataRow } from "./metadata"
 import { Mascot, type MascotState } from "../mascot"
 import { MASCOT_WIDTH } from "../../ui/mascot-sprite"
 import { useT } from "../../util/i18n"
+import { HoverAction } from "../hover-action"
+import { DialogIdeaBank } from "../dialog-idea-bank"
 
 export type PromptProps = {
   sessionID?: string
@@ -1997,6 +1999,14 @@ export function Prompt(props: PromptProps) {
               </Show>
             </Slot>
           </Slot>
+          <HoverAction
+            id="idea-bank.open"
+            onClick={() => dialog.replace(() => <DialogIdeaBank />)}
+            paddingLeft={1}
+            paddingRight={1}
+          >
+            <text fg={theme.text.action.primary.base}>{"✦ " + t("Ideas")}</text>
+          </HoverAction>
         </box>
       </box>
       <Autocomplete
