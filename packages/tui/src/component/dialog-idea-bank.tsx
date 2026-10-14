@@ -333,6 +333,10 @@ export function DialogIdeaBank() {
 export function IdeaBankCapture() {
   const data = useData()
   const events = useEvent()
+  const dialog = useDialog()
+  const theme = useTheme()
+  const t = useT()
+  const dimensions = useTerminalDimensions()
   const [state, update] = useStorage().store<IdeaBankState>(STORE_KEY, { initial: INITIAL, key: "id" })
   const busy = new Set<string>()
 
@@ -418,5 +422,23 @@ export function IdeaBankCapture() {
     void capture(event.data.sessionID)
   })
   onCleanup(unsubscribe)
-  return null
+
+  return (
+    <box position="absolute" bottom={0} right={6} zIndex={2500}>
+      <HoverAction
+        id="idea-bank.footer"
+        onClick={() => dialog.replace(() => <DialogIdeaBank />)}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        <text
+          fg={theme.text.action.primary.base}
+          backgroundColor={theme.decrease(theme.background.base)}
+          wrapMode="none"
+        >
+          {dimensions().width >= 112 ? "✦ " + t("Ideas") : "✦"}
+        </text>
+      </HoverAction>
+    </box>
+  )
 }
