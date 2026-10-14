@@ -48,7 +48,6 @@ const ru: Record<string, string> = {
   // Idea Bank
   "Search global ideas": "Поиск по глобальному банку",
   "Search by topic, tool, or problem": "Ищи по теме, инструменту или проблеме",
-  Search: "Искать",
   "Clear search": "Сбросить поиск",
   "Search results for": "Результаты поиска",
   "Automatic global sharing is on": "Автоматическая отправка в общий банк включена",
