@@ -57,7 +57,7 @@ jobs:
         run: bun run --cwd packages/tui typecheck
 
       - name: Test Idea Bank prompt and signal rules
-        run: bun test packages/tui/src/util/idea-bank-prompt.test.ts packages/tui/src/util/idea-bank-rules.test.ts
+        run: bun run --cwd packages/tui test src/util/idea-bank-prompt.test.ts src/util/idea-bank-rules.test.ts
 
       - name: Test API, privacy policy, and migrations
         working-directory: services/idea-bank
