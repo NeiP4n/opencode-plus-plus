@@ -9,6 +9,7 @@ This is the shared service for community ideas. It runs separately from each Ope
 - The database stores the submitted title, summary, category, tags, language, timestamps, a daily-rotating salted IP hash used for rate limiting, and a duplicate-detection hash. It does not store the source chat or raw IP address.
 - The quota is five contribution attempts per IP per UTC day. Its salted pseudonymous hash rotates daily; the counter increments atomically and duplicate submissions count too. This is a UTC-day quota, not a rolling 24-hour window.
 - Credentials, emails, URLs, IP addresses, and common home-directory paths are rejected. This filter helps catch accidental disclosure but is not a guarantee that arbitrary text is anonymous.
+- Public idea fields are still untrusted user content even after validation. The chat tool warns the model not to obey instructions embedded inside entries, and the TUI wraps shared idea text as JSON before adding it to a prompt. These mitigations reduce prompt-injection risk but cannot guarantee perfect detection.
 - The built-in AI tool can search, get a single idea, and submit an idea. It must not submit unless the user explicitly asks to share it. A separate TUI toggle enables automatic contribution of fixed, predefined idea categories inferred by local rules; it is off by default and never sends the source message or transcript. Global sharing can be paused at any time.
 - A seed catalogue is included so new deployments are useful immediately.
 
