@@ -56,60 +56,6 @@ const SIGNAL_KINDS: SignalRule[] = [
     pattern:
       /(?:\b(?:can't sync|doesn't sync|no integration|moving data between|integrate.{0,40}with)\b|не синхронизир|переносить данные между|интеграци)/iu,
   },
-  {
-    id: "local-privacy",
-    title: "Keep a useful workflow private and local",
-    category: "Privacy",
-    kind: "Local-first tool",
-    description: "A workflow that should not send sensitive material to a cloud service may benefit from a local-first implementation.",
-    pattern:
-      /(?:\b(?:keep.{0,30}(?:local|private)|without uploading|on[- ]device|local[- ]first|don't want.{0,40}(?:cloud|upload))\b|не хочу загружать|локальн.{0,20}(?:решение|инструмент)|без облака|без отправки данных)/iu,
-  },
-  {
-    id: "localization",
-    title: "Make software work across languages",
-    category: "Localization",
-    kind: "Translation or language tool",
-    description: "Repeated language barriers may point to better translation, localization, or multilingual interfaces.",
-    pattern:
-      /(?:\b(?:translate|translation|locali[sz]ation|language barrier|not available in my language)\b|перевод|перевести|локализаци|нет на моём языке|языковой барьер)/iu,
-  },
-  {
-    id: "accessibility",
-    title: "Make a workflow easier to use for more people",
-    category: "Accessibility",
-    kind: "Accessibility tool",
-    description: "A recurring accessibility barrier may indicate an opportunity for a more inclusive interface or assistive tool.",
-    pattern:
-      /(?:\b(?:accessibility|accessible|screen reader|keyboard[- ]only|hard to see|hard to hear|assistive)\b|доступност|экранн(?:ый|ого) диктор|только клавиатур|плохо вижу|плохо слышу|ассистив)/iu,
-  },
-  {
-    id: "monitoring",
-    title: "Turn a recurring problem into a useful monitor",
-    category: "Monitoring and analytics",
-    kind: "Dashboard or alerting tool",
-    description: "A problem that is noticed repeatedly may be easier to solve by detecting it earlier and explaining the trend.",
-    pattern:
-      /(?:\b(?:keep checking|have to monitor|watch this manually|no visibility|need an alert|hard to track|trend)\b|приходится проверять|нужно следить|нет видимости|нужн.{0,20}(?:алерт|уведомлен)|сложно отслеживать|динамик)/iu,
-  },
-  {
-    id: "learning",
-    title: "Turn a difficult topic into an interactive learning tool",
-    category: "Education",
-    kind: "Learning tool",
-    description: "A topic that repeatedly feels difficult may benefit from an interactive explanation, practice tool, or simulator.",
-    pattern:
-      /(?:\b(?:hard to learn|don't understand|need to practice|interactive tutorial|practice tool|simulator)\b|сложно понять|не понимаю|нужно практиковаться|интерактивн.{0,20}(?:обуч|урок)|тренажёр|симулятор)/iu,
-  },
-  {
-    id: "data-work",
-    title: "Simplify repeated data preparation or reporting",
-    category: "Data and reporting",
-    kind: "Data utility",
-    description: "Repeated cleaning, formatting, or reporting work may be a good target for a focused data tool.",
-    pattern:
-      /(?:\b(?:cleaning data|formatting data|prepare reports|reporting takes|merge spreadsheets|csv|data entry)\b|обработк.{0,20}данн|подготовк.{0,20}отч[её]т|сводить таблиц|ввод данных|таблиц.{0,20}вручную)/iu,
-  },
 ]
 
 // This is a conservative safety filter, not a guarantee that arbitrary text is anonymous.
@@ -122,7 +68,6 @@ const SENSITIVE = [
   /https?:\/\/\S+/iu,
   /(?:[A-Z]:\\Users\\|\/home\/[^/\s]+\/|\/Users\/[^/\s]+\/)/iu,
   /\b(?:\d{1,3}\.){3}\d{1,3}\b/u,
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/u,
 ]
 
 export function looksSensitive(text: string): boolean {
@@ -141,6 +86,7 @@ export function classifyIdeaSignal(text: string): IdeaSignalKind | undefined {
     description: match.description,
   }
 }
+
 
 export const GLOBAL_SHARE_SUCCESS_COOLDOWN_MS = 24 * 60 * 60 * 1000
 export const GLOBAL_SHARE_RETRY_COOLDOWN_MS = 5 * 60 * 1000
