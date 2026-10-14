@@ -153,6 +153,26 @@ function createdMillis(value: unknown) {
   return Date.parse(String(value))
 }
 
+function globalBase() {
+  const configured = process.env.OPENCODE_IDEA_BANK_URL?.trim()
+  if (!configured) return undefined
+  try {
+    const url = new URL(configured)
+    if (
+      url.username ||
+      url.password ||
+      (url.protocol !== "https:" &&
+        url.hostname !== "localhost" &&
+        url.hostname !== "127.0.0.1" &&
+        url.hostname !== "[::1]")
+    )
+      return undefined
+    return url.origin
+  } catch {
+    return undefined
+  }
+}
+
 export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
@@ -163,25 +183,6 @@ export function DialogIdeaBank(props: { prompt: { current?: PromptRef } }) {
   const prompt = props.prompt
   // The bundled ideas make the bank useful before any private-session signals are collected.
   // They are inspiration only: no market demand or novelty is claimed to have been verified.
-  const globalBase = () => {
-    const configured = process.env.OPENCODE_IDEA_BANK_URL?.trim()
-    if (!configured) return undefined
-    try {
-      const url = new URL(configured)
-      if (
-        url.username ||
-        url.password ||
-        (url.protocol !== "https:" &&
-          url.hostname !== "localhost" &&
-          url.hostname !== "127.0.0.1" &&
-          url.hostname !== "[::1]")
-      )
-        return undefined
-      return url.origin
-    } catch {
-      return undefined
-    }
-  }
   const [globalIdeas, setGlobalIdeas] = createSignal<IdeaSignal[]>([])
   const [globalStatus, setGlobalStatus] = createSignal<"loading" | "connected" | "not-configured" | "error">("loading")
   const [globalTotal, setGlobalTotal] = createSignal(0)
