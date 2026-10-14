@@ -88,6 +88,8 @@ const table: Record<string, Factory> = {
   tools: () => new ToolReference([]),
   search: (ctx) =>
     native(ctx.builtins, { name: "search", call: (_, args) => ctx.tool(ctx.tools.search, args), callback: false }),
+  // Common CodeMode output helper; keep output in the same bounded channel as console.log.
+  text: (ctx) => get(consoleGlobal(ctx), "log"),
   undefined: () => undefined,
   NaN: () => NaN,
   Infinity: () => Infinity,

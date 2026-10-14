@@ -55,7 +55,8 @@ const describe = (error: unknown) => {
 const isTransient = (error: unknown) =>
   error instanceof SdkHttpError
     ? error.status === 408 || error.status === 429 || (error.status >= 500 && error.status !== 501)
-    : error instanceof TypeError && "code" in error
+    : (error instanceof TypeError && "code" in error) ||
+      (error instanceof Error && /timed out waiting for response headers/i.test(error.message))
 
 export type { GetPromptResult, Prompt, ReadResourceResult, Resource, Tool }
 export type ResourceTemplate = ResourceTemplateType
@@ -129,6 +130,8 @@ export interface Connection {
     readonly name: string
     readonly args?: Record<string, unknown>
     readonly sessionID?: Session.ID
+    /** Retry only when the server explicitly advertises this tool as read-only. */
+    readonly readOnly?: boolean
   }) => Effect.Effect<CallToolResult, Error>
   readonly onClose: (callback: (reason: string) => void) => void
   readonly onSessionExpired: (callback: () => void) => void
@@ -349,18 +352,27 @@ export const connect = Effect.fnUntraced(function* (
         request("get MCP prompt", (signal) =>
           client.getPrompt({ name: input.name, arguments: input.args ?? {} }, { signal, timeout: execution }),
         ),
-      callTool: (input) =>
-        request("call MCP tool", (signal) =>
+      callTool: (input) => {
+        const run = (signal: AbortSignal) =>
           client.callTool(
             {
               name: input.name,
               arguments: input.args ?? {},
               ...(input.sessionID === undefined ? {} : { _meta: { "ai.opencode/sessionID": input.sessionID } }),
             },
-            // Requesting progress keeps long calls alive under the SDK's timeout; execution is the hard wall.
+            // Requesting progress keeps long calls active; the execution timeout remains the hard wall.
             { signal, timeout: execution, onprogress: () => {} },
-          ),
-        ).pipe(Effect.map(toCallToolResult)),
+          )
+        const operation = input.readOnly
+          ? retrying("call read-only MCP tool", Effect.tryPromise({ try: run, catch: (error) => error })).pipe(
+              Effect.mapError(failure),
+              Effect.tapError((error) =>
+                Effect.logWarning("failed to call read-only MCP tool", { server, error: error.message }),
+              ),
+            )
+          : request("call MCP tool", run)
+        return operation.pipe(Effect.map(toCallToolResult))
+      },
       onClose: (callback) => {
         client.onclose = () => callback(lastError ? `Connection closed: ${lastError}` : "Connection closed")
       },

@@ -1441,6 +1441,14 @@ describe("ShellTool", () => {
               status: "error",
               error: { message: expect.stringContaining("Not valid Nushell: The '&&' operator is not supported") },
             })
+            const mkdirFlag = yield* executeTool(registry, call({ command: "mkdir -p mini-skill-dir" }, "call-nu-mkdir-p"))
+            expect(mkdirFlag).toMatchObject({
+              status: "error",
+              error: {
+                message: expect.stringContaining("Nushell mkdir creates parent directories; remove the POSIX -p flag."),
+              },
+            })
+
             const native = yield* executeTool(registry, call({ command: "[1 2 3] | length" }, "call-nu-native"))
             expect(native.metadata).toMatchObject({ exit: 0, shell: "nu" })
             expect(native.content?.[0]).toEqual({ type: "text", text: "3\n" })
