@@ -782,6 +782,10 @@ export function DialogConnect(props: { onClose?: () => void }) {
   }
 
   const chooseMesh = (mesh: FoundMesh & { seedURL: string; host: string }) => {
+    const previous = selectedMesh()
+    // Never silently reuse a token pasted for a different discovered Mesh.
+    if (previous?.clusterID !== mesh.clusterID && fields.meshToken && !fields.meshToken.isDestroyed)
+      fields.meshToken.value = ""
     setSelectedMesh(mesh)
     setJoinError()
     setTimeout(() => {
@@ -792,7 +796,9 @@ export function DialogConnect(props: { onClose?: () => void }) {
 
   const joinMesh = () => {
     const mesh = selectedMesh()
-    const token = fields.meshToken?.value.trim() ?? ""
+    // Base64url invite tokens never contain whitespace; remove it in case a terminal
+    // paste inserted spaces or line breaks.
+    const token = fields.meshToken?.value.replace(/\s+/g, "") ?? ""
     const url = fields.meshURL?.value.trim() || ownMeshAddress()
     if (!mesh) return setJoinError(t("Select a Mesh room from the network list first."))
     if (!token) return setJoinError(t("Paste the invitation token from the Mesh creator."))
@@ -806,7 +812,19 @@ export function DialogConnect(props: { onClose?: () => void }) {
         dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
         dialog.setCentered(true)
       })
-      .catch((error: unknown) => setJoinError(errorMessage(error)))
+      .catch((error: unknown) => {
+        const message = errorMessage(error)
+        if (message.includes("Mesh credential is invalid")) {
+          setJoinError(
+            t("The invitation token was rejected by {address} for Mesh {id}. Re-copy the current token from that room's owner and retry.", {
+              address: mesh.seedURL,
+              id: mesh.clusterID,
+            }),
+          )
+          return
+        }
+        setJoinError(message)
+      })
       .finally(() => setBusy(false))
   }
 
