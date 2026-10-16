@@ -125,7 +125,8 @@ export type Origin = typeof Origin.Type
 // Tools: `tools` lists the tools (permission actions such as read, edit, shell, hub, browser,
 // or an MCP pattern such as context7_*) the role may use; absent means every tool. With
 // `autoTools` the Orchestrator may narrow them further for a single task. `hub` lists the
-// Registry (hub) categories the role may run; absent means all of them.
+// Registry (hub) categories the role may run; absent means all of them. `registry` lists the
+// installed Registry programs (git, ffmpeg, adb, ...) the role may use; absent means every one.
 export const RoleSpec = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
@@ -137,6 +138,7 @@ export const RoleSpec = Schema.Struct({
   tools: Schema.Array(Schema.String).pipe(Schema.optional),
   autoTools: Schema.Boolean.pipe(Schema.optional),
   hub: Schema.Array(Schema.String).pipe(Schema.optional),
+  registry: Schema.Array(Schema.String).pipe(Schema.optional),
 }).annotate({ identifier: "Orchestra.RoleSpec" })
 export interface RoleSpec extends Schema.Schema.Type<typeof RoleSpec> {}
 
@@ -149,6 +151,7 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "hub", name: "Registry", actions: ["hub"] },
   { id: "web", name: "Web", actions: ["webfetch", "websearch"] },
   { id: "browser", name: "Browser", actions: ["browser"] },
+  { id: "desktop", name: "Desktop", actions: ["desktop"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
 ]

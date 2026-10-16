@@ -13,6 +13,8 @@ import { useT } from "../util/i18n"
 import { Button } from "./devtools-registry"
 import { Orchestra } from "@opencode/schema/orchestra"
 import { Hub } from "@opencode/core/hub/index"
+import { hubRegistryStatus } from "../util/hub-registry"
+import { McpCatalog } from "@opencode/core/mcp/catalog"
 
 // The team editor: the operator's AI teams and the roles they are made of.
 // A role is an agent (instructions, model, whether it may edit files) and a
@@ -174,8 +176,8 @@ function RoleForm(props: {
   const client = useClient()
   const theme = useTheme().surface("dialog")
   const t = useT()
-  const groupActions = new Set(Orchestra.toolGroups.flatMap((group) => group.actions))
   const initialTools = props.role?.tools
+  const known = new Set(roleTools().map((tool) => tool.id))
   const [draft, setDraft] = createStore({
     name: props.role?.name ?? "",
     category: props.role?.category ?? "",
@@ -186,14 +188,14 @@ function RoleForm(props: {
     models: (props.role?.models ?? []).join(", "),
     readOnly: props.role?.readOnly ?? false,
     toolsMode: (initialTools ? "custom" : "all") as "all" | "custom",
-    // Tool groups are picked as a whole; actions outside every group are kept as free patterns.
-    groups: Orchestra.toolGroups
-      .filter((group) => (initialTools ?? []).some((tool) => group.actions.includes(tool)))
-      .map((group) => group.id),
-    extraTools: (initialTools ?? []).filter((tool) => !groupActions.has(tool)).join(", "),
+    // Each AI tool is picked on its own; anything the chips do not offer stays a free pattern.
+    picked: (initialTools ?? []).filter((tool) => known.has(tool)),
+    extraTools: (initialTools ?? []).filter((tool) => !known.has(tool)).join(", "),
     autoTools: props.role?.autoTools ?? false,
     hubMode: (props.role?.hub ? "custom" : "all") as "all" | "custom",
     hub: [...(props.role?.hub ?? [])],
+    registryMode: (props.role?.registry ? "custom" : "all") as "all" | "custom",
+    registry: [...(props.role?.registry ?? [])],
   })
   const config = useConfig().data
   const rules: { element?: TextareaRenderable } = {}
@@ -210,6 +212,8 @@ function RoleForm(props: {
     "autoTools",
     "hubMode",
     ...(draft.hubMode === "custom" ? ["hub"] : []),
+    "registryMode",
+    ...(draft.registryMode === "custom" ? ["registry"] : []),
     "rules",
   ])
 
@@ -229,16 +233,12 @@ function RoleForm(props: {
     ...(draft.modelMode === "auto" ? { models: list(draft.models) } : {}),
     ...(draft.toolsMode === "custom"
       ? {
-          tools: [
-            ...Orchestra.toolGroups
-              .filter((group) => draft.groups.includes(group.id))
-              .flatMap((group) => group.actions),
-            ...list(draft.extraTools),
-          ],
+          tools: [...draft.picked, ...list(draft.extraTools)],
         }
       : {}),
     ...(draft.autoTools ? { autoTools: true } : {}),
     ...(draft.hubMode === "custom" ? { hub: [...draft.hub] } : {}),
+    ...(draft.registryMode === "custom" ? { registry: [...draft.registry] } : {}),
   })
   const save = () =>
     action.run(async () => {
@@ -272,10 +272,15 @@ function RoleForm(props: {
   }
   const cycleModel = (direction: 1 | -1) =>
     setDraft("modelMode", MODEL_MODES[(MODEL_MODES.indexOf(draft.modelMode) + direction + 3) % 3] ?? "default")
-  const toggle = (key: "groups" | "hub", id: string) =>
+  const toggle = (key: "picked" | "hub" | "registry", id: string) =>
     setDraft(key, (items) => (items.includes(id) ? items.filter((item) => item !== id) : [...items, id]))
-  const toolChips = createChips(() => Orchestra.toolGroups.map((group) => group.id))
+  const toolChips = createChips(() => roleTools().map((tool) => tool.id))
   const hubChips = createChips(() => hubCategories())
+  // Installed programs, plus any the role already lists that were removed since, so they can be unticked.
+  // PATH is probed once per form: toggling a chip must not walk PATH again.
+  const installed = hubRegistryStatus().installed
+  const programs = createMemo(() => [...new Set([...installed, ...draft.registry])].sort())
+  const registryChips = createChips(() => programs())
 
   Keymap.createLayer(() => ({
     mode: "modal",
@@ -312,6 +317,22 @@ function RoleForm(props: {
         run: () => setDraft("hubMode", draft.hubMode === "all" ? "custom" : "all"),
       },
       {
+        bind: "left,right,space,return",
+        title: "Registry programs mode",
+        group: "Teams",
+        enabled: () => props.focus.is("registryMode"),
+        run: () => setDraft("registryMode", draft.registryMode === "all" ? "custom" : "all"),
+      },
+      { bind: "left", title: "Previous", group: "Teams", enabled: () => props.focus.is("registry"), run: () => registryChips.move(-1) },
+      { bind: "right", title: "Next", group: "Teams", enabled: () => props.focus.is("registry"), run: () => registryChips.move(1) },
+      {
+        bind: "space,return",
+        title: "Toggle program",
+        group: "Teams",
+        enabled: () => props.focus.is("registry"),
+        run: () => toggle("registry", registryChips.current()),
+      },
+      {
         bind: "space,return",
         title: "Orchestrator may narrow tools",
         group: "Teams",
@@ -325,7 +346,7 @@ function RoleForm(props: {
         title: "Toggle tool",
         group: "Teams",
         enabled: () => props.focus.is("tools"),
-        run: () => toggle("groups", toolChips.current()),
+        run: () => toggle("picked", toolChips.current()),
       },
       { bind: "left", title: "Previous", group: "Teams", enabled: () => props.focus.is("hub"), run: () => hubChips.move(-1) },
       { bind: "right", title: "Next", group: "Teams", enabled: () => props.focus.is("hub"), run: () => hubChips.move(1) },
@@ -459,11 +480,11 @@ function RoleForm(props: {
       <Show when={draft.toolsMode === "custom"}>
         <Field label="" focus={props.focus} target="tools">
           <Chips
-            items={Orchestra.toolGroups.map((group) => ({ id: group.id, label: t(group.name) }))}
-            selected={draft.groups}
+            items={roleTools().map((tool) => ({ id: tool.id, label: tool.label }))}
+            selected={draft.picked}
             focused={props.focus.is("tools")}
             cursor={toolChips.index()}
-            onToggle={(id) => toggle("groups", id)}
+            onToggle={(id) => toggle("picked", id)}
           />
         </Field>
         <Field label="" focus={props.focus} target="extraTools">
@@ -504,6 +525,40 @@ function RoleForm(props: {
             cursor={hubChips.index()}
             onToggle={(id) => toggle("hub", id)}
           />
+        </Field>
+      </Show>
+      <Field label={t("Programs")} focus={props.focus} target="registryMode">
+        <box flexDirection="row" gap={2}>
+          <Choice
+            selected={draft.registryMode === "all"}
+            focused={props.focus.is("registryMode")}
+            onClick={() => setDraft("registryMode", "all")}
+          >
+            {t("All installed")}
+          </Choice>
+          <Choice
+            selected={draft.registryMode === "custom"}
+            focused={props.focus.is("registryMode")}
+            onClick={() => setDraft("registryMode", "custom")}
+          >
+            {t("Selected")}
+          </Choice>
+        </box>
+      </Field>
+      <Show when={draft.registryMode === "custom"}>
+        <Field label="" focus={props.focus} target="registry">
+          <Show
+            when={programs().length > 0}
+            fallback={<text fg={theme.text.muted}>{t("Nothing is installed yet: install programs in the Registry first.")}</text>}
+          >
+            <Chips
+              items={programs().map((program) => ({ id: program, label: program }))}
+              selected={draft.registry}
+              focused={props.focus.is("registry")}
+              cursor={registryChips.index()}
+              onToggle={(id) => toggle("registry", id)}
+            />
+          </Show>
         </Field>
       </Show>
       <box
@@ -548,6 +603,13 @@ function RoleForm(props: {
     </box>
   )
 }
+
+// Every AI tool a role can be given, one chip each: the built-in tools (permission actions) and
+// the catalog's AI tools as `<server>_*`, so a role gets an installed MCP server as a whole.
+const roleTools = () => [
+  ...Orchestra.toolGroups.flatMap((group) => group.actions).map((action) => ({ id: action, label: action })),
+  ...McpCatalog.forPlatform().map((entry) => ({ id: `${entry.id}_*`, label: `${entry.id} (AI)` })),
+]
 
 // Registry categories with at least one entry this OS can run, so a Linux-only category is not offered on Windows.
 const hubCategories = () => [...new Set(Hub.all.filter((entry) => Hub.supportsPlatform(entry)).map((entry) => entry.category))].sort()

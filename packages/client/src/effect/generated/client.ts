@@ -1805,9 +1805,14 @@ const EndpointConfigShells = (raw: RawClient["server.config"]) => () =>
 
 const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: ConfigUpdateInput) =>
   preserveEffect<ConfigUpdateOutput>()(
-    raw["config.update"]({ payload: { shell: input?.["shell"], model: input?.["model"] } }).pipe(
-      Effect.mapError(mapClientError),
-    ),
+    raw["config.update"]({
+      payload: {
+        shell: input?.["shell"],
+        model: input?.["model"],
+        mcpServers: input?.["mcpServers"],
+        compatibilityEnabled: input?.["compatibilityEnabled"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointConfigCompatibilityGet = (raw: RawClient["server.config"]) => (input?: ConfigCompatibilityGetInput) =>
@@ -2293,6 +2298,7 @@ const EndpointOrchestraRoleCreate = (raw: RawClient["server.orchestra"]) => (inp
         tools: input["tools"],
         autoTools: input["autoTools"],
         hub: input["hub"],
+        registry: input["registry"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )
@@ -2312,6 +2318,7 @@ const EndpointOrchestraRoleUpdate = (raw: RawClient["server.orchestra"]) => (inp
         tools: input["tools"],
         autoTools: input["autoTools"],
         hub: input["hub"],
+        registry: input["registry"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )

@@ -1,13 +1,11 @@
 import { Hub } from "@opencode/core/hub/index"
 
 // One row of the Registry panel: a binary the catalog depends on, how many
-// platform entries it gates, whether it is on PATH and whether the operator
-// left it switched on for the model.
+// platform entries it gates and whether it is on PATH.
 export type RegistryTool = {
   tool: string
   entries: number
   installed: boolean
-  enabled: boolean
   // Only true when the selected package manager can install/remove this binary.
   manageable: boolean
 }
@@ -31,10 +29,6 @@ export type RegistryOptions = {
   probe?: (tool: string) => boolean
   terminalProbe?: (backend: Hub.Backend) => boolean
   platform?: NodeJS.Platform
-  // `hub.json` as read by the caller. The hint block is opt-in: only a tool the
-  // operator switched on is advertised to the model, so an absent key counts as
-  // off and an empty state file shows every switch off.
-  enabled?: Readonly<Record<string, boolean>>
   // Package manager that installs missing tools; detected from PATH by default.
   manager?: Hub.Manager
 }
@@ -49,7 +43,6 @@ export function hubRegistryStatus(options?: RegistryOptions): RegistryStatus {
   // bash means Git Bash, never the WSL launcher in System32.
   const terminal =
     options?.terminalProbe ?? ((backend: Hub.Backend) => Hub.HubHost.shellFor(backend, { platform }) !== undefined)
-  const enabled = options?.enabled ?? {}
   const manager = options?.manager ?? Hub.detectManager(platform)
   const supported = Hub.all.filter((entry) => Hub.supportsPlatform(entry, platform))
   // Probe each distinct tool once: `which` walks PATH on every call
@@ -82,24 +75,19 @@ export function hubRegistryStatus(options?: RegistryOptions): RegistryStatus {
       manual: Hub.manualInstall(name, manager),
     })),
     categories: categoryCounts(entries, present),
-    tools: toolRows(entries, present, enabled, manager),
+    tools: toolRows(entries, present, manager),
     install: plan?.command,
   }
 }
 
 // Rows for the panel, most actionable first: absent tools ahead of installed
 // ones, and within each group the tool that unblocks more entries comes first.
-// Rows only move when the machine changes, so the list stays predictable while
-// the operator toggles switches.
+// Rows only move when the machine changes, so the list stays predictable.
 function toolRows(
   entries: readonly Hub.Entry[],
   present: ReadonlySet<string>,
-  enabled: Readonly<Record<string, boolean>>,
   manager: Hub.Manager | undefined,
 ): RegistryTool[] {
-  // The switch shown here is the hint block's flag, so it reads the shared
-  // predicate rather than re-deriving the rule and drifting from the prompt.
-  const state: Hub.State = { version: 1, enabled: { ...enabled } }
   const counts = new Map<string, number>()
   for (const entry of entries) {
     for (const tool of entry.requires ?? []) counts.set(tool, (counts.get(tool) ?? 0) + 1)
@@ -108,7 +96,6 @@ function toolRows(
     tool,
     entries: count,
     installed: present.has(tool),
-    enabled: Hub.hinted(state, tool),
     manageable: manager !== undefined && Hub.installable(tool, manager),
   })).sort((a, b) => Number(a.installed) - Number(b.installed) || b.entries - a.entries || a.tool.localeCompare(b.tool))
 }

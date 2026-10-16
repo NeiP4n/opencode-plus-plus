@@ -151,12 +151,12 @@ export const Plugin = {
     const shell = yield* Shell.Service
     const permission = yield* Permission.Service
     const config = yield* Config.Service
-    // A team role may be limited to some hub categories. The team service is absent where no
-    // projects run (tests, embedded hosts), and then every category stays open.
+    // A team role may be limited to some hub categories and to some installed Registry programs.
+    // The team service is absent where no projects run (tests, embedded hosts), and then all stays open.
     const team = yield* Effect.serviceOption(Orchestra.Service)
-    const categoriesFor = Effect.fnUntraced(function* (agent: string | undefined) {
+    const roleFor = Effect.fnUntraced(function* (agent: string | undefined) {
       if (Option.isNone(team) || !agent) return undefined
-      return (yield* team.value.roles()).find((role) => role.agent === agent)?.hub
+      return (yield* team.value.roles()).find((role) => role.agent === agent)
     })
 
     const toolResult = (output: Output) => ({
@@ -274,7 +274,9 @@ export const Plugin = {
                   command: plan.command,
                 }
               }
-              const allowed = yield* categoriesFor(context.agent)
+              const role = yield* roleFor(context.agent)
+              const allowed = role?.hub
+              const programs = role?.registry
               if (input.list === true || (input.query !== undefined && input.id === undefined)) {
                 const state = yield* Effect.tryPromise(() => Hub.read()).pipe(
                   Effect.orElseSucceed(() => ({ version: 1 as const, enabled: {} }) as Hub.State),
@@ -284,7 +286,7 @@ export const Plugin = {
                   (entry) =>
                     Hub.supportsPlatform(entry) &&
                     matches(entry, input.query ?? "", input.category) &&
-                    Hub.discoverable(state, entry) &&
+                    Hub.discoverable(state, entry, programs) &&
                     (allowed === undefined || allowed.includes(entry.category)),
                 )
                 return {
@@ -304,6 +306,11 @@ export const Plugin = {
               if (allowed !== undefined && !allowed.includes(entry.category))
                 return yield* failure(
                   `${entry.id} is in the ${entry.category} category, which this role may not run. Allowed categories: ${allowed.join(", ") || "none"}.`,
+                )
+              const forbidden = (entry.requires ?? []).filter((tool) => programs !== undefined && !programs.includes(tool))
+              if (forbidden.length > 0)
+                return yield* failure(
+                  `${entry.id} needs ${forbidden.join(", ")}, which this role may not use. Its Registry programs: ${programs?.join(", ") || "none"}.`,
                 )
               // The operator's terminal choice wins over the model's: models ask for bash from
               // habit, and running it there undoes the operator picking nu or pwsh.
@@ -409,9 +416,11 @@ export const Plugin = {
         // Re-probed per hook: a tool installed from the Registry panel shows
         // up without restarting the server.
         tool.description = description(availableTools())
-        const allowed = yield* categoriesFor(event.agent)
-        if (allowed !== undefined)
-          tool.description += ` This role may run only these hub categories: ${allowed.join(", ") || "none"}.`
+        const role = yield* roleFor(event.agent)
+        if (role?.hub !== undefined)
+          tool.description += ` This role may run only these hub categories: ${role.hub.join(", ") || "none"}.`
+        if (role?.registry !== undefined)
+          tool.description += ` This role may use only these Registry programs: ${role.registry.join(", ") || "none"}.`
       })
     yield* ctx.session.hook("context", hook)
     yield* ctx.session.hook("compaction", hook)

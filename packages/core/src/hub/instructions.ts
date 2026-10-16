@@ -20,7 +20,7 @@ export type Options = {
 
 // The block text is the stored value: one string hashes canonically, and the
 // read folds "nothing to say" into `removed`, which keeps the key out of the
-// rendered prompt entirely — with the opt-in default the prompt stays
+// rendered prompt entirely — with nothing installed the prompt stays
 // byte-identical to what it was before this source existed.
 const readHints = (options: Options): Effect.Effect<string | typeof Instructions.removed> =>
   Effect.tryPromise({
@@ -48,9 +48,9 @@ export const make = (options: Options = {}): Instructions.List =>
     render: {
       initial: (text) => text,
       changed: (_previous, text) =>
-        ["The enabled hub tools have changed; this list replaces the previous one:", text].join("\n"),
+        ["The installed hub tools have changed; this list replaces the previous one:", text].join("\n"),
       removed: () =>
-        "The manually enabled hub tools are no longer hinted at: do not rely on what was listed before.",
+        "No hub tools are installed any more: do not rely on what was listed before.",
     },
   })
 
@@ -60,7 +60,7 @@ const terminalBackends = (): string[] => HubHost.backends()
 
 
 export interface Interface {
-  /** Builds a fresh instruction source that reads the current opt-in Hub state. */
+  /** Builds a fresh instruction source that lists the installed Hub tools. */
   readonly load: () => Instructions.List
 }
 

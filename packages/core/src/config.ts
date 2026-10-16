@@ -25,6 +25,7 @@ import { ClaudeAdapter } from "./compat/claude/index.js"
 import type { ClaudeHookConfig } from "./compat/claude/hooks/config.js"
 import { InstructionDiscovery } from "./instruction-discovery.js"
 import type { ConfigCompatibility } from "@opencode/schema/config/compatibility"
+import { ConfigMCP } from "@opencode/schema/config/mcp"
 
 export function latest<K extends keyof Info>(entries: readonly Entry[], key: K): Info[K] | undefined {
   return entries.findLast((entry): entry is Document => entry.type === "document" && entry.info[key] !== undefined)
@@ -442,21 +443,35 @@ export const layer = (options?: Options) =>
           const candidates = ConfigDiscovery.names.map((name) => path.join(directory, name))
           const filepath =
             (yield* Effect.filter(candidates, fs.isFile)).at(-1) ?? path.join(directory, "opencode.jsonc")
-          const text = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
+          const formatting = { formattingOptions: { tabSize: 2, insertSpaces: true } }
+          const original = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
+          const text =
+            "compatibilityEnabled" in patch
+              ? applyEdits(
+                  original,
+                  modify(original, ["compatibility", "enabled"], patch.compatibilityEnabled ?? undefined, formatting),
+                )
+              : original
           const updated = yield* Effect.try({
             try: () =>
-              (["shell", "model"] as const)
-                .filter((key) => key in patch)
-                .reduce(
-                  (current, key) =>
-                    applyEdits(
+              Object.entries(patch.mcpServers ?? {}).reduce(
+                (current, [server, value]) =>
+                  applyEdits(
+                    current,
+                    modify(
                       current,
-                      modify(current, [key], patch[key] ?? undefined, {
-                        formattingOptions: { tabSize: 2, insertSpaces: true },
-                      }),
+                      ["mcp", "servers", server],
+                      value === null ? undefined : Schema.encodeSync(ConfigMCP.Server)(value),
+                      formatting,
                     ),
-                  text,
-                ),
+                  ),
+                (["shell", "model"] as const)
+                  .filter((key) => key in patch)
+                  .reduce(
+                    (current, key) => applyEdits(current, modify(current, [key], patch[key] ?? undefined, formatting)),
+                    text,
+                  ),
+              ),
             catch: (cause) => new FSUtil.FileSystemError({ method: "config.update", cause }),
           })
           yield* fs.writeWithDirs(filepath, updated.endsWith("\n") ? updated : `${updated}\n`)

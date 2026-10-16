@@ -15,7 +15,7 @@ const MAX_TOOL_CHARS = 400
 const MAX_ENTRIES_PER_TOOL = 3
 
 const HEADER =
-  "Manually enabled hub tools are available in this session; details and other recipes come through the hub tool. When asked what you can do, name them too."
+  "These installed hub tools are available in this session; details and other recipes come through the hub tool. When asked what you can do, name them too."
 
 export type Hints = {
   readonly state: State
@@ -32,10 +32,10 @@ export function renderHubHints(hints: Hints): string {
   const required = entriesByTool()
   // Ignore stale settings and executable backends such as nu/pwsh: only catalog
   // dependencies that actually unlock recipes belong in the model's tool list.
-  const eligible = Object.keys(hints.state.enabled)
-    .filter((tool) => hinted(hints.state, tool) && available.has(tool) && required.has(tool))
+  const eligible = [...required.keys()]
+    .filter((tool) => hinted(hints.state, tool) && available.has(tool))
     .sort()
-  // Opt-in default: with nothing enabled the prompt stays byte-identical to
+  // With nothing installed the prompt stays byte-identical to
   // what it was before this feature existed.
   if (eligible.length === 0) return ""
 

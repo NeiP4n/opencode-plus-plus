@@ -19,18 +19,18 @@ describe("renderHubHints", () => {
     expect(text).toContain("Terminals: bash")
   })
 
-  test("disabled tool produces nothing at all", () => {
-    const text = renderHubHints({ state: stateOf({ mlr: false }), availability: ["mlr"] })
+  test("an installed tool is listed without any switch, even one left off", () => {
+    expect(renderHubHints({ state: stateOf({}), availability: ["mlr"] })).toContain("- mlr —")
+    expect(renderHubHints({ state: stateOf({ mlr: false }), availability: ["mlr"] })).toContain("- mlr —")
+  })
+
+  test("a tool that is not installed produces nothing", () => {
+    const text = renderHubHints({ state: stateOf({ mlr: true }), availability: ["orphanedTool"] })
     expect(text).toBe("")
   })
 
-  test("enabled but unavailable tool produces nothing", () => {
-    const text = renderHubHints({ state: stateOf({ mlr: true }), availability: ["jq"] })
-    expect(text).toBe("")
-  })
-
-  test("empty state produces nothing — prompt stays byte-identical", () => {
-    expect(renderHubHints({ state: stateOf({}), availability: ["mlr"] })).toBe("")
+  test("nothing installed produces nothing — prompt stays byte-identical", () => {
+    expect(renderHubHints({ state: stateOf({}), availability: [] })).toBe("")
   })
 
   test("block stays within 40 lines and 2000 characters with an explicit marker", () => {

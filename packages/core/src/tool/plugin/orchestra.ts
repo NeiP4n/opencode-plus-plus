@@ -6,6 +6,7 @@ import type { SessionHooks } from "@opencode/plugin/effect/session"
 import { Model } from "@opencode/schema/model"
 import type { Permission } from "@opencode/schema/permission"
 import { Effect, Option, Schema } from "effect"
+import { Form } from "../../form.js"
 import { Orchestra } from "../../orchestra.js"
 import { Session } from "../../session.js"
 import { SessionSchema } from "../../session/schema.js"
@@ -22,6 +23,7 @@ const description = [
   "send queues a task without interrupting the worker's current work; its task-linked <team-report> arrives automatically when it finishes and wakes the Orchestrator again. The current turn ending after send is intentional; it does not mean the project task is complete.",
   "A report's state describes whether the worker run ended; outcome describes task progress. If outcome is partial, incomplete, failed, or stopped, treat the task as still open unless it is explicitly blocked or cancelled. outcome=unknown means the worker did not state its status: judge the report text yourself instead of re-sending the task. Compare the report with the acceptance criteria and send a focused follow-up to that same worker after its previous task is no longer outstanding. Do not mark the overall task complete until evidence satisfies the acceptance criteria; if the work is blocked, state the exact blocker.",
   "Copy the complete sessionID exactly from the roster or action list; never abbreviate or invent one. If a sessions action fails, inspect the exact error and current list/read state, correct the cause, then retry only with changed/corrected arguments. Never repeat an identical failed call.",
+  "A worker that asks the human a question during its task blocks until someone answers; that question also arrives here as a <team-question>. Answer it with action answer (sessionID of the worker, answers: one list of chosen option labels or your own text per question, in order) when the task and the operator's instructions settle it; if only the operator can decide, tell the operator instead.",
   "read returns a session's latest messages; create accepts an exact role ID from the global Orchestra role registry even if no session exists for that role yet, reuses a writable matching session by default or creates one if needed, and can give it a first task; stop interrupts a running session.",
   "Never pass a display title as a role ID: use an exact role id from the roles listed with your team.",
   "Access per session is hidden < read < write < full: read allows list and read, write adds send, full adds stop. Sessions you create get full access.",
@@ -48,7 +50,7 @@ export function reusableWorker<T extends WorkerRow>(
 }
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "read", "send", "create", "stop"]),
+  action: Schema.Literals(["list", "read", "send", "create", "stop", "answer"]),
   sessionID: Schema.optionalKey(SessionSchema.ID).annotate({ description: "Target session for read, send and stop" }),
   text: Schema.optionalKey(Schema.String).annotate({
     description: "Message for send, or the first task for create",
@@ -63,6 +65,10 @@ export const Input = Schema.Struct({
   newInstance: Schema.optionalKey(Schema.Boolean).annotate({
     description:
       "Normally omit this: create reuses an existing writable session with this role. Set true only when a separate parallel worker is deliberately needed.",
+  }),
+  answers: Schema.optionalKey(Schema.Array(Schema.Array(Schema.String))).annotate({
+    description:
+      "For answer: one entry per question of the worker's <team-question>, in order; each entry lists the chosen option labels, or your own text as a single item",
   }),
   limit: Schema.optionalKey(Schema.Int).annotate({ description: "How many recent messages read returns (default 10)" }),
   model: Schema.optionalKey(Schema.String).annotate({
@@ -85,6 +91,7 @@ export const Plugin = {
   effect: Effect.fn("OrchestraTool.Plugin")(function* (ctx: Context) {
     const sessions = yield* Session.Service
     const orchestra = yield* Orchestra.Service
+    const forms = yield* Form.Service
 
     // Every action runs on behalf of the project's main session and only
     // reaches sessions of the same project at the level the operator granted.
@@ -304,6 +311,38 @@ export const Plugin = {
                     output: `Created ${created.id}${input.text?.trim() ? "; its report will arrive here when it finishes" : ""}.`,
                   }
                 }
+                case "answer": {
+                  const session = yield* target(project, input.sessionID, "write")
+                  const answers = input.answers ?? []
+                  if (answers.length === 0) return yield* new ToolFailure({ message: "Pass answers, one list per question" })
+                  // The worker's oldest open question; the human may already have answered it in the worker.
+                  const form = (yield* forms.list({ sessionID: session.id })).find(
+                    (item) => item.metadata?.kind === "question",
+                  )
+                  if (!form)
+                    return yield* new ToolFailure({
+                      message: `${session.title ?? session.id} has no open question; it may already have been answered or dismissed.`,
+                    })
+                  if (answers.length !== form.fields.length)
+                    return yield* new ToolFailure({
+                      message: `The question has ${form.fields.length} part(s); pass exactly that many answers, in order.`,
+                    })
+                  yield* forms
+                    .reply({
+                      id: form.id,
+                      answer: Object.fromEntries(
+                        form.fields.map((field, index) => [
+                          field.key,
+                          field.type === "multiselect" ? answers[index] : answers[index].join(", "),
+                        ]),
+                      ),
+                    })
+                    .pipe(Effect.mapError((error) => new ToolFailure({ message: `Could not answer: ${error.message}`, error })))
+                  return {
+                    sessionID: session.id,
+                    output: `Answered ${session.title ?? session.id}'s question; it continues its task and its report will arrive here.`,
+                  }
+                }
                 case "stop": {
                   const session = yield* target(project, input.sessionID, "full")
                   const stopped = yield* sessions.interrupt(session.id)
@@ -365,6 +404,7 @@ export const Plugin = {
             "- Copy the complete session ID exactly from this roster. Never truncate, infer, or substitute an ID.",
             "- Sending a task ends this model turn while the worker runs; a task-linked <team-report> wakes you again. Do not tell the user the task is complete merely because send succeeded.",
             "- After each <team-report>, compare the worker's evidence with the original acceptance criteria. outcome=partial, incomplete, failed, or stopped means the task is still open unless explicitly blocked/cancelled (outcome=unknown: judge the report text itself): inspect the report and send a specific follow-up to the same worker once its previous task is no longer outstanding. outcome=complete is evidence to review, not a substitute for checking the criteria.",
+            "- A <team-question> means a worker is blocked waiting for an answer. Answer it with action answer when the task, the playbook or the operator's instructions settle it; ask the operator only when the decision is genuinely theirs.",
             "- If a sessions tool call fails, inspect its exact error and use list/read to verify IDs and whether a task is outstanding. Fix the arguments or underlying cause before retrying; never repeat the identical failed call.",
             "- Do not call HTTP endpoints directly or guess /api/orchestra routes. If a tool/API error occurs, report its exact message and do not create a replacement session as a workaround.",
             "",
@@ -395,6 +435,7 @@ function setup(role: Orchestra.Role) {
     role.tools ? `tools: ${role.tools.join(", ")}` : "",
     role.autoTools ? "you may narrow its tools per task" : "",
     role.hub ? `hub categories: ${role.hub.join(", ") || "none"}` : "",
+    role.registry ? `registry programs: ${role.registry.join(", ") || "none"}` : "",
   ].filter(Boolean)
   return parts.length > 0 ? ` [${parts.join("; ")}]` : ""
 }

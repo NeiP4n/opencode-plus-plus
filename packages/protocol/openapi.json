@@ -20629,6 +20629,9 @@
       "Config.Compatibility": {
         "type": "object",
         "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
           "ecosystems": {
             "$ref": "#/components/schemas/Config.Compatibility.Choices"
           },
@@ -20826,6 +20829,9 @@
           "root": {
             "type": "string"
           },
+          "enabled": {
+            "type": "boolean"
+          },
           "order": {
             "type": "array",
             "items": {
@@ -20839,7 +20845,7 @@
             }
           }
         },
-        "required": ["root", "order", "ecosystems"],
+        "required": ["root", "enabled", "order", "ecosystems"],
         "additionalProperties": false
       },
       "Config.Compatibility.Skipped": {
@@ -21492,6 +21498,38 @@
               }
             ],
             "description": "Default model for new sessions, as provider/model"
+          },
+          "mcpServers": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Mcp.LocalConfigEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Mcp.RemoteConfigEncoded"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "MCP servers to add or replace under mcp.servers by name; null removes one"
+          },
+          "compatibilityEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it"
           }
         },
         "additionalProperties": false
@@ -24329,6 +24367,19 @@
               }
             ]
           },
+          "registry": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -24407,6 +24458,19 @@
             ]
           },
           "hub": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "registry": {
             "anyOf": [
               {
                 "type": "array",

@@ -42,16 +42,6 @@ async function render(options: RegistryPanelOptions & { onShell?: (shell: string
   return app
 }
 
-// The click handler persists in the background while the switch updates
-// optimistically, so assertions wait for the durable value to catch up.
-async function untilEnabled(directory: string, tool: string, expected: boolean) {
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if ((await HubState.read({ directory })).enabled[tool] === expected) return true
-    await Bun.sleep(10)
-  }
-  return false
-}
-
 // Value printed right after a summary label. Read the rendered row so varying
 // terminal spacing doesn't make the test depend on a fixed number of spaces.
 function rowValue(frame: string, label: string) {
@@ -83,8 +73,10 @@ test("registry panel shows readiness, terminals and a paged tool list", async ()
     expect(frame).toContain("bash")
     expect(frame).toContain(`${status.categories[0].name} `)
     expect(frame).toContain("Search")
-    // the hint block is opt-in: a fresh state file advertises nothing
-    expect(rowValue(frame, "For the model")).toBe(`0/${status.tools.length}`)
+    // installed programs are there for the model; no per-tool switch remains
+    expect(rowValue(frame, "Installed")).toBe(`${status.installed.length}/${status.tools.length}`)
+    expect(frame).not.toContain("[off]")
+    expect(frame).not.toContain("All off")
     expect(status.tools.length).toBeGreaterThan(10)
     expect(frame).toContain("1/")
     // first page is the ten most actionable rows, absent tools first
@@ -217,56 +209,6 @@ test("a manually installed tool stays visible without an unsafe Remove action", 
   }
 })
 
-test("the switch turns a tool on for the model and writes it to hub.json", async () => {
-  await using tmp = await tmpdir()
-  const app = await render({ probe, manager: registryManager, directory: tmp.path })
-  try {
-    const tools = hubRegistryStatus({ probe, manager: registryManager }).tools
-    const first = tools[0].tool
-    const { x, y } = cell(app, first, "[off]")
-    await app.mockMouse.click(x, y)
-    await app.waitForFrame((frame) => rowValue(frame, "For the model") === `1/${tools.length}`)
-    expect(cell(app, first, "[on]").y).toBe(y)
-    expect(await untilEnabled(tmp.path, first, true)).toBe(true)
-
-    // switching it off again withdraws it from the hint block and the listing
-    const off = cell(app, first, "[on]")
-    await app.mockMouse.click(off.x, off.y)
-    await app.waitForFrame((frame) => rowValue(frame, "For the model") === `0/${tools.length}`)
-    expect(await untilEnabled(tmp.path, first, false)).toBe(true)
-  } finally {
-    app.renderer.destroy()
-  }
-})
-
-test("All off also clears saved switches that are outside the current registry rows", async () => {
-  await using tmp = await tmpdir()
-  const stale = "orphanedLegacyTool"
-  const target = hubRegistryStatus({ probe }).tools.find((row) => row.installed)!.tool
-  await HubState.setEnabled(stale, true, { directory: tmp.path })
-  await HubState.setEnabled(target, true, { directory: tmp.path })
-
-  const app = await render({ probe, directory: tmp.path })
-  try {
-    const frame = await app.waitForFrame(
-      (frame) =>
-        frame.split("\n").some((line) => line.includes("[on]") && line.includes(target)) &&
-        frame.includes("All off"),
-    )
-    const lines = frame.split("\n")
-    const row = lines.findIndex((line) => line.includes("All off"))
-    const allOff = lines[row]!.indexOf("All off")
-    const x = allOff + Math.floor("All off".length / 2)
-    await app.mockMouse.click(x, row)
-
-    await app.waitForFrame((frame) => rowValue(frame, "For the model") === "0/" + hubRegistryStatus({ probe }).tools.length)
-    expect(await untilEnabled(tmp.path, target, false)).toBe(true)
-    expect(await untilEnabled(tmp.path, stale, false)).toBe(true)
-  } finally {
-    app.renderer.destroy()
-  }
-})
-
 test("pager moves to the second page of tools", async () => {
   await using tmp = await tmpdir()
   const app = await render({ probe, manager: registryManager, directory: tmp.path })
@@ -308,8 +250,11 @@ test("search narrows the tool list by name or by what a recipe does", async () =
     await app.mockMouse.click(x, row)
     await Bun.sleep(10)
     await app.mockInput.typeText("yaml")
-    await app.waitForFrame((frame) => frame.includes("[off] yq") && !frame.includes("[off] rg"))
-    expect(app.captureCharFrame()).not.toContain("[off] git")
+    // Tool rows are the lines that count entries; category and header lines never do.
+    const listed = (frame: string, tool: string) =>
+      frame.split("\n").some((line) => / entr(y|ies)/.test(line) && line.trimStart().startsWith(`${tool} `))
+    await app.waitForFrame((frame) => listed(frame, "yq") && !listed(frame, "rg"))
+    expect(listed(app.captureCharFrame(), "git")).toBe(false)
   } finally {
     app.renderer.destroy()
   }

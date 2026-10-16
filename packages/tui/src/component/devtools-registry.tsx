@@ -1,7 +1,8 @@
-import { TextAttributes, type InputRenderable, type RGBA } from "@opentui/core"
-import { createMemo, createSignal, For, Match, onMount, Show, Switch, type JSX } from "solid-js"
+import { TextAttributes, type InputRenderable } from "@opentui/core"
+import { createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { Hub } from "@opencode/core/hub/index"
 import { HubState } from "@opencode/core/hub/state"
+import { McpCatalog } from "@opencode/core/mcp/catalog"
 import { useConfig } from "../config"
 import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
@@ -11,14 +12,9 @@ import { hubRegistryStatus, type RegistryOptions, type RegistryTool } from "../u
 
 // Interactive catalog control for the Universal Tool Hub, opened from the
 // devtools bar as a centered dialog. Every row is one binary the catalog
-// depends on: the operator installs or removes it, and switches it on or off
-// for the model.
-//
-// The switch is the hint block's opt-in flag. On means the tool is advertised
-// in the system prompt and its entries stay discoverable; off (the default) is
-// not advertised, and switching a tool off again additionally withdraws its
-// entries from the `hub` tool's listing. An empty state file shows every switch
-// off and behaves exactly as before the feature.
+// depends on, and the operator installs or removes it. What is installed is
+// there for the model; which installed program each team role may use is chosen
+// per role in the team editor, not here.
 //
 // Removal runs a package manager, so it takes two activations of the same
 // button ("Remove" arms, "Remove?" executes); moving elsewhere disarms it.
@@ -44,6 +40,8 @@ export function RegistryPanel(props: {
   onClose?: () => void
   // Makes the chosen terminal the shell tool's shell too, where that shell can be permission-checked.
   onShell?: (shell: string) => void
+  // AI tools (MCP servers) from the catalog: which are configured, and installing or removing one.
+  aiTools?: AiToolsAccess
 }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
@@ -51,7 +49,6 @@ export function RegistryPanel(props: {
   const options = props.options ?? {}
   const install = options.install ?? Hub.HubActions.installTool
   const remove = options.remove ?? Hub.HubActions.removeTool
-  const [enabled, setEnabled] = createSignal<Readonly<Record<string, boolean>>>({})
   // Bumped after anything that can change PATH or the state file, so the
   // memo re-probes instead of trusting a stale readiness count.
   const [revision, setRevision] = createSignal(0)
@@ -69,20 +66,8 @@ export function RegistryPanel(props: {
   // intent, so the slow read must not overwrite it.
   let terminalInteracted = false
   let terminalSequence = 0
-  // Any switch changed before hydration is replayed over the saved state. A value
-  // of undefined explicitly removes a key after a failed write restored defaults.
-  const pendingSwitches = new Map<string, boolean | undefined>()
-  // A failed optimistic write may roll back only tools untouched by a newer click.
-  let switchSequence = 0
-  const latestSwitch = new Map<string, number>()
   onMount(async () => {
     const state = await HubState.read({ directory: options.directory })
-    const merged = { ...state.enabled }
-    for (const [tool, value] of pendingSwitches) {
-      if (value === undefined) delete merged[tool]
-      else merged[tool] = value
-    }
-    setEnabled(merged)
     if (!terminalInteracted) setTerminal(state.terminal)
     setRevision((value) => value + 1)
   })
@@ -96,7 +81,6 @@ export function RegistryPanel(props: {
       terminalProbe: options.terminalProbe,
       platform: options.platform,
       manager: options.manager,
-      enabled: enabled(),
     })
   })
   // Every word of the query must appear in the tool's name or in the id, title,
@@ -118,7 +102,6 @@ export function RegistryPanel(props: {
   const rows = createMemo(() => visible().slice(current() * PAGE_SIZE, current() * PAGE_SIZE + PAGE_SIZE))
   const selected = () => rows()[Math.min(cursor(), rows().length - 1)]
   const missing = createMemo(() => status().tools.filter((row) => !row.installed && row.manageable))
-  const isOn = (tool: string) => enabled()[tool] === true
   // Without a choice the hub prefers nu, then pwsh, then bash, whichever is installed.
   const aiTerminal = () => {
     const chosen = terminal()
@@ -196,43 +179,6 @@ export function RegistryPanel(props: {
     }
   }
 
-  const onToggle = (tool: string) => {
-    setArmed()
-    if (busy() !== undefined) return
-    void setSwitch([tool], !isOn(tool))
-  }
-
-  const setSwitch = async (tools: readonly string[], next: boolean) => {
-    const intent = ++switchSequence
-    for (const tool of tools) {
-      latestSwitch.set(tool, intent)
-      pendingSwitches.set(tool, next)
-    }
-
-    // Optimistic: the switch reflects the click immediately, and the atomic
-    // bulk write controls the next session's prompt block.
-    setEnabled((current) => ({ ...current, ...Object.fromEntries(tools.map((tool) => [tool, next])) }))
-    await HubState.setEnabledMany(tools, next, { directory: options.directory }).catch(async (error: unknown) => {
-      const current = tools.filter((tool) => latestSwitch.get(tool) === intent)
-      if (current.length > 0) {
-        // Roll back to durable state, not the previous optimistic snapshot: an earlier
-        // pending click may itself have failed while this click was waiting in the queue.
-        const durable = await HubState.read({ directory: options.directory })
-        setEnabled((state) => {
-          const rollback = { ...state }
-          for (const tool of current) {
-            const value = durable.enabled[tool]
-            pendingSwitches.set(tool, value)
-            if (value === undefined) delete rollback[tool]
-            else rollback[tool] = value
-          }
-          return rollback
-        })
-      }
-      toast.show({ message: error instanceof Error ? error.message : String(error), variant: "error" })
-    })
-  }
-
   const move = (delta: number) => {
     setArmed()
     setCursor((value) => Math.max(0, Math.min(rows().length - 1, value + delta)))
@@ -250,15 +196,6 @@ export function RegistryPanel(props: {
       { bind: "down", title: "Next tool", group: "Registry", run: () => move(1) },
       { bind: "left", title: "Previous page", group: "Registry", run: () => turn(-1) },
       { bind: "right", title: "Next page", group: "Registry", run: () => turn(1) },
-      {
-        bind: "tab",
-        title: "Switch tool for the model",
-        group: "Registry",
-        run: () => {
-          const row = selected()
-          if (row) onToggle(row.tool)
-        },
-      },
       {
         bind: "return",
         title: "Install or remove tool",
@@ -284,12 +221,14 @@ export function RegistryPanel(props: {
         </text>
       </box>
 
+      <Show when={props.aiTools}>{(ai) => <AiTools tools={ai()} />}</Show>
+
+      <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+        {t("Programs")}
+      </text>
       <box flexDirection="row" gap={3}>
         <Stat label={t("Ready")} value={`${status().ready}/${status().total}`} />
-        <Stat
-          label={t("For the model")}
-          value={`${status().tools.filter((row) => isOn(row.tool)).length}/${status().tools.length}`}
-        />
+        <Stat label={t("Installed")} value={`${status().installed.length}/${status().tools.length}`} />
       </box>
 
       <box flexDirection="row" gap={1}>
@@ -367,8 +306,6 @@ export function RegistryPanel(props: {
         <Button onClick={() => turn(1)}>›</Button>
       </box>
 
-      {/* Keep the install controls wrappable; All off has its own row so its
-          mouse target cannot overlap the wrapped siblings on narrow terminals. */}
       <box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button
           variant="primary"
@@ -377,46 +314,21 @@ export function RegistryPanel(props: {
         >
           {t("Install missing ({count})", { count: missing().length })}
         </Button>
-        <Button
-          disabled={busy() !== undefined}
-          onClick={() =>
-            void setSwitch(
-              status()
-                .tools.filter((row) => row.installed)
-                .map((row) => row.tool),
-              true,
-            )
-          }
-        >
-          {t("All installed on")}
-        </Button>
       </box>
-      <box flexDirection="row">
-        <Button
-          disabled={busy() !== undefined}
-          onClick={() =>
-            void setSwitch(
-              Array.from(new Set([...Hub.all.flatMap((entry) => entry.requires ?? []), ...Object.keys(enabled())])),
-              false,
-            )
-          }
-        >
-          {t("All off")}
-        </Button>
-      </box>
+      <text fg={theme.text.muted} wrapMode="word">
+        {t("Installed programs are available to every session. Choose which ones each role may use in Teams → role → Registry programs.")}
+      </text>
 
       <box>
         <For each={rows()}>
           {(row, index) => (
             <ToolRow
               tool={row}
-              on={isOn(row.tool)}
               active={index() === cursor()}
               pending={busy() !== undefined}
               working={busy() === row.tool}
               armed={armed() === row.tool}
               onHover={() => setCursor(index())}
-              onToggle={() => onToggle(row.tool)}
               onInstall={() => onInstall(row.tool)}
               onRemove={() => onRemove(row.tool)}
               onDisarm={() => setArmed()}
@@ -452,7 +364,7 @@ export function RegistryPanel(props: {
         )}
       </Show>
       <text fg={theme.text.muted}>
-        {t("↑↓ select · tab model on/off · enter install/remove · ←→ page · esc close")}
+        {t("↑↓ select · enter install/remove · ←→ page · esc close")}
       </text>
     </box>
   )
@@ -464,6 +376,90 @@ const haystack = Hub.all.reduce((map, entry) => {
   for (const tool of entry.requires ?? []) map.set(tool, `${map.get(tool) ?? tool} ${text}`)
   return map
 }, new Map<string, string>())
+
+export type AiToolsAccess = {
+  installed: () => readonly string[]
+  set: (id: string, config: McpCatalog.Entry["config"] | null) => Promise<unknown>
+}
+
+// Catalog MCP servers the operator installs for the AI. Installing writes the server into the
+// global config, which connects it; every session is then told how to use it.
+function AiTools(props: { tools: AiToolsAccess }) {
+  const theme = useTheme().surface("dialog")
+  const t = useT()
+  const toast = useToast()
+  const [busy, setBusy] = createSignal<string>()
+  // Optimistic until the server list catches up with the config change.
+  const [local, setLocal] = createSignal<Record<string, boolean>>({})
+  const entries = McpCatalog.forPlatform()
+  const runtimes = new Map(
+    [...new Set(entries.flatMap((entry) => (entry.runtime ? [entry.runtime] : [])))].map((runtime) => [
+      runtime,
+      Hub.HubHost.has(runtime),
+    ]),
+  )
+  const isInstalled = (id: string) => local()[id] ?? props.tools.installed().includes(id)
+  const change = async (entry: McpCatalog.Entry, install: boolean) => {
+    if (busy() !== undefined) return
+    setBusy(entry.id)
+    await props.tools
+      .set(entry.id, install ? entry.config : null)
+      .then(() => {
+        setLocal((current) => ({ ...current, [entry.id]: install }))
+        toast.show({ message: `${entry.name}: ${install ? t("installed") : t("removed")}`, variant: "success" })
+      })
+      .catch((error: unknown) =>
+        toast.show({ message: error instanceof Error ? error.message : String(error), variant: "error" }),
+      )
+    setBusy()
+  }
+  return (
+    <box gap={0}>
+      <box flexDirection="row" gap={2}>
+        <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+          {t("AI tools")}
+        </text>
+        <text fg={theme.text.muted}>{`${entries.filter((entry) => isInstalled(entry.id)).length}/${entries.length}`}</text>
+      </box>
+      <For each={entries}>
+        {(entry) => (
+          <box flexDirection="row" gap={1}>
+            <box width={TOOL_COLUMN + 4} flexShrink={0}>
+              <text fg={isInstalled(entry.id) ? theme.text.base : theme.text.muted} wrapMode="none" truncate>
+                {entry.name}
+              </text>
+            </box>
+            <box flexGrow={1} flexShrink={1} minWidth={0}>
+              <text fg={theme.text.muted} wrapMode="none" truncate>
+                {t(entry.description)}
+              </text>
+            </box>
+            <Switch>
+              <Match when={busy() === entry.id}>
+                <text fg={theme.text.muted}>…</text>
+              </Match>
+              <Match when={isInstalled(entry.id)}>
+                <Button disabled={busy() !== undefined} onClick={() => void change(entry, false)}>
+                  {t("Remove")}
+                </Button>
+              </Match>
+              <Match when={entry.runtime && !runtimes.get(entry.runtime)}>
+                <text fg={theme.text.feedback.warning.base}>
+                  {t("needs {runtime}", { runtime: entry.runtime === "uvx" ? "uv" : "Node.js" })}
+                </text>
+              </Match>
+              <Match when={true}>
+                <Button disabled={busy() !== undefined} onClick={() => void change(entry, true)}>
+                  {t("Install")}
+                </Button>
+              </Match>
+            </Switch>
+          </box>
+        )}
+      </For>
+    </box>
+  )
+}
 
 function Stat(props: { label: string; value: string }) {
   const theme = useTheme().surface("dialog")
@@ -477,13 +473,11 @@ function Stat(props: { label: string; value: string }) {
 
 function ToolRow(props: {
   tool: RegistryTool
-  on: boolean
   active: boolean
   pending: boolean
   working: boolean
   armed: boolean
   onHover: () => void
-  onToggle: () => void
   onInstall: () => void
   onRemove: () => void
   onDisarm: () => void
@@ -497,13 +491,6 @@ function ToolRow(props: {
       backgroundColor={props.active ? theme.background.action.primary.focused : undefined}
       onMouseOver={props.onHover}
     >
-      <Action
-        disabled={props.pending}
-        onClick={props.onToggle}
-        color={props.on ? theme.text.formfield.selected : theme.text.formfield.base}
-      >
-        {props.on ? t(" [on] ") : t(" [off]")}
-      </Action>
       <box width={TOOL_COLUMN}>
         <text fg={props.tool.installed ? theme.text.base : theme.text.muted} wrapMode="none" truncate>
           {props.tool.tool}
@@ -577,34 +564,6 @@ export function Button(props: {
       }}
     >
       <text fg={theme.text.action.primary[state()]} wrapMode="none">{primary() ? props.children : `[ ${props.children} ]`}</text>
-    </box>
-  )
-}
-
-function Action(props: {
-  children: JSX.Element
-  color: RGBA
-  onClick: () => void
-  disabled?: boolean
-  onLeave?: () => void
-  background?: RGBA
-}) {
-  const theme = useTheme().surface("dialog")
-  const [hovered, setHovered] = createSignal(false)
-  return (
-    <box
-      backgroundColor={hovered() && !props.disabled ? theme.background.raised.high : props.background}
-      onMouseOver={() => setHovered(true)}
-      onMouseOut={() => {
-        setHovered(false)
-        props.onLeave?.()
-      }}
-      onMouseUp={(event) => {
-        event.stopPropagation()
-        if (!props.disabled) props.onClick()
-      }}
-    >
-      <text fg={props.disabled ? theme.text.action.primary.disabled : props.color}>{props.children}</text>
     </box>
   )
 }

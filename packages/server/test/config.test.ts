@@ -99,6 +99,41 @@ it.live("updates the global shell without replacing unrelated JSONC", () =>
   }),
 )
 
+it.live("installs and removes an MCP server from the Registry without touching other JSONC", () =>
+  Effect.gen(function* () {
+    const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-config-mcp-")))
+    const global = path.join(tmp.path, "global")
+    const config = path.join(global, "opencode.jsonc")
+    yield* Effect.promise(() => fs.mkdir(global, { recursive: true }))
+    yield* Effect.promise(() => fs.writeFile(config, `{\n  // keep this comment\n  "shell": "bash"\n}\n`))
+    const server = yield* startServer(global)
+    const patch = (body: unknown) =>
+      Effect.promise(() =>
+        fetch(new URL("/api/experimental/config", server.base), {
+          method: "PATCH",
+          headers: { ...server.headers, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      )
+
+    const added = yield* patch({
+      mcpServers: { context7: { type: "local", command: ["npx", "-y", "@upstash/context7-mcp"] } },
+    })
+    expect(added.status).toBe(204)
+    const installed = JSON.parse(
+      (yield* Effect.promise(() => fs.readFile(config, "utf8"))).replace(/^\s*\/\/.*$/gm, ""),
+    )
+    expect(installed.mcp.servers.context7.command).toEqual(["npx", "-y", "@upstash/context7-mcp"])
+    expect(installed.shell).toBe("bash")
+
+    const removed = yield* patch({ mcpServers: { context7: null } })
+    expect(removed.status).toBe(204)
+    const text = yield* Effect.promise(() => fs.readFile(config, "utf8"))
+    expect(text).toContain("// keep this comment")
+    expect(text).not.toContain("context7")
+  }),
+)
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

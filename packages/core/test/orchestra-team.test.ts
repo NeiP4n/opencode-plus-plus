@@ -2,6 +2,7 @@ import { describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
 import { Money } from "@opencode/schema/money"
 import { Event } from "@opencode/schema/event"
+import { Form } from "@opencode/schema/form"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Global } from "@opencode/util/global"
@@ -800,6 +801,68 @@ describe("Orchestra team", () => {
       yield* sessions.prompt({ sessionID: developer.id, text: "operator's own question" })
       yield* Effect.sleep("50 millis")
       expect(yield* reports(main)).toHaveLength(1)
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("forwards a worker's question during a dispatched task to the orchestrator", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-orchestra-team-")))
+      const orchestra = yield* Orchestra.Service
+      const bus = yield* Bus.Service
+      const sessions = yield* Session.Service
+      const project = yield* orchestra.create({ name: "Team", directory: tmp.path, template: "bugfix" })
+      const members = yield* orchestra.sessions(project.id)
+      const developer = members.find((session) => session.title === "Developer")!
+      const tester = members.find((session) => session.title === "Tester")!
+      // Keep the task outstanding, as it is while the worker waits for an answer.
+      deferTaskDelivery.add(developer.id)
+      yield* Effect.addFinalizer(() => Effect.sync(() => deferTaskDelivery.delete(developer.id)))
+      yield* orchestra.dispatch({ project, sessionID: developer.id, text: "Fix the bug" })
+      const ask = (sessionID: Session.ID) =>
+        bus.publish(Form.Event.Created, {
+          form: {
+            id: Form.ID.create(),
+            sessionID,
+            title: "Questions",
+            metadata: { kind: "question" },
+            fields: [
+              {
+                key: "q0",
+                type: "string",
+                title: "Database",
+                description: "Which database should the fix target?",
+                options: [
+                  { value: "Postgres", label: "Postgres", description: "Production" },
+                  { value: "SQLite", label: "SQLite" },
+                ],
+                custom: true,
+              },
+            ],
+          },
+        })
+      // A session without an outstanding task is the operator's own conversation.
+      yield* ask(tester.id)
+      yield* ask(developer.id)
+      const questions = (sessionID: Session.ID) =>
+        sessions
+          .inbox(sessionID)
+          .pipe(
+            Effect.map((inbox) =>
+              inbox.flatMap((item) =>
+                item.type === "synthetic" && item.payload.text.startsWith("<team-question") ? [item.payload.text] : [],
+              ),
+            ),
+          )
+      const [question] = yield* questions(project.main!).pipe(
+        Effect.filterOrFail((found) => found.length > 0),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("2 seconds"),
+      )
+      expect(question).toContain(`session="${developer.id}"`)
+      expect(question).toContain("Which database should the fix target?")
+      expect(question).toContain("- Postgres: Production")
+      expect(question).toContain("- SQLite")
+      expect(yield* questions(project.main!)).toHaveLength(1)
     }).pipe(Effect.scoped),
   )
 

@@ -6,6 +6,7 @@ import path from "node:path"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Orchestra } from "@opencode/schema/orchestra"
+import { Form } from "@opencode/schema/form"
 import { Model } from "@opencode/schema/model"
 import { SessionID } from "@opencode/schema/session-id"
 import type { Session as SessionSchema } from "@opencode/schema/session"
@@ -1355,6 +1356,46 @@ const layer: Layer.Layer<
         Effect.forkScoped({ startImmediately: true }),
       )
 
+    // A worker running a dispatched task may stop to ask the human a question, and nobody
+    // may be watching that session. Forward the question to the main session as a
+    // <team-question> so the Orchestrator can answer it with the sessions tool, action answer.
+    // The question stays open in the worker too: whoever answers first settles it.
+    yield* bus.subscribe(Form.Event.Created).pipe(
+      Stream.runForEach((event) =>
+        Effect.gen(function* () {
+          const form = event.data.form
+          if (form.metadata?.kind !== "question") return
+          const workerID = Option.getOrUndefined(decodeSessionID(form.sessionID))
+          if (!workerID) return
+          const task = Option.getOrUndefined(decodeTask(yield* kv.get(TASK + workerID)))
+          if (!task) return
+          const main = (yield* projectForTask(task))?.main ?? task.main
+          const worker = yield* sessions.get(workerID).pipe(Effect.orElseSucceed(() => undefined))
+          const title = worker?.title ?? workerID
+          yield* sessions
+            .synthetic({
+              sessionID: main,
+              description: `${title}: question`,
+              text: [
+                `<team-question session="${workerID}" form="${form.id}" title="${title}" role="${worker?.agent ?? "unknown"}">`,
+                ...form.fields.map((field, index) =>
+                  [
+                    `${index + 1}. ${field.title ? `[${field.title}] ` : ""}${field.description ?? ""}${field.type === "multiselect" ? " (several may be chosen)" : ""}`,
+                    ...("options" in field && field.options
+                      ? field.options.map((option) => `   - ${option.label}${option.description ? `: ${option.description}` : ""}`)
+                      : []),
+                  ].join("\n"),
+                ),
+                "</team-question>",
+              ].join("\n"),
+              metadata: { source: "team", sessionID: workerID, form: form.id },
+            })
+            .pipe(Effect.ignore)
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
+    )
+
     const changed = yield* PubSub.sliding<void>(16)
 
     const stored = Effect.fnUntraced(function* <A extends { created: number }>(
@@ -1953,6 +1994,7 @@ const requireRole = Effect.fnUntraced(function* (input: RoleSpec) {
     })
   const tools = input.tools === undefined ? undefined : unique(input.tools)
   const hub = input.hub === undefined ? undefined : unique(input.hub)
+  const registry = input.registry === undefined ? undefined : unique(input.registry)
   return {
     name,
     description: input.description.trim(),
@@ -1964,6 +2006,7 @@ const requireRole = Effect.fnUntraced(function* (input: RoleSpec) {
     ...(tools ? { tools } : {}),
     ...(input.autoTools ? { autoTools: true } : {}),
     ...(hub ? { hub } : {}),
+    ...(registry ? { registry } : {}),
   }
 })
 

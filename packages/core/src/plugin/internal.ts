@@ -76,6 +76,9 @@ import { McpResourceTools } from "../tool/plugin/mcp-resource.js"
 import { OpenCodeTools } from "../tool/plugin/opencode.js"
 import { HubTool } from "../tool/plugin/hub.js"
 import { OrchestraTool } from "../tool/plugin/orchestra.js"
+import { TeamForgeTool } from "../tool/plugin/team-forge.js"
+import { DesktopTool } from "../tool/plugin/desktop.js"
+import { McpCatalog } from "../mcp/catalog.js"
 import { Orchestra } from "../orchestra.js"
 import { PeerTool } from "../tool/plugin/peer.js"
 import { Peer } from "../peer.js"
@@ -267,6 +270,9 @@ const pre = [
   ReadTool.Plugin,
   HubTool.Plugin,
   OrchestraTool.Plugin,
+  TeamForgeTool.Plugin,
+  DesktopTool.Plugin,
+  McpCatalog.Plugin,
   PeerTool.Plugin,
   PlotTool.Plugin,
   ShellTool.Plugin,
