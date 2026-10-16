@@ -23,9 +23,28 @@ import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DISCOVERY_PORTS, readServer, scanRooms, type FoundRoom } from "@opencode/client/room-discovery"
 
 
+type MultiplayerMode = "host" | "mesh"
+
+function MultiplayerModeSelector(props: {
+  value: MultiplayerMode
+  onChange: (value: MultiplayerMode) => void
+}) {
+  const t = useT()
+  return (
+    <box flexDirection="row" gap={1}>
+      <Button variant={props.value === "host" ? "primary" : undefined} onClick={() => props.onChange("host")}>
+        {t("Host")}
+      </Button>
+      <Button variant={props.value === "mesh" ? "primary" : undefined} onClick={() => props.onChange("mesh")}>
+        {t("Mesh")}
+      </Button>
+    </box>
+  )
+}
+
 // Mesh is a shared room whose state survives a coordinator leaving. Unlike a LAN
 // room, every enrolled device participates in the replicated log and elections.
-export function DialogMesh(props: { onClose?: () => void }) {
+export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }) {
   const client = useClient()
   const dialog = useDialog()
   const theme = useTheme().surface("dialog")
@@ -178,10 +197,12 @@ export function DialogMesh(props: { onClose?: () => void }) {
   const showing = () => snapshot() && snapshot()!.status !== "unconfigured"
 
   return (
-    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-      <Header title={t("Mesh room")} onClose={props.onClose} />
+    <box paddingLeft={props.hideHeader ? 0 : 2} paddingRight={props.hideHeader ? 0 : 2} paddingBottom={props.hideHeader ? 0 : 1} gap={1}>
+      <Show when={!props.hideHeader}>
+        <Header title={t("Mesh room")} onClose={props.onClose} />
+      </Show>
       <scrollbox
-        maxHeight={Math.max(8, dimensions().height - 8)}
+        maxHeight={Math.max(props.hideHeader ? 6 : 8, dimensions().height - (props.hideHeader ? 10 : 8))}
         contentOptions={{ minHeight: 0, gap: 1 }}
         scrollbarOptions={{ visible: false }}
       >
@@ -325,6 +346,7 @@ export function DialogHost(props: { onClose?: () => void }) {
   const [codes, setCodes] = createSignal<Readonly<Record<string, RoomJoinCode & { until: number }>>>({})
   const [armed, setArmed] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
+  const [mode, setMode] = createSignal<"host" | "mesh">("host")
   // Drives the join code countdown while the window is open.
   const [now, setNow] = createSignal(Date.now())
   onMount(() => {
@@ -414,18 +436,19 @@ export function DialogHost(props: { onClose?: () => void }) {
   }
 
   return (
-    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-      <Header title={t("Host")} onClose={props.onClose} />
-      <box flexDirection="row">
-        <Button
-          onClick={() => {
-            dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
-            dialog.setCentered(true)
-          }}
-        >
-          {t("Open Mesh room")}
-        </Button>
-      </box>
+    <Show
+      when={mode() === "host"}
+      fallback={
+        <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+          <Header title={t("Multiplayer")} onClose={props.onClose} />
+          <MultiplayerModeSelector value="mesh" onChange={setMode} />
+          <DialogMesh onClose={props.onClose} hideHeader />
+        </box>
+      }
+    >
+      <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+        <Header title={t("Multiplayer")} onClose={props.onClose} />
+        <MultiplayerModeSelector value="host" onChange={setMode} />
       <Show when={server.error}>
         {(error) => (
           <text fg={theme.text.feedback.error.base} wrapMode="word">
@@ -614,6 +637,7 @@ export function DialogHost(props: { onClose?: () => void }) {
         <text fg={theme.text.feedback.error.base}>{errorMessage(rooms.error)}</text>
       </Show>
     </box>
+  </Show>
   )
 }
 
