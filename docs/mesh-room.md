@@ -52,4 +52,29 @@ For repository edits, the control plane should assign a task/worktree to a devic
 
 For a seven-device room: any single device may go offline without losing committed room state; if the coordinator goes offline, a survivor can be elected by the remaining majority; concurrent partitions cannot both commit; AI work can be executed using a provider already configured on another enrolled device without exporting that provider's credentials; retries do not duplicate a committed job; losing quorum visibly moves the room to read-only mode.
 
-The consensus helpers in \`packages/core/src/room-mesh.ts\` are only the first building block. This branch is not an end-to-end Mesh room yet: the helpers must be wired to persisted server state, authenticated RPCs, and the room UI before users can create and operate a mesh.
+## Current implementation status on `lan-rooms`
+
+The CLI/TUI entry point is `/mesh` (also available as **Open Mesh room** in the command palette). The current panel supports creating a room, joining with an invitation token, activating the initial membership, viewing coordinator/quorum status, and appending shared messages or task notes.
+
+### Manual smoke test
+
+1. Start OpenCode++ on every device with a reachable LAN/VPN bind address and a fixed port. For example, on Linux/macOS:
+   ```sh
+   OPENCODE_SERVER_PASSWORD='replace-with-a-long-unique-password' opencode --hostname 0.0.0.0 --port 4096
+   ```
+   In PowerShell:
+   ```powershell
+   $env:OPENCODE_SERVER_PASSWORD = "replace-with-a-long-unique-password"
+   opencode --hostname 0.0.0.0 --port 4096
+   ```
+   Allow the selected TCP port through the device firewall only on trusted LAN/VPN networks.
+2. On the first device, open `/mesh`, enter its reachable address (for example, `http://192.168.1.10:4096`), and choose **Create Mesh**. Share the invitation token only with devices you trust.
+3. On every other device, open `/mesh`; enter the first device's address as the seed, paste the invitation token, enter that device's own reachable address, and choose **Join Mesh**.
+4. When every expected device appears on the creator, choose **Activate Mesh**. All enrolled peers must be reachable for initial activation.
+5. Confirm the status says **Quorum healthy**. Send a message and verify that it appears on the other peers. A minority partition should not be treated as writable.
+
+Use only a trusted LAN or private VPN; do not port-forward the server to the public internet. The Mesh RPC endpoint authenticates peer requests with the high-entropy room secret. The regular OpenCode server should still be protected with `OPENCODE_SERVER_PASSWORD`.
+
+### Current limitations
+
+This is a usable Mesh-room MVP, **not yet the complete remote-AI orchestration experience**. The panel shares message/task entries and displays membership/quorum state; it does not yet dispatch a task entry as an AI prompt to a selected remote worker, advertise model/provider capabilities, stream remote execution progress, or manage returned code changes. The `run-ai` RPC plumbing exists, but there is no end-user TUI flow for selecting and starting such work yet. Failover and network-partition behavior still need full integration and failure testing before being relied on for important work.
