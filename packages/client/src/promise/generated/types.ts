@@ -614,6 +614,8 @@ export type RoomMeshSnapshot = {
   currentTerm: number
   leaderID?: string | undefined
   members: Array<RoomMeshNode>
+  voters: Array<string>
+  voter: boolean
   logIndex: number
   commitIndex: number
   quorum: number
@@ -623,6 +625,7 @@ export type RoomMeshSnapshot = {
 export type RoomMeshFeed = { data: Array<RoomMeshEntry>; commitIndex: number }
 export type RoomMeshRpcRequest =
   | { type: "enroll"; node: RoomMeshNode }
+  | { type: "add-learner"; clusterID: string; fromNodeID: string; node: RoomMeshNode }
   | { type: "prepare"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
   | { type: "activate"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
   | {
@@ -670,6 +673,9 @@ export type RoomMeshRpcResponse = {
   matchIndex?: number | undefined
   clusterID?: string | undefined
   ownerNodeID?: string | undefined
+  leaderID?: string | undefined
+  status?: RoomMeshStatus | undefined
+  voters?: Array<string> | undefined
   members?: Array<RoomMeshNode> | undefined
   entry?: RoomMeshEntry | undefined
   commitIndex?: number | undefined
@@ -8076,6 +8082,7 @@ export type RoomGuestPermissionReplyInput = {
 export type RoomGuestPermissionReplyOutput = void
 
 export type RoomMeshStatusOutput = RoomMeshSnapshot
+export type RoomMeshInviteOutput = { token: string }
 export type RoomMeshCreateInput = { url: string; name?: string | undefined }
 export type RoomMeshCreateOutput = { data: RoomMeshSnapshot; token: string }
 export type RoomMeshJoinInput = { seedURL: string; token: string; url: string; name?: string | undefined }
