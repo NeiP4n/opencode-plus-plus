@@ -2,7 +2,6 @@ export * as TeamForgeTool from "./team-forge.js"
 
 import { ToolFailure } from "@opencode/ai"
 import type { Context } from "@opencode/plugin/effect/plugin"
-import type { SessionHooks } from "@opencode/plugin/effect/session"
 import { SessionEvent } from "@opencode/schema/session-event"
 import type { SessionID } from "@opencode/schema/session-id"
 import { Effect, Schema, Stream } from "effect"
@@ -15,7 +14,8 @@ export const name = "team_forge"
 export const command = "forge-teams"
 
 const description = [
-  "Manage the team registry used when the operator opens projects. Only a session running the /forge-teams command has this tool.",
+  "Manage the shared team registry. This tool is available in every session so the operator can inspect, edit and delete teams without first running /forge-teams.",
+  "Always list or fetch the exact entry before changing it. Only mutate the registry when the operator explicitly requests a specific change; never infer permission to edit or delete from an unrelated task.",
   "Actions: list shows role/team ids and summaries; get_role and get_team return the full editable definition by exact id;",
   "role creates a custom role; edit_role fully replaces an existing role by id; delete_role removes a custom role or restores an edited built-in role to defaults;",
   "team creates a team; edit_team fully replaces an existing team by id; delete_team removes a custom team or restores a built-in team to defaults.",
@@ -68,10 +68,6 @@ export const Plugin = {
   effect: Effect.fn("TeamForgeTool.Plugin")(function* (ctx: Context) {
     const orchestra = yield* Orchestra.Service
     const bus = yield* Bus.Service
-    // Entering /forge-teams grants this session ongoing registry-management access.
-    // The automatic creation loop may finish or be interrupted, but the operator
-    // should still be able to edit/delete teams in follow-up messages in this session.
-    const enabled = new Set<SessionID>()
     const forging = new Map<SessionID, Forge>()
 
     const list = Effect.fnUntraced(function* () {
@@ -349,7 +345,6 @@ export const Plugin = {
         description: "Manage the team registry without auto-generating teams with `manage`, or design and add teams with [count] [focus]",
         execute: (input) => {
           const [first, ...rest] = input.prompt.text.trim().split(/\s+/)
-          enabled.add(input.sessionID)
           if (first?.toLowerCase() === "manage") {
             // Enable CRUD access without starting the automatic team-generation loop.
             forging.delete(input.sessionID)
@@ -415,15 +410,7 @@ export const Plugin = {
         Effect.forkScoped({ startImmediately: true }),
       )
 
-    // Only sessions that explicitly entered /forge-teams see the registry-management tool.
-    // Do not gate on the active generation loop: a completed/paused forge must remain editable.
-    const hook = (event: SessionHooks["context"]) =>
-      Effect.sync(() => {
-        if (event.tools[name] && !enabled.has(event.sessionID)) delete event.tools[name]
-      })
-    yield* ctx.session.hook("context", hook)
-    yield* ctx.session.hook("compaction", hook)
-    yield* ctx.session.hook("generate", hook)
+
   }),
 }
 
