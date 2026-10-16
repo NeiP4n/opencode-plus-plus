@@ -206,7 +206,20 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
     </Labeled>
   )
 
-  const showing = () => snapshot() && snapshot()!.status !== "unconfigured"
+  // A Mesh response can be absent briefly while an async create/join/status
+  // request is settling. Normalize the snapshot once so the UI never dereferences
+  // an incomplete member list during Solid's reactive render.
+  const current = () => {
+    const value = snapshot()
+    if (!value || value.status === "unconfigured") return undefined
+    return {
+      ...value,
+      members: Array.isArray(value.members) ? value.members : [],
+      quorum: typeof value.quorum === "number" ? value.quorum : 0,
+      commitIndex: typeof value.commitIndex === "number" ? value.commitIndex : 0,
+    }
+  }
+  const showing = () => current() !== undefined
 
   return (
     <box paddingLeft={props.hideHeader ? 0 : 2} paddingRight={props.hideHeader ? 0 : 2} paddingBottom={props.hideHeader ? 0 : 1} gap={1}>
@@ -252,29 +265,29 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
           </box>
         </Show>
 
-        <Show when={showing()}>
+        <Show when={current()} keyed>
           {(state) => (
             <>
               <Section title={t("Mesh status")} />
               <text fg={theme.text.base} wrapMode="word">
-                {t("Room: {id}", { id: state().clusterID ?? "—" })}
+                {t("Room: {id}", { id: state.clusterID ?? "—" })}
               </text>
-              <text fg={state().writable ? theme.text.feedback.success.base : theme.text.feedback.warning.base} wrapMode="word">
-                {state().writable
+              <text fg={state.writable ? theme.text.feedback.success.base : theme.text.feedback.warning.base} wrapMode="word">
+                {state.writable
                   ? t("Quorum healthy — shared writes are available")
-                  : state().leader
+                  : state.leader
                     ? t("Coordinator elected, but quorum is missing — read-only")
                     : t("Replica mode — waiting for a healthy coordinator")}
               </text>
               <text fg={theme.text.muted} wrapMode="word">
-                {t("Coordinator: {leader}", { leader: state().leaderID ?? t("electing") })} · {t("Commit: {index}", { index: state().commitIndex })} · {t("Quorum requires {count} of {total} devices", { count: state().quorum, total: state().members.length })}
+                {t("Coordinator: {leader}", { leader: state.leaderID ?? t("electing") })} · {t("Commit: {index}", { index: state.commitIndex })} · {t("Quorum requires {count} of {total} devices", { count: state.quorum, total: state.members.length })}
               </text>
               <Section title={t("Devices")} />
-              <For each={state().members}>
+              <For each={state.members}>
                 {(member) => (
                   <box flexDirection="row" gap={1}>
-                    <text fg={member.id === state().leaderID ? theme.text.feedback.success.base : theme.text.base}>
-                      {member.id === state().leaderID ? "●" : "○"}
+                    <text fg={member.id === state.leaderID ? theme.text.feedback.success.base : theme.text.base}>
+                      {member.id === state.leaderID ? "●" : "○"}
                     </text>
                     <text fg={theme.text.base} wrapMode="none" truncate>
                       {member.name}
@@ -287,7 +300,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                 )}
               </For>
 
-              <Show when={state().status === "forming" && state().nodeID === state().ownerNodeID}>
+              <Show when={state.status === "forming" && state.nodeID === state.ownerNodeID}>
                 <Section title={t("Activate after all devices have joined")} />
                 <Show when={invite()}>
                   <text fg={theme.text.muted} wrapMode="word">
@@ -300,7 +313,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                 </Button>
               </Show>
 
-              <Show when={state().status === "active"}>
+              <Show when={state.status === "active"}>
                 <Section title={t("Shared messages and tasks")} />
                 <For each={entries()}>
                   {(entry) => (
@@ -321,7 +334,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                 </box>
                 {field("text", t("Message or task"), t("Enter a shared message; tasks can be dispatched to peers later"), 58)}
                 <box flexDirection="row" gap={1}>
-                  <Button variant="primary" disabled={busy() || !state().writable} onClick={send}>
+                  <Button variant="primary" disabled={busy() || !state.writable} onClick={send}>
                     {t("Send")}
                   </Button>
                   <Button disabled={busy()} onClick={() => run(() => refresh())}>
