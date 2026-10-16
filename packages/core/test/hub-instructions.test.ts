@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Schema } from "effect"
 import { HubInstructions } from "@opencode/core/hub/instructions"
-import { HubState } from "@opencode/core/hub/state"
 import { Instructions } from "@opencode/core/instructions/index"
 import { tmpdir } from "./fixture/tmpdir"
 
@@ -18,9 +17,8 @@ const rendered = async (list: Instructions.List): Promise<string> => {
 }
 
 describe("hub hint instructions source", () => {
-  test("enabled and available tool reaches the rendered prompt text", async () => {
+  test("an installed tool reaches the rendered prompt text", async () => {
     const dir = await tmpdir()
-    await HubState.setEnabled("mlr", true, { directory: dir.path })
     const list = HubInstructions.make({ directory: dir.path, availability: ["mlr"], terminals: ["bash"] })
     const text = await rendered(list)
     expect(text).toContain("- mlr —")
@@ -28,22 +26,24 @@ describe("hub hint instructions source", () => {
     expect(text).toContain("Terminals: bash")
   })
 
-  test("empty state contributes nothing — prompt stays byte-identical", async () => {
+  test("nothing installed contributes nothing — prompt stays byte-identical", async () => {
     const dir = await tmpdir()
-    const list = HubInstructions.make({ directory: dir.path, availability: ["mlr"], terminals: ["bash"] })
+    const list = HubInstructions.make({ directory: dir.path, availability: [], terminals: ["bash"] })
     expect(await rendered(list)).toBe("")
   })
 
-  test("disabled tool contributes nothing", async () => {
+  test("a session that may not run the hub tool is told nothing", async () => {
     const dir = await tmpdir()
-    await HubState.setEnabled("mlr", false, { directory: dir.path })
-    const list = HubInstructions.make({ directory: dir.path, availability: ["mlr"] })
-    expect(await rendered(list)).toBe("")
+    const options = { directory: dir.path, availability: ["mlr"], terminals: ["bash"] }
+    const denied = [{ action: "*", resource: "*", effect: "deny" as const }]
+    const allowed = [...denied, { action: "hub", resource: "*", effect: "allow" as const }]
+    expect(await rendered(HubInstructions.forPermissions(denied, options))).toBe("")
+    expect(await rendered(HubInstructions.forPermissions(allowed, options))).toContain("- mlr —")
+    expect(await rendered(HubInstructions.forPermissions(undefined, options))).toContain("- mlr —")
   })
 
-  test("enabled but unavailable tool contributes nothing", async () => {
+  test("a tool that is not installed contributes nothing", async () => {
     const dir = await tmpdir()
-    await HubState.setEnabled("mlr", true, { directory: dir.path })
     const list = HubInstructions.make({ directory: dir.path, availability: [] })
     expect(await rendered(list)).toBe("")
   })

@@ -19,10 +19,10 @@ describe("sandbox shell environment", () => {
     expect(env).toEqual({
       PATH: "/usr/bin",
       OPENCODE_TERMINAL: "1",
-      XDG_DATA_HOME: "/sandbox/data",
-      XDG_CONFIG_HOME: "/sandbox/config",
-      XDG_STATE_HOME: "/sandbox/state",
-      XDG_CACHE_HOME: "/sandbox/cache",
+      XDG_DATA_HOME: path.join("/sandbox", "data"),
+      XDG_CONFIG_HOME: path.join("/sandbox", "config"),
+      XDG_STATE_HOME: path.join("/sandbox", "state"),
+      XDG_CACHE_HOME: path.join("/sandbox", "cache"),
     })
   })
 })

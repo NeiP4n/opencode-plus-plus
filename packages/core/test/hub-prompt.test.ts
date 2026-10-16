@@ -1,14 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { renderHubHints } from "@opencode/core/hub/prompt"
-import type { State } from "@opencode/core/hub/state"
 import { Hub } from "@opencode/core/hub/index"
 
-const stateOf = (enabled: Record<string, boolean>): State => ({ version: 1, enabled })
-
 describe("renderHubHints", () => {
-  test("enabled and available tool shows purpose, template, header and terminals", () => {
+  test("an installed tool shows purpose, template, header and terminals", () => {
     const text = renderHubHints({
-      state: stateOf({ mlr: true }),
       availability: ["mlr"],
       terminals: ["bash"],
     })
@@ -19,45 +15,48 @@ describe("renderHubHints", () => {
     expect(text).toContain("Terminals: bash")
   })
 
-  test("an installed tool is listed without any switch, even one left off", () => {
-    expect(renderHubHints({ state: stateOf({}), availability: ["mlr"] })).toContain("- mlr —")
-    expect(renderHubHints({ state: stateOf({ mlr: false }), availability: ["mlr"] })).toContain("- mlr —")
+  test("an installed tool is listed without any switch", () => {
+    expect(renderHubHints({ availability: ["mlr"] })).toContain("- mlr —")
+  })
+
+  test("a role's Registry programs narrow the list", () => {
+    const text = renderHubHints({ availability: ["mlr", "jq"], programs: ["jq"] })
+    expect(text).toContain("- jq")
+    expect(text).not.toContain("- mlr")
+    expect(renderHubHints({ availability: ["mlr"], programs: [] })).toBe("")
   })
 
   test("a tool that is not installed produces nothing", () => {
-    const text = renderHubHints({ state: stateOf({ mlr: true }), availability: ["orphanedTool"] })
+    const text = renderHubHints({ availability: ["orphanedTool"] })
     expect(text).toBe("")
   })
 
   test("nothing installed produces nothing — prompt stays byte-identical", () => {
-    expect(renderHubHints({ state: stateOf({}), availability: [] })).toBe("")
+    expect(renderHubHints({ availability: [] })).toBe("")
   })
 
   test("block stays within 40 lines and 2000 characters with an explicit marker", () => {
     const tools = [
       ...new Set(Hub.all.filter((entry) => Hub.supportsPlatform(entry)).flatMap((entry) => entry.requires ?? [])),
     ]
-    const enabled = Object.fromEntries(tools.map((tool) => [tool, true]))
-    const text = renderHubHints({ state: stateOf(enabled), availability: tools })
+    const text = renderHubHints({ availability: tools })
     expect(text.length).toBeLessThanOrEqual(2000)
     expect(text.split("\n").length).toBeLessThanOrEqual(40)
     expect(text).toContain("more tools — details through the hub tool")
   })
 
   test("terminals line appears only when terminals are given", () => {
-    const without = renderHubHints({ state: stateOf({ mlr: true }), availability: ["mlr"] })
+    const without = renderHubHints({ availability: ["mlr"] })
     expect(without).not.toContain("Terminals:")
     const withTerminals = renderHubHints({
-      state: stateOf({ mlr: true }),
       availability: ["mlr"],
       terminals: ["bash", "nu"],
     })
     expect(withTerminals).toContain("Terminals: bash, nu")
   })
 
-  test("stale enabled keys are not advertised as tools without catalog recipes", () => {
+  test("programs without catalog recipes are not advertised as tools without catalog recipes", () => {
     const text = renderHubHints({
-      state: stateOf({ mlr: true, orphanedTool: true }),
       availability: ["mlr", "orphanedTool"],
     })
 
@@ -67,7 +66,6 @@ describe("renderHubHints", () => {
 
   test("eligible tools are listed in sorted order", () => {
     const text = renderHubHints({
-      state: stateOf({ mlr: true, rg: true, jq: true }),
       availability: ["mlr", "rg", "jq"],
     })
     const order = text.split("\n").filter((line) => line.startsWith("- "))
@@ -78,7 +76,7 @@ describe("renderHubHints", () => {
 
   test.skipIf(process.platform === "win32")("entries for another OS stay out of the hints", () => {
     const windows = Hub.get("windows.processes")!
-    const text = renderHubHints({ state: stateOf({ pwsh: true }), availability: ["pwsh"] })
+    const text = renderHubHints({ availability: ["pwsh"] })
     expect(text).not.toContain(windows.description)
   })
 })

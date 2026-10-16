@@ -5,9 +5,11 @@ import fs from "fs/promises"
 import { Option, Schema } from "effect"
 import { Path } from "@opencode/util/global"
 
+// The Registry has no on/off switches: a program is there for the model when it is installed.
+// The state file only keeps the operator's terminal choice. Files written by older versions
+// still carry an `enabled` map; decoding ignores it.
 const StateSchema = Schema.Struct({
   version: Schema.Literal(1),
-  enabled: Schema.Record(Schema.String, Schema.Boolean),
   // The terminal hub commands run in; absent means the first installed of nu, pwsh, bash.
   terminal: Schema.optional(Schema.Literals(["bash", "nu", "pwsh"])),
 })
@@ -21,12 +23,14 @@ export type Options = {
   readonly directory?: string
 }
 
+const empty = (): State => ({ version: 1 })
+
 // Atomic rename protects a single write from partial content, but concurrent
 // read-modify-writes can still start from the same snapshot and overwrite one another.
 const pendingWrites = new Map<string, Promise<void>>()
 
-// A missing, unreadable, or foreign-shaped file means "nothing enabled": the hub is
-// opt-in, so a broken state file must degrade to an empty prompt block, not fail.
+// A missing, unreadable, or foreign-shaped file means the defaults: a broken state file
+// must never stop the hub from working.
 export async function read(options: Options = {}): Promise<State> {
   const key = path.resolve(file(options))
   while (true) {
@@ -41,20 +45,8 @@ export async function read(options: Options = {}): Promise<State> {
 
 async function readDisk(options: Options): Promise<State> {
   const text = await fs.readFile(file(options), "utf8").catch(() => undefined)
-  if (text === undefined) return { version: 1, enabled: {} }
-  return Option.getOrElse(decodeState(text), () => ({ version: 1, enabled: {} }))
-}
-
-export function setEnabled(id: string, enabled: boolean, options: Options = {}): Promise<void> {
-  return setEnabledMany([id], enabled, options)
-}
-
-export function setEnabledMany(ids: readonly string[], enabled: boolean, options: Options = {}): Promise<void> {
-  if (ids.length === 0) return Promise.resolve()
-  return update(options, (state) => ({
-    ...state,
-    enabled: { ...state.enabled, ...Object.fromEntries(ids.map((id) => [id, enabled])) },
-  }))
+  if (text === undefined) return empty()
+  return Option.getOrElse(decodeState(text), empty)
 }
 
 export function setTerminal(terminal: NonNullable<State["terminal"]>, options: Options = {}): Promise<void> {
@@ -68,7 +60,10 @@ function update(options: Options, change: (state: State) => State): Promise<void
     const state = await readDisk(options)
     await write(change(state), options)
   })
-  const settled = operation.then(() => undefined, () => undefined)
+  const settled = operation.then(
+    () => undefined,
+    () => undefined,
+  )
   pendingWrites.set(key, settled)
   void settled.then(() => {
     if (pendingWrites.get(key) === settled) pendingWrites.delete(key)
@@ -81,7 +76,7 @@ async function write(next: State, options: Options) {
   await fs.mkdir(path.dirname(destination), { recursive: true })
   const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`
   // temp+rename in the same directory: a crash between write and rename leaves the previous
-  // file intact, whereas a half-written hub.json would read back as "nothing enabled".
+  // file intact, whereas a half-written hub.json would read back as the defaults.
   await fs.writeFile(temporary, JSON.stringify(next, null, 2)).catch(async (error) => {
     await fs.rm(temporary, { force: true }).catch(() => undefined)
     throw error

@@ -32,7 +32,7 @@ export {
   type Manager,
   type Plan,
 } from "./install.js"
-export { read, setEnabled, setEnabledMany, setTerminal, type State } from "./state.js"
+export { read, setTerminal, type State } from "./state.js"
 export * as HubActions from "./actions.js"
 export type { ActionResult } from "./actions.js"
 export { renderHubHints, type Hints } from "./prompt.js"

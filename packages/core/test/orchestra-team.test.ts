@@ -204,7 +204,9 @@ describe("Orchestra sandbox project", () => {
 
       expect(project.sandbox).toMatchObject({ source: tmp.path, isolation: "environment" })
       expect(project.directory).toBe(path.join(project.sandbox!.home, "repo"))
-      expect(yield* Effect.promise(() => Bun.file(path.join(project.directory, "README.md")).text())).toBe("source\n")
+      // Git may check the file out with CRLF on Windows (core.autocrlf).
+      const readme = yield* Effect.promise(() => Bun.file(path.join(project.directory, "README.md")).text())
+      expect(readme.replaceAll("\r\n", "\n")).toBe("source\n")
       expect(yield* Effect.promise(() => Bun.file(path.join(project.directory, Dod.FILE)).exists())).toBe(true)
       expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, Dod.FILE)).exists())).toBe(false)
       expect((yield* orchestra.projects()).find((item) => item.id === project.id)?.sandbox).toEqual(project.sandbox)

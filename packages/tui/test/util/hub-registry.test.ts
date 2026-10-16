@@ -171,7 +171,7 @@ test("win32 platform filter stays fully ready and only drops the entries another
   expect(onlyWin32.length).toBeGreaterThan(0)
   expect(onlyLinux.length).toBeGreaterThan(0)
   expect(win32.total - linux.total).toBe(onlyWin32.length - onlyLinux.length)
-  expect(linux.total).toBe(Hub.all.length - onlyWin32.length)
+  expect(linux.total).toBe(Hub.all.filter((entry) => Hub.supportsPlatform(entry, "linux")).length)
 })
 
 test("absent tools with no package manager for the platform leave install undefined", () => {

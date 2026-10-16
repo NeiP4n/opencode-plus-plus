@@ -180,6 +180,9 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
       return json({ location: { directory, project: { id: "proj_test", directory: worktree } }, data: [] })
     if (url.pathname === "/api/orchestra/project") return json([])
     if (url.pathname === "/api/orchestra/owner") return json({})
+    // Other agent tools' folders (/compat): none in the test project.
+    if (url.pathname === "/api/config/compatibility" && request.method === "GET")
+      return json({ root: worktree, enabled: false, order: [], ecosystems: [] })
     throw new Error(`unexpected request: ${url.pathname}`)
   }
   fetch.preconnect = () => {}

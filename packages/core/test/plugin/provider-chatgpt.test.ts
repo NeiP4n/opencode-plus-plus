@@ -512,7 +512,7 @@ describe("ChatGPTPlugin", () => {
       expect(`${url.origin}${url.pathname}`).toBe("https://auth.openai.com/api/accounts/authorize")
       expect(Object.fromEntries(url.searchParams)).toMatchObject({
         client_id: "dynamic_agent_client",
-        agent_name_hint: "OpenCode",
+        agent_name_hint: "OpenCode++",
         response_type: "code",
         scope: "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
         resource: "https://api.openai.com/v1",

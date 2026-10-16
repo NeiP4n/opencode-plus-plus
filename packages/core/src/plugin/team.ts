@@ -40,6 +40,24 @@ NOTES: durable facts for the project notes, if any (read-only roles)
 NEXT: what the Orchestrator should do next, if anything
 Write the rest of the report in the language of the task.`
 
+// What a role works with, told to it on every request: weaker models otherwise reach for
+// tools the role does not have, or never try the Registry programs it does have.
+export function toolkit(role: Orchestra.Role, tools: readonly string[]) {
+  const usable = tools.filter((tool) => tool !== "question").toSorted()
+  return [
+    `# Your toolkit (${role.name})`,
+    usable.length > 0
+      ? `Tools you can call: ${usable.join(", ")}. Other tools are not available to this role; do not try them.`
+      : "This role has no tools besides asking questions; answer from what the task gives you.",
+    ...(tools.includes("hub")
+      ? [
+          `Registry (hub tool): ${role.hub ? `categories ${role.hub.join(", ") || "none"}` : "every category"}${role.registry ? `; programs ${role.registry.join(", ") || "none"}` : ""}. Prefer a hub recipe over hand-written shell when one fits: call hub with query first.`,
+        ]
+      : []),
+    ...(role.readOnly ? ["You are read-only: never edit files."] : []),
+  ].join("\n")
+}
+
 // Registers every team role, built-in or the operator's own, as a "team-" agent.
 // The operator edits roles at runtime, so the agents are rebuilt on every change.
 export const Plugin = define({
@@ -88,6 +106,7 @@ export const Plugin = define({
       Effect.gen(function* () {
         const role = team.roles.find((item) => item.agent === event.agent)
         if (!role && event.agent !== Orchestra.agent) return
+        if (role) event.system.push({ type: "text", text: toolkit(role, Object.keys(event.tools)) })
         const directory = yield* projectDirectory(event.sessionID)
         if (!directory) return
         const notes = yield* Effect.promise(() =>

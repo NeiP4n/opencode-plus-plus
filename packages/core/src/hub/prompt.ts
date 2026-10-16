@@ -1,7 +1,6 @@
 export * as HubPrompt from "./prompt.js"
 
 import type { Entry } from "./types.js"
-import type { State } from "./state.js"
 import { all } from "./catalog/index.js"
 import { supportsPlatform } from "./resolve.js"
 import { hinted } from "./visibility.js"
@@ -18,14 +17,15 @@ const HEADER =
   "These installed hub tools are available in this session; details and other recipes come through the hub tool. When asked what you can do, name them too."
 
 export type Hints = {
-  readonly state: State
   readonly availability: readonly string[]
+  // A team role's Registry programs; undefined means every installed program.
+  readonly programs?: readonly string[]
   // Backends resolvable right now; rendered as a single line inside the block.
   readonly terminals?: readonly string[]
 }
 
-// Pure inventory for the system prompt: only tools the operator switched on
-// AND that exist on PATH. No I/O — availability and state come from the caller
+// Pure inventory for the system prompt: catalog programs that exist on PATH
+// (and that the role may use, when it is limited). No I/O — availability and state come from the caller
 // so the prompt path stays synchronous and testable without mocks.
 export function renderHubHints(hints: Hints): string {
   const available = new Set(hints.availability)
@@ -33,7 +33,7 @@ export function renderHubHints(hints: Hints): string {
   // Ignore stale settings and executable backends such as nu/pwsh: only catalog
   // dependencies that actually unlock recipes belong in the model's tool list.
   const eligible = [...required.keys()]
-    .filter((tool) => hinted(hints.state, tool) && available.has(tool))
+    .filter((tool) => hinted(tool, hints.programs) && available.has(tool))
     .sort()
   // With nothing installed the prompt stays byte-identical to
   // what it was before this feature existed.

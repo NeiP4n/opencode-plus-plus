@@ -120,8 +120,13 @@ test("the team editor creates a role and a team made of it", async () => {
   setup.mockInput.pressTab()
   // tools: only reading files plus an MCP pattern, and the Orchestrator may narrow them
   setup.mockInput.pressArrow("right")
-  await setup.waitForFrame((frame) => frame.includes("Read files") && frame.includes("Browser"))
+  await setup.waitForFrame((frame) => frame.includes("□ read") && frame.includes("context7 (AI)"))
   setup.mockInput.pressTab()
+  // each tool is its own chip: read, glob and grep are the first three
+  setup.mockInput.pressKey(" ")
+  setup.mockInput.pressArrow("right")
+  setup.mockInput.pressKey(" ")
+  setup.mockInput.pressArrow("right")
   setup.mockInput.pressKey(" ")
   setup.mockInput.pressTab()
   setup.mockInput.typeText("context7_*")
@@ -133,6 +138,8 @@ test("the team editor creates a role and a team made of it", async () => {
   await setup.waitForFrame((frame) => frame.includes("mobile"))
   setup.mockInput.pressTab()
   setup.mockInput.pressKey(" ")
+  // Registry programs stay "all installed"
+  setup.mockInput.pressTab()
   setup.mockInput.pressTab()
   setup.mockInput.typeText("Check licenses.")
   setup.mockInput.pressKey("s", { ctrl: true })

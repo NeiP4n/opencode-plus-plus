@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import { playbookOf, role, roles, templates } from "@opencode/schema/orchestra"
+import { playbookOf, role, roles, templates, toolGroups } from "@opencode/schema/orchestra"
+import { Hub } from "@opencode/core/hub/index"
+import { TeamPlugin } from "@opencode/core/plugin/team"
 import { checksOf, outcomeOf, toolAllowed, toolRules } from "@opencode/core/orchestra"
 import { Permission } from "@opencode/core/permission"
 
@@ -14,6 +16,48 @@ describe("role tool limits", () => {
     expect(Permission.evaluate("external_directory", "/tmp", rules).effect).toBe("ask")
     expect(toolAllowed(["read", "context7_*"], "context7_docs")).toBe(true)
     expect(toolAllowed(["read"], "edit")).toBe(false)
+  })
+
+  test("keep the Code Mode wrapper open so a role's MCP tools stay reachable", () => {
+    const rules = toolRules(["read", "context7_*"])
+    expect(Permission.evaluate("execute", "*", rules).effect).toBe("allow")
+    expect(Permission.evaluate("playwright_navigate", "*", rules).effect).toBe("deny")
+  })
+})
+
+describe("built-in role toolkits", () => {
+  const actions = new Set(toolGroups.flatMap((group) => group.actions))
+  const categories = new Set(Hub.all.map((entry) => entry.category))
+
+  test("every role has its own tools, all of them real permission actions", () => {
+    for (const item of roles) {
+      expect(item.tools?.length ?? 0).toBeGreaterThan(0)
+      for (const tool of item.tools ?? []) expect(actions.has(tool)).toBe(true)
+      for (const category of item.hub ?? []) expect(categories.has(category as Hub.Category)).toBe(true)
+    }
+  })
+
+  test("read-only roles cannot edit and every role can read", () => {
+    for (const item of roles) {
+      expect(item.tools).toContain("read")
+      if (item.readOnly) expect(item.tools).not.toContain("edit")
+    }
+  })
+
+  test("a role is told exactly which tools and Registry limits it has", () => {
+    const reviewer = { ...findRole("reviewer")!, agent: role("reviewer"), origin: "builtin" as const }
+    const text = TeamPlugin.toolkit(reviewer, ["read", "grep", "hub", "question"])
+    expect(text).toContain("Tools you can call: grep, hub, read.")
+    expect(text).toContain("categories search, files, text, json, git, build, github")
+    expect(text).toContain("read-only")
+    expect(TeamPlugin.toolkit(reviewer, ["read"])).not.toContain("Registry")
+  })
+
+  test("roles differ by the job: an analyst has no terminal, a frontend developer has the browser", () => {
+    expect(findRole("product-analyst")?.tools).not.toContain("shell")
+    expect(findRole("frontend-developer")?.tools).toContain("browser")
+    expect(findRole("mobile-developer")?.hub).toContain("mobile")
+    expect(findRole("security-auditor")?.hub).toContain("security")
   })
 })
 

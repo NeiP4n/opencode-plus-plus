@@ -4,78 +4,48 @@ import path from "path"
 import { Hub } from "@opencode/core/hub/index"
 import { tmpdir } from "./fixture/tmpdir"
 
-describe("Hub tool enable state", () => {
-  test("missing file defaults to version 1 with nothing enabled", async () => {
+describe("Hub state", () => {
+  test("missing file defaults to version 1 without a terminal choice", async () => {
     await using tmp = await tmpdir()
-
-    const state = await Hub.read({ directory: tmp.path })
-
-    expect(state.version).toBe(1)
-    expect(state.enabled["search.content"] ?? false).toBe(false)
+    expect(await Hub.read({ directory: tmp.path })).toEqual({ version: 1 })
   })
 
-  test("setEnabled reads back both directions and touches only one id", async () => {
+  test("the terminal choice reads back and leaves only the state file behind", async () => {
     await using tmp = await tmpdir()
-
-    await Hub.setEnabled("search.content", true, { directory: tmp.path })
-    expect((await Hub.read({ directory: tmp.path })).enabled["search.content"]).toBe(true)
-
-    await Hub.setEnabled("search.content", false, { directory: tmp.path })
-    expect((await Hub.read({ directory: tmp.path })).enabled["search.content"]).toBe(false)
-
-    await Hub.setEnabled("docker.compose-up", true, { directory: tmp.path })
-    const state = await Hub.read({ directory: tmp.path })
-    expect(state.enabled["docker.compose-up"]).toBe(true)
-    expect(state.enabled["search.content"]).toBe(false)
-
+    await Hub.setTerminal("pwsh", { directory: tmp.path })
+    expect((await Hub.read({ directory: tmp.path })).terminal).toBe("pwsh")
+    await Hub.setTerminal("bash", { directory: tmp.path })
+    expect((await Hub.read({ directory: tmp.path })).terminal).toBe("bash")
     // temp+rename: nothing but the state file is left behind
     expect(await readdir(tmp.path)).toEqual(["hub.json"])
-    expect(JSON.parse(await readFile(path.join(tmp.path, "hub.json"), "utf8")).version).toBe(1)
+    expect(JSON.parse(await readFile(path.join(tmp.path, "hub.json"), "utf8"))).toEqual({ version: 1, terminal: "bash" })
+  })
+
+  test("an old file with on/off switches still reads, and the switches are dropped on write", async () => {
+    await using tmp = await tmpdir()
+    const file = path.join(tmp.path, "hub.json")
+    await writeFile(file, JSON.stringify({ version: 1, enabled: { rg: false }, terminal: "nu" }))
+    expect((await Hub.read({ directory: tmp.path })).terminal).toBe("nu")
+    await Hub.setTerminal("pwsh", { directory: tmp.path })
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, terminal: "pwsh" })
   })
 
   test("corrupt JSON falls back to the default instead of throwing", async () => {
     await using tmp = await tmpdir()
     await writeFile(path.join(tmp.path, "hub.json"), "{ not json ]")
-
-    expect(await Hub.read({ directory: tmp.path })).toEqual({ version: 1, enabled: {} })
+    expect(await Hub.read({ directory: tmp.path })).toEqual({ version: 1 })
   })
 
   test("foreign shape and stale version fall back to the default", async () => {
     await using tmp = await tmpdir()
-    await writeFile(path.join(tmp.path, "hub.json"), JSON.stringify({ version: 2, enabled: { a: "yes" } }))
-
-    expect(await Hub.read({ directory: tmp.path })).toEqual({ version: 1, enabled: {} })
+    await writeFile(path.join(tmp.path, "hub.json"), JSON.stringify({ version: 2, terminal: "cmd" }))
+    expect(await Hub.read({ directory: tmp.path })).toEqual({ version: 1 })
   })
-})
 
-test("parallel registry updates preserve every switch and terminal choice", async () => {
-  await using tmp = await tmpdir()
-  const options = { directory: tmp.path }
-
-  await Promise.all([
-    Hub.setEnabled("alpha", true, options),
-    Hub.setEnabledMany(["beta", "gamma"], true, options),
-    Hub.setTerminal("nu", options),
-    Hub.setEnabled("delta", false, options),
-  ])
-
-  expect(await Hub.read(options)).toEqual({
-    version: 1,
-    enabled: { alpha: true, beta: true, gamma: true, delta: false },
-    terminal: "nu",
-  })
-})
-
-describe("Hub terminal choice", () => {
-  test("choosing a terminal keeps the switches and switches keep the terminal", async () => {
+  test("parallel terminal choices are serialized and the last one wins", async () => {
     await using tmp = await tmpdir()
-    await Hub.setEnabled("jq", true, { directory: tmp.path })
-    await Hub.setTerminal("nu", { directory: tmp.path })
-    await Hub.setEnabled("git", true, { directory: tmp.path })
-    expect(await Hub.read({ directory: tmp.path })).toEqual({
-      version: 1,
-      enabled: { jq: true, git: true },
-      terminal: "nu",
-    })
+    const options = { directory: tmp.path }
+    await Promise.all([Hub.setTerminal("bash", options), Hub.setTerminal("pwsh", options), Hub.setTerminal("nu", options)])
+    expect(await Hub.read(options)).toEqual({ version: 1, terminal: "nu" })
   })
 })

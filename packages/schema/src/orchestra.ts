@@ -198,7 +198,8 @@ export interface Template extends Schema.Schema.Type<typeof Template> {}
 // General roles work in any project: they learn its stack and conventions from the
 // repository instead of assuming one. The Opencode++ specialists at the end know this
 // monorepo's own rules and are meant for the OpenCode++ Core team.
-export const roles: readonly (RoleSpec & { id: string })[] = [
+// Each role also gets its own toolkit (see `toolkits` below).
+const baseRoles: readonly (RoleSpec & { id: string })[] = [
   {
     id: "product-analyst",
     name: "Product Analyst",
@@ -574,6 +575,72 @@ export const roles: readonly (RoleSpec & { id: string })[] = [
     readOnly: false,
   },
 ]
+
+// Tool sets, by the permission actions of `toolGroups`.
+const READ = ["read", "glob", "grep"]
+const EDIT = ["edit"]
+const SHELL = ["shell", "hub"]
+const WEB = ["webfetch", "websearch"]
+const SCREEN = ["browser", "desktop"]
+const SKILLS = ["skill", "skill_catalog"]
+const NOTES = ["note", "idea_bank", "plots"]
+const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
+
+// Registry categories, by what a role does with the computer.
+const CODE = ["search", "files", "text", "json", "git", "build"]
+const SERVER = [...CODE, "data", "docker", "network", "process", "system"]
+
+// Each built-in role gets the tools and Registry categories its job needs, so a role works
+// with its own instruments instead of every tool at once. The operator changes them in the
+// team editor (a saved role keeps exactly what was saved); absent `hub` means every category.
+const toolkits: Record<string, Pick<RoleSpec, "tools" | "hub">> = {
+  "product-analyst": { tools: kit(READ, WEB, SKILLS, NOTES), hub: ["search", "files", "text", "json", "data"] },
+  architect: { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github", "data"] },
+  researcher: { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github", "data", "network"] },
+  designer: { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: CODE },
+  developer: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES) },
+  "frontend-developer": {
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES),
+    hub: [...CODE, "network", "process"],
+  },
+  "backend-developer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: SERVER },
+  "mobile-developer": {
+    tools: kit(READ, EDIT, SHELL, WEB, ["desktop"], SKILLS, NOTES),
+    hub: [...CODE, "mobile", "process"],
+  },
+  "desktop-developer": {
+    tools: kit(READ, EDIT, SHELL, WEB, ["desktop"], SKILLS, NOTES),
+    hub: [...CODE, "process", "system", "windows"],
+  },
+  "database-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "data", "docker"] },
+  writer: { tools: kit(READ, EDIT, ["hub"], WEB, SKILLS, NOTES), hub: ["search", "files", "text", "json", "git"] },
+  devops: { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES) },
+  debugger: { tools: kit(READ, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: [...SERVER, "mobile"] },
+  tester: {
+    tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES),
+    hub: [...CODE, "data", "network", "process", "mobile"],
+  },
+  reviewer: { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github"] },
+  "counterexample-engineer": { tools: kit(READ, SHELL, SKILLS, NOTES), hub: [...CODE, "data", "process"] },
+  "security-auditor": {
+    tools: kit(READ, SHELL, WEB, SKILLS, NOTES),
+    hub: [...SERVER, "github", "security"],
+  },
+  "accessibility-auditor": { tools: kit(READ, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: CODE },
+  "performance-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES), hub: SERVER },
+  "dependency-auditor": { tools: kit(READ, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "github", "security"] },
+  "compatibility-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SCREEN, SKILLS, NOTES) },
+  "data-migration-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "data", "docker"] },
+  "reliability-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...SERVER, "systemd"] },
+  "core-maintainer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES) },
+  "integration-engineer": {
+    tools: kit(READ, EDIT, SHELL, WEB, ["browser"], SKILLS, NOTES),
+    hub: [...CODE, "github", "network", "docker"],
+  },
+  "api-contract-engineer": { tools: kit(READ, EDIT, SHELL, WEB, SKILLS, NOTES), hub: [...CODE, "network"] },
+}
+
+export const roles: readonly (RoleSpec & { id: string })[] = baseRoles.map((role) => ({ ...role, ...toolkits[role.id] }))
 
 const member = (name: string, title: string): Member => ({
   agent: role(name),

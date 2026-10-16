@@ -1938,10 +1938,15 @@ function merge<A extends { id: string }, B extends { id: string; created: number
 // Permission rules that leave only these tools (permission actions or patterns) usable.
 // Asking the operator and reaching another directory are not tools, so they keep their
 // usual "ask"; .env files stay behind a question even when reading is allowed.
+//
+// `execute` is the Code Mode wrapper MCP servers' tools run through. It only reaches the
+// server tools these rules leave usable, so it stays open: denying it would cut a role off
+// from the AI tools (context7_*, playwright_*, ...) its list explicitly gives it.
 export function toolRules(tools: ReadonlyArray<string>): Permission.Ruleset {
   return [
     { action: "*", resource: "*", effect: "deny" },
     ...tools.map((tool) => ({ action: tool, resource: "*", effect: "allow" as const })),
+    { action: "execute", resource: "*", effect: "allow" },
     { action: "question", resource: "*", effect: "allow" },
     { action: "external_directory", resource: "*", effect: "ask" },
     ...(tools.some((tool) => Wildcard.match("read", tool))

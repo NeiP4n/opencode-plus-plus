@@ -117,19 +117,22 @@ export const Plugin = {
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
         const servers = Config.latest(yield* config.entries(), "mcp")?.servers ?? {}
-        // Only servers whose tools this session still has: a role without them is not told about them.
+        // A server's tools are direct tools named <server>_<tool> when its Code Mode is off, and run
+        // through the `execute` tool otherwise. Only servers this session can reach are listed, so a
+        // role whose tool list leaves a server out is not told about it.
         const installed = all.filter(
           (entry) =>
             servers[entry.id] !== undefined &&
             servers[entry.id]?.disabled !== true &&
-            (Object.keys(event.tools).some((tool) => tool.startsWith(`${entry.id}_`)) || event.tools.execute !== undefined),
+            (Object.keys(event.tools).some((tool) => tool.startsWith(`${entry.id}_`)) ||
+              (event.tools.execute !== undefined && servers[entry.id]?.codemode !== false)),
         )
         if (installed.length === 0) return
         event.system.push({
           type: "text",
           text: [
             "# Installed AI tools",
-            "These MCP servers are installed from the Registry; their tools are named <server>_<tool>. Use them when they fit:",
+            'These MCP servers are installed from the Registry. Call a server\'s tools directly when your tool list has them as <server>_<tool>; otherwise run them through the execute tool under tools["<server>"]. Use them when they fit:',
             ...installed.map((entry) => `- ${entry.id} (${entry.name}): ${entry.usage}`),
           ].join("\n"),
         })

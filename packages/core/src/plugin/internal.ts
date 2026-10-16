@@ -77,6 +77,7 @@ import { OpenCodeTools } from "../tool/plugin/opencode.js"
 import { HubTool } from "../tool/plugin/hub.js"
 import { OrchestraTool } from "../tool/plugin/orchestra.js"
 import { TeamForgeTool } from "../tool/plugin/team-forge.js"
+import { CommandForgeTool } from "../tool/plugin/command-forge.js"
 import { DesktopTool } from "../tool/plugin/desktop.js"
 import { McpCatalog } from "../mcp/catalog.js"
 import { Orchestra } from "../orchestra.js"
@@ -271,6 +272,7 @@ const pre = [
   HubTool.Plugin,
   OrchestraTool.Plugin,
   TeamForgeTool.Plugin,
+  CommandForgeTool.Plugin,
   DesktopTool.Plugin,
   McpCatalog.Plugin,
   PeerTool.Plugin,

@@ -156,7 +156,7 @@ const layer = Layer.effect(
         // the date and environment, which vary by day and directory.
         instructions: Instructions.combine([
           CodeModeInstructions.make(loaded.tools.codeModeCatalog),
-          hubInstructions.load(),
+          hubInstructions.load(permissions),
           projectDod,
           loaded.mcp,
           loaded.references,
