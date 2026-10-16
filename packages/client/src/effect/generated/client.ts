@@ -294,6 +294,7 @@ import type {
   RoomMeshCreateOutput,
   RoomMeshJoinInput,
   RoomMeshJoinOutput,
+  RoomMeshLeaveOutput,
   RoomMeshActivateOutput,
   RoomMeshAppendInput,
   RoomMeshAppendOutput,
@@ -1946,6 +1947,9 @@ const EndpointRoomMeshJoin = (raw: RawClient["server.room"]) => (input: RoomMesh
     }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointRoomMeshLeave = (raw: RawClient["server.room"]) => () =>
+  preserveEffect<RoomMeshLeaveOutput>()(raw["room.mesh.leave"]({}).pipe(Effect.mapError(mapClientError)))
+
 const EndpointRoomMeshActivate = (raw: RawClient["server.room"]) => () =>
   preserveEffect<RoomMeshActivateOutput>()(raw["room.mesh.activate"]({}).pipe(Effect.mapError(mapClientError)))
 
@@ -2323,6 +2327,7 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
     status: EndpointRoomMeshStatus(raw),
     create: EndpointRoomMeshCreate(raw),
     join: EndpointRoomMeshJoin(raw),
+    leave: EndpointRoomMeshLeave(raw),
     activate: EndpointRoomMeshActivate(raw),
     append: EndpointRoomMeshAppend(raw),
     feed: EndpointRoomMeshFeed(raw),
