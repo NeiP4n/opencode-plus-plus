@@ -626,22 +626,111 @@ const layer = Layer.effect(
             let state = yield* requireState()
             if (!secretMatches(token, state.secret)) return yield* new MeshError({ message: "Mesh credential is invalid", status: 401 })
             if (input.type === "enroll") {
-              if (state.status !== "forming" || state.nodeID !== state.ownerNodeID)
-                return yield* new MeshError({ message: "This Mesh is not accepting new members; only a forming owner may enroll devices", status: 409 })
+              if (state.nodeID !== state.ownerNodeID || state.status === "unconfigured")
+                return yield* new MeshError({ message: "Only the Mesh owner can enroll devices", status: 409 })
               const url = yield* normalizedURL(input.node.url)
               const node = { ...input.node, url, name: input.node.name.trim() || input.node.id }
               const sameID = state.members.find((member) => member.id === node.id)
-              if (sameID && sameID.url !== node.url) return yield* new MeshError({ message: "That node ID is already enrolled at another address", status: 409 })
-              if (!sameID && (state.members.length >= MAX_MEMBERS || state.members.some((member) => member.url === node.url))) return yield* new MeshError({ message: "Mesh already contains this address or has reached its 32-device limit", status: 409 })
-              const members = sameID ? state.members : [...state.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
-              if (members.length !== state.members.length) {
-                state = { ...state, members, preparedHash: undefined }
-                yield* save(state)
+              if (sameID && sameID.url !== node.url)
+                return yield* new MeshError({ message: "That node ID is already enrolled at another address", status: 409 })
+              if (!sameID && (state.members.length >= MAX_MEMBERS || state.members.some((member) => member.url === node.url)))
+                return yield* new MeshError({ message: "Mesh already contains this address or has reached its 32-device limit", status: 409 })
+
+              if (state.status === "forming") {
+                const members = sameID ? state.members : [...state.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
+                if (members.length !== state.members.length) {
+                  state = { ...state, members, preparedHash: undefined }
+                  yield* save(state)
+                }
+                return response({
+                  clusterID: state.clusterID,
+                  ownerNodeID: state.ownerNodeID,
+                  status: state.status,
+                  currentTerm: state.currentTerm,
+                  leaderID: state.leaderID,
+                  voters: members.map((member) => member.id),
+                  members,
+                })
               }
-              return response({ clusterID: state.clusterID, ownerNodeID: state.ownerNodeID, members: state.members })
+
+              // Active membership is not changed as a voter configuration. A new
+              // device joins as a learner: all active peers must acknowledge the same
+              // roster update, but the existing voting quorum is preserved.
+              const voters = voterIDs(state)
+              if (!voters.includes(state.nodeID))
+                return yield* new MeshError({ message: "Only an existing voter may invite a Mesh learner", status: 403 })
+              const proposed = sameID ? state.members : [...state.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
+              const request: RoomMesh.RpcRequest = {
+                type: "add-learner",
+                clusterID: state.clusterID,
+                fromNodeID: state.nodeID,
+                node,
+              }
+              const peers = state.members.filter((member) => member.id !== state.nodeID)
+              const results = yield* Effect.all(
+                peers.map((member) =>
+                  callRPC(member.url, state.secret, request).pipe(
+                    Effect.match({
+                      onFailure: () => ({ member, ok: false }),
+                      onSuccess: (reply) => ({ member, ok: reply.ok }),
+                    }),
+                  ),
+                ),
+                { concurrency: "unbounded" },
+              )
+              if (results.some((result) => !result.ok))
+                return yield* new MeshError({
+                  message: "Could not confirm the new worker on every current Mesh device. Keep the invitation token and retry when all existing devices are online.",
+                  status: 503,
+                })
+              state = { ...state, members: proposed, voters }
+              yield* save(state)
+              if (state.leaderID === state.nodeID && !sameID) {
+                nextIndex.set(node.id, 1)
+                matchIndex.delete(node.id)
+                acknowledgedAt.delete(node.id)
+              }
+              return response({
+                clusterID: state.clusterID,
+                ownerNodeID: state.ownerNodeID,
+                status: state.status,
+                currentTerm: state.currentTerm,
+                leaderID: state.leaderID,
+                voters,
+                members: state.members,
+              })
             }
-            if (input.clusterID !== state.clusterID) return yield* new MeshError({ message: "This RPC belongs to another Mesh room", status: 403 })
-            if (!memberFor(state, input.fromNodeID)) return yield* new MeshError({ message: "This node is not enrolled in the Mesh", status: 403 })
+            if (input.clusterID !== state.clusterID)
+              return yield* new MeshError({ message: "This RPC belongs to another Mesh room", status: 403 })
+            if (!memberFor(state, input.fromNodeID))
+              return yield* new MeshError({ message: "This node is not enrolled in the Mesh", status: 403 })
+            if (input.type === "add-learner") {
+              if (state.status !== "active" || input.fromNodeID !== state.ownerNodeID || !voterIDs(state).includes(input.fromNodeID))
+                return response({ ok: false, message: "Only the active Mesh owner may add a learner" })
+              const url = yield* normalizedURL(input.node.url)
+              const node = { ...input.node, url, name: input.node.name.trim() || input.node.id }
+              const sameID = state.members.find((member) => member.id === node.id)
+              if (sameID && sameID.url !== node.url)
+                return response({ ok: false, message: "That node ID is already enrolled at another address" })
+              if (!sameID && (state.members.length >= MAX_MEMBERS || state.members.some((member) => member.url === node.url)))
+                return response({ ok: false, message: "Mesh already contains this address or has reached its 32-device limit" })
+              const voters = voterIDs(state)
+              const members = sameID ? state.members : [...state.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
+              state = { ...state, members, voters }
+              yield* save(state)
+              if (state.leaderID === state.nodeID && !sameID) {
+                nextIndex.set(node.id, 1)
+                matchIndex.delete(node.id)
+                acknowledgedAt.delete(node.id)
+              }
+              return response({
+                status: state.status,
+                currentTerm: state.currentTerm,
+                leaderID: state.leaderID,
+                voters,
+                members,
+              })
+            }
             if (input.type === "prepare") {
               if (state.status === "active") {
                 const incoming = yield* normalizedMembers(input.members)
