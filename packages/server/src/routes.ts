@@ -48,6 +48,7 @@ import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
 import { ServerPairing } from "./pairing"
 import { ServerRooms } from "./rooms"
+import { ServerMesh } from "./mesh"
 import { layer } from "./location"
 import { formLocationLayer } from "./middleware/form-location"
 import { sessionLocationLayer } from "./middleware/session-location"
@@ -76,6 +77,7 @@ const applicationServiceNodes = [
   PtyEnvironment.node,
   ServerPairing.node,
   ServerRooms.node,
+  ServerMesh.node,
   Room.node,
   Orchestra.node,
   Peer.node,

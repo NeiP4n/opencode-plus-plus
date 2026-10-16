@@ -595,6 +595,75 @@ export type RoomMessage = {
   created: number | "Infinity" | "-Infinity" | "NaN"
 }
 
+export type RoomMeshNode = { id: string; url: string; name: string; joined: number }
+export type RoomMeshStatus = "unconfigured" | "forming" | "active"
+export type RoomMeshEntry = {
+  id: string
+  index: number
+  term: number
+  kind: "message" | "task"
+  payload: JsonValue
+  originID: string
+  created: number
+}
+export type RoomMeshSnapshot = {
+  nodeID: string
+  status: RoomMeshStatus
+  clusterID?: string | undefined
+  ownerNodeID?: string | undefined
+  currentTerm: number
+  leaderID?: string | undefined
+  members: Array<RoomMeshNode>
+  logIndex: number
+  commitIndex: number
+  quorum: number
+  leader: boolean
+  writable: boolean
+}
+export type RoomMeshFeed = { data: Array<RoomMeshEntry>; commitIndex: number }
+export type RoomMeshRpcRequest =
+  | { type: "enroll"; node: RoomMeshNode }
+  | { type: "prepare"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
+  | { type: "activate"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
+  | {
+      type: "request-vote"
+      clusterID: string
+      fromNodeID: string
+      term: number
+      lastLogIndex: number
+      lastLogTerm: number
+    }
+  | {
+      type: "append-entries"
+      clusterID: string
+      fromNodeID: string
+      term: number
+      leaderID: string
+      prevLogIndex: number
+      prevLogTerm: number
+      entries: Array<RoomMeshEntry>
+      leaderCommit: number
+    }
+  | {
+      type: "propose"
+      clusterID: string
+      fromNodeID: string
+      entry: { id: string; kind: "message" | "task"; payload: JsonValue }
+    }
+export type RoomMeshRpcResponse = {
+  ok: boolean
+  currentTerm?: number | undefined
+  granted?: boolean | undefined
+  success?: boolean | undefined
+  matchIndex?: number | undefined
+  clusterID?: string | undefined
+  ownerNodeID?: string | undefined
+  members?: Array<RoomMeshNode> | undefined
+  entry?: RoomMeshEntry | undefined
+  commitIndex?: number | undefined
+  message?: string | undefined
+}
+
 export type OrchestraSandboxIsolation = "environment" | "strict"
 
 export type OrchestraMember = { agent: string; title: string; category: string }
@@ -7988,6 +8057,19 @@ export type RoomGuestPermissionReplyInput = {
 }
 
 export type RoomGuestPermissionReplyOutput = void
+
+export type RoomMeshStatusOutput = RoomMeshSnapshot
+export type RoomMeshCreateInput = { url: string; name?: string | undefined }
+export type RoomMeshCreateOutput = { data: RoomMeshSnapshot; token: string }
+export type RoomMeshJoinInput = { seedURL: string; token: string; url: string; name?: string | undefined }
+export type RoomMeshJoinOutput = RoomMeshSnapshot
+export type RoomMeshActivateOutput = RoomMeshSnapshot
+export type RoomMeshAppendInput = { id?: string | undefined; kind: "message" | "task"; payload: JsonValue }
+export type RoomMeshAppendOutput = RoomMeshEntry
+export type RoomMeshFeedInput = { after?: number | undefined }
+export type RoomMeshFeedOutput = RoomMeshFeed
+export type RoomMeshRpcInput = RoomMeshRpcRequest
+export type RoomMeshRpcOutput = RoomMeshRpcResponse
 
 export type OrchestraProjectListOutput = Array<OrchestraProject>
 
