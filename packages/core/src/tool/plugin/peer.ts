@@ -297,6 +297,71 @@ export const Plugin = {
                   const feed = yield* peers.feed(link).pipe(Effect.mapError(failed))
                   return { output: describeFeed(link, feed, input.limit ?? 20) }
                 }
+                case "mesh-list": {
+                  return { output: yield* listMesh() }
+                }
+                case "mesh-run": {
+                  const state = yield* meshState()
+                  if (!state || state.status !== "active")
+                    return yield* new ToolFailure({ message: "Mesh is not active on this computer. Create or join a Mesh and activate it first." })
+                  const selector = input.node?.trim()
+                  if (!selector) return yield* new ToolFailure({ message: "Pass node, a computer name or node ID from mesh-list." })
+                  const target = state.members.find(
+                    (member) => member.id === selector || member.name.toLocaleLowerCase() === selector.toLocaleLowerCase(),
+                  )
+                  if (!target) return yield* new ToolFailure({ message: `No Mesh node named or identified as "${selector}". Run mesh-list first.` })
+                  if (!input.text?.trim()) return yield* new ToolFailure({ message: "Pass text with the task for the remote AI." })
+                  const session = yield* sessions.get(context.sessionID)
+                  const directory = input.directory?.trim() || target.directory || session.location.directory
+                  yield* ask(`mesh:${target.name}`)
+                  const request: RoomMesh.RunAI = {
+                    type: "run-ai",
+                    clusterID: state.clusterID,
+                    fromNodeID: state.nodeID,
+                    targetNodeID: target.id,
+                    requestID: randomUUID(),
+                    prompt: input.text.trim(),
+                    directory,
+                    ...(input.agent?.trim() ? { agent: input.agent.trim() } : {}),
+                    ...(input.providerID?.trim() ? { providerID: input.providerID.trim() } : {}),
+                    ...(input.modelID?.trim() ? { modelID: input.modelID.trim() } : {}),
+                  }
+                  const remoteText = yield* Effect.tryPromise({
+                    try: async (signal) => {
+                      const result = await fetch(new URL("/api/room/mesh/rpc", target.url), {
+                        method: "POST",
+                        headers: {
+                          authorization: "Bearer " + state.secret,
+                          "content-type": "application/json",
+                        },
+                        body: JSON.stringify(request),
+                        signal,
+                      })
+                      const body = await result.text()
+                      let reply: RoomMesh.RpcResponse
+                      try {
+                        reply = body ? JSON.parse(body) as RoomMesh.RpcResponse : { ok: false }
+                      } catch {
+                        throw new Error(`Mesh worker ${target.name} returned invalid JSON (HTTP ${result.status})`)
+                      }
+                      if (!result.ok || !reply.ok)
+                        throw new Error(reply.message ?? `Mesh worker ${target.name} failed with HTTP ${result.status}`)
+                      if (typeof reply.text !== "string")
+                        throw new Error(reply.message ?? `Mesh worker ${target.name} returned no AI text`)
+                      return reply.text
+                    },
+                    catch: (error) => new ToolFailure({
+                      message: error instanceof Error ? error.message : String(error),
+                    }),
+                  })
+                  return {
+                    output: [
+                      `Remote AI result from ${target.name} (${target.id})`,
+                      `Project: ${directory}`,
+                      remoteText,
+                    ].join("\\n\\n"),
+                  }
+                }
                 case "create": {
                   const link = yield* linkOf(input.room)
                   yield* ask(link.name)
