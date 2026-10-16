@@ -635,11 +635,28 @@ const layer = Layer.effect(
           ),
           { concurrency: "unbounded" },
         )
-        if (results.some((result) => !result.ok))
+        if (results.some((result) => !result.ok)) {
+          // Roll back learner entries on peers that accepted before another peer failed.
+          // A silent partial roster is not useful, even though learners do not affect quorum.
+          const rollback: RoomMesh.RpcRequest = {
+            type: "remove-learner",
+            clusterID: plan.clusterID,
+            fromNodeID: plan.nodeID,
+            nodeID: plan.node.id,
+          }
+          yield* Effect.all(
+            peers.map((member) =>
+              callRPC(member.url, plan.secret, rollback).pipe(
+                Effect.match({ onFailure: () => false, onSuccess: () => true }),
+              ),
+            ),
+            { concurrency: "unbounded" },
+          )
           return yield* new MeshError({
-            message: "Could not confirm the new worker on every current Mesh device. Keep the invitation token and retry when all existing devices are online.",
+            message: "Could not confirm the new worker on every current Mesh device. The owner rolled back reachable peers; keep the invitation token and retry when every existing device is online.",
             status: 503,
           })
+        }
 
         return yield* locks.withLock("state")(Effect.gen(function* () {
           const current = yield* requireState()
@@ -765,6 +782,21 @@ const layer = Layer.effect(
                 voters,
                 members,
               })
+            }
+            if (input.type === "remove-learner") {
+              if (state.status !== "active" || input.fromNodeID !== state.ownerNodeID || !voterIDs(state).includes(input.fromNodeID))
+                return response({ ok: false, message: "Only the active Mesh owner may remove a learner" })
+              if (voterIDs(state).includes(input.nodeID))
+                return response({ ok: false, message: "A voting member cannot be removed as a learner" })
+              const members = state.members.filter((member) => member.id !== input.nodeID)
+              if (members.length !== state.members.length) {
+                state = { ...state, members, voters: voterIDs(state) }
+                yield* save(state)
+              }
+              nextIndex.delete(input.nodeID)
+              matchIndex.delete(input.nodeID)
+              acknowledgedAt.delete(input.nodeID)
+              return response({ status: state.status, currentTerm: state.currentTerm, leaderID: state.leaderID, voters: voterIDs(state), members })
             }
             if (input.type === "prepare") {
               if (state.status === "active") {
