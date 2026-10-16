@@ -19,6 +19,7 @@ import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
 import { roomListChanged, sameRoom, useDeviceKey, useJoinedRooms, type JoinedRoom } from "../util/room"
 import { Button } from "./devtools-registry"
+import { HoverAction } from "./hover-action"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DISCOVERY_PORTS, readServer, scanRooms, type FoundRoom } from "@opencode/client/room-discovery"
 
@@ -29,15 +30,26 @@ function MultiplayerModeSelector(props: {
   value: MultiplayerMode
   onChange: (value: MultiplayerMode) => void
 }) {
+  const theme = useTheme().surface("dialog")
   const t = useT()
   return (
     <box flexDirection="row" gap={1}>
-      <Button variant={props.value === "host" ? "primary" : undefined} onClick={() => props.onChange("host")}>
-        {t("Host")}
-      </Button>
-      <Button variant={props.value === "mesh" ? "primary" : undefined} onClick={() => props.onChange("mesh")}>
-        {t("Mesh")}
-      </Button>
+      <HoverAction onClick={() => props.onChange("host")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
+        <text
+          fg={props.value === "host" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+          attributes={props.value === "host" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
+        >
+          {t("Host")}
+        </text>
+      </HoverAction>
+      <HoverAction onClick={() => props.onChange("mesh")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
+        <text
+          fg={props.value === "mesh" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+          attributes={props.value === "mesh" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
+        >
+          {t("Mesh")}
+        </text>
+      </HoverAction>
     </box>
   )
 }
