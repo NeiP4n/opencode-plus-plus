@@ -326,7 +326,11 @@ function liveConfig(directory: string, native?: Watcher.NativeInterface, options
       Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
     ),
     Global.node.replace(
-      Global.layerWith({ config: path.join(directory, "global"), home: path.join(directory, "home") }),
+      Global.layerWith({
+        config: path.join(directory, "global"),
+        home: path.join(directory, "home"),
+        state: path.join(directory, "state"),
+      }),
     ),
     Credential.node.replace(emptyCredentialNode),
     WellKnown.node.replace(emptyWellknownNode),

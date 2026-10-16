@@ -21,8 +21,10 @@ declaration of `node:ffi`). All services are on Effect: `Context.Service` + `Lay
 - `config.ts` — the service `@opencode/Config`. The order of the records from bottom to top: wellknown → the global
   directory → the explicit file → the direct files → the directories of the project → the content from `OPENCODE_CONFIG_CONTENT`.
   `entries()` gives this list (the documents with `AbsolutePath` and the parsed `Info`, plus the records of the
-  directories), `changes()` — a stream of the raw events of the watcher, `compatibility()` — the roots `~/.claude`
-  and `~/.agents` for the internal plugins, `update(patch)` edits only the `shell` field in the global
+  directories), `changes()` — a stream of the raw events of the watcher, `compatibility()` — the merge order and the
+  existing folders of every ecosystem that is on (`.agents`, `.claude`, `.codex`, `.gemini`, `.cursor`, see
+  `packages/core/docs/compat.md`), `ecosystems()` and `changeEcosystem()` — detection and the per-project choice,
+  `update(patch)` edits only the `shell` field in the global
   config, keeping the rest of the JSONC. `Config.Event.Updated` goes only on a real change
   of the list or of the compatibility roots.
 - `credential.ts` — the service `@opencode/Credential` above `credential/sql.ts`: it stores the `Value` (a key
@@ -76,7 +78,7 @@ declaration of `node:ffi`). All services are on Effect: `Context.Service` + `Lay
 
 - The global directory is below the explicit and the direct files, the directories of the project are above all, the content from
   `OPENCODE_CONFIG_CONTENT` — at the top; the later records override the earlier ones when merging the fields.
-  `Options.global: false` removes only the global directory and the roots `~/.claude` and `~/.agents`;
+  `Options.global: false` removes only the global directory and every ecosystem's home folder (`~/.claude`, `~/.codex`, ...);
   the wellknown records, the file ones and the content ones load as usual.
 - The parsing of a document: `jsonc-parser` with the trailing comma allowed, then `ConfigNormalize.normalize`,
   then `Schema.decodeUnknownOption(Info)` with `errors: "all"` and ignoring the extra properties.

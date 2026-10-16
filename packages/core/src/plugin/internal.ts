@@ -29,6 +29,7 @@ import { ConfigShellPlugin } from "../config/plugin/shell.js"
 import { ConfigSnapshotPlugin } from "../config/plugin/snapshot.js"
 import { ConfigSkillPlugin } from "../config/plugin/skill.js"
 import { ConfigCompatibilityPlugin } from "../config/plugin/compatibility.js"
+import { ClaudeHooksPlugin } from "../compat/claude/hooks/plugin.js"
 import { ConfigToolOutputPlugin } from "../config/plugin/tool-output.js"
 import { ConfigWebSearchPlugin } from "../config/plugin/websearch.js"
 import { ConfigWorktreePlugin } from "../config/plugin/worktree.js"
@@ -294,6 +295,7 @@ const post = [
   ConfigSnapshotPlugin.Plugin,
   ConfigToolOutputPlugin.Plugin,
   ConfigCompatibilityPlugin.Plugin,
+  ClaudeHooksPlugin.Plugin,
   ConfigSkillPlugin.Plugin,
   ConfigProviderPlugin.Plugin,
   ConfigWebSearchPlugin.Plugin,

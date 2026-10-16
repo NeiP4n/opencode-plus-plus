@@ -508,6 +508,51 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
         }),
       ],
     }),
+    Spec.make("compat", {
+      description: "Choose which other agent tools' folders (.claude, .codex, .gemini, ...) this project reads",
+      commands: [
+        Spec.make("list", {
+          description: "Show every ecosystem found for the current directory and whether it is on",
+          params: {
+            ...ServerParams,
+            format: Flag.choice("format", ["table", "json"]).pipe(
+              Flag.withDescription("Output format"),
+              Flag.withDefault("table"),
+            ),
+          },
+        }),
+        Spec.make("enable", {
+          description: "Read this ecosystem's folders in the current project",
+          params: { ...ServerParams, ecosystem: Argument.choice("ecosystem", ["agents", "claude", "codex", "gemini", "cursor"]).pipe(
+              Argument.withDescription("Ecosystem: agents, claude, codex, gemini or cursor"),
+            ) },
+        }),
+        Spec.make("disable", {
+          description: "Stop reading this ecosystem's folders in the current project",
+          params: { ...ServerParams, ecosystem: Argument.choice("ecosystem", ["agents", "claude", "codex", "gemini", "cursor"]).pipe(
+              Argument.withDescription("Ecosystem: agents, claude, codex, gemini or cursor"),
+            ) },
+        }),
+        Spec.make("reset", {
+          description: "Forget the project choice so config and the default decide again",
+          params: { ...ServerParams, ecosystem: Argument.choice("ecosystem", ["agents", "claude", "codex", "gemini", "cursor"]).pipe(
+              Argument.withDescription("Ecosystem: agents, claude, codex, gemini or cursor"),
+            ) },
+        }),
+        Spec.make("trust", {
+          description: "Let this ecosystem's project folders run code or loosen permissions",
+          params: { ...ServerParams, ecosystem: Argument.choice("ecosystem", ["agents", "claude", "codex", "gemini", "cursor"]).pipe(
+              Argument.withDescription("Ecosystem: agents, claude, codex, gemini or cursor"),
+            ) },
+        }),
+        Spec.make("untrust", {
+          description: "Withdraw trust from this ecosystem's project folders",
+          params: { ...ServerParams, ecosystem: Argument.choice("ecosystem", ["agents", "claude", "codex", "gemini", "cursor"]).pipe(
+              Argument.withDescription("Ecosystem: agents, claude, codex, gemini or cursor"),
+            ) },
+        }),
+      ],
+    }),
     Spec.make("reload", {
       description: "Reload configuration",
       params: {

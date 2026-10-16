@@ -22,6 +22,7 @@ import {
   ServiceUnavailableError,
   SessionBusyError,
   SkillNotFoundError,
+  PromptRejectedError,
 } from "@opencode/protocol/errors"
 import { AbsolutePath } from "@opencode/core/schema"
 import { locationErrors } from "../location"
@@ -345,6 +346,15 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                 ),
                 Effect.catchTag("Session.SkillNotFoundError", (error) =>
                   Effect.fail(new InvalidRequestError({ message: `Skill not found: ${error.skill}`, field: "skills" })),
+                ),
+                Effect.catchTag("PromptInput.Rejected", (error) =>
+                  Effect.fail(
+                    new PromptRejectedError({
+                      message: `Prompt rejected: ${error.reason}`,
+                      reason: error.reason,
+                      source: error.source,
+                    }),
+                  ),
                 ),
                 locationErrors,
               ),

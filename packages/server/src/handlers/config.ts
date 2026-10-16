@@ -16,6 +16,22 @@ export const ConfigHandler = HttpApiBuilder.group(Api, "server.config", (handler
       }),
     )
     .handle(
+      "config.compatibility.get",
+      Effect.fn(function* () {
+        const config = yield* Config.Service
+        if (!config.ecosystems) return yield* Effect.die(new Error("Ecosystem detection is unavailable"))
+        return yield* config.ecosystems()
+      }),
+    )
+    .handle(
+      "config.compatibility.update",
+      Effect.fn(function* (ctx) {
+        const config = yield* Config.Service
+        if (!config.changeEcosystem) return yield* Effect.die(new Error("Ecosystem choices are unavailable"))
+        return yield* config.changeEcosystem(ctx.payload)
+      }),
+    )
+    .handle(
       "config.shells",
       Effect.fn(function* () {
         const shell = yield* ShellSelect.Service

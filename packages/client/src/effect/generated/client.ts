@@ -285,6 +285,10 @@ import type {
   ConfigShellsOutput,
   ConfigUpdateInput,
   ConfigUpdateOutput,
+  ConfigCompatibilityGetInput,
+  ConfigCompatibilityGetOutput,
+  ConfigCompatibilityUpdateInput,
+  ConfigCompatibilityUpdateOutput,
   RoomListOutput,
   RoomCreateInput,
   RoomCreateOutput,
@@ -1806,10 +1810,25 @@ const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: Confi
     ),
   )
 
+const EndpointConfigCompatibilityGet = (raw: RawClient["server.config"]) => (input?: ConfigCompatibilityGetInput) =>
+  preserveEffect<ConfigCompatibilityGetOutput>()(
+    raw["config.compatibility.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointConfigCompatibilityUpdate =
+  (raw: RawClient["server.config"]) => (input: ConfigCompatibilityUpdateInput) =>
+    preserveEffect<ConfigCompatibilityUpdateOutput>()(
+      raw["config.compatibility.update"]({
+        query: { location: input["location"] },
+        payload: { ecosystem: input["ecosystem"], enabled: input["enabled"], trusted: input["trusted"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
 const adaptGroupConfig = (raw: RawClient["server.config"]) => ({
   get: EndpointConfigGet(raw),
   shells: EndpointConfigShells(raw),
   update: EndpointConfigUpdate(raw),
+  compatibility: { get: EndpointConfigCompatibilityGet(raw), update: EndpointConfigCompatibilityUpdate(raw) },
 })
 
 const EndpointRoomList = (raw: RawClient["server.room"]) => () =>

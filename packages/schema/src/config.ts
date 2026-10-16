@@ -7,6 +7,7 @@ import { AbsolutePath, optional } from "./schema.js"
 import { ConfigAgent } from "./config/agent.js"
 import { ConfigMedia } from "./config/media.js"
 import { ConfigCompaction } from "./config/compaction.js"
+import { ConfigCompatibility } from "./config/compatibility.js"
 import { ConfigCommand } from "./config/command.js"
 import { ConfigExperimental } from "./config/experimental.js"
 import { ConfigFormatter } from "./config/formatter.js"
@@ -104,6 +105,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   warming: ConfigWarming.Warming.pipe(optional).annotate({
     description: "Keep recently active sessions warm with transient model requests (default: false)",
+  }),
+  compatibility: ConfigCompatibility.Info.pipe(optional).annotate({
+    description: "Which other agent tools' folders (.claude, .codex, .gemini, ...) to read and how to merge them",
   }),
   providers: Schema.Record(Schema.String, ConfigProvider.Info).pipe(optional),
   experimental: ConfigExperimental.Info.pipe(optional),

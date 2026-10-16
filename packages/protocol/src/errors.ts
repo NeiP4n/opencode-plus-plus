@@ -164,6 +164,16 @@ export class MessageNotFoundError extends Schema.TaggedError<MessageNotFoundErro
   { httpApiStatus: 404 },
 ) {}
 
+export class PromptRejectedError extends Schema.TaggedError<PromptRejectedError>()(
+  "PromptRejectedError",
+  {
+    message: Schema.String,
+    reason: Schema.String,
+    source: Schema.optional(Schema.String),
+  },
+  { httpApiStatus: 422 },
+) {}
+
 export class SkillNotFoundError extends Schema.TaggedError<SkillNotFoundError>()(
   "SkillNotFoundError",
   {

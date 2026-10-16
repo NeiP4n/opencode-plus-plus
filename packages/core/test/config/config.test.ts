@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect, Fiber, Layer, Logger, Schema, Stream } from "effect"
 import { FastCheck } from "effect/testing"
 import { Config } from "@opencode/core/config"
-import { Directory, Document, Event, Info } from "@opencode/schema/config"
+import { Directory, Document, Event, Info, type Entry } from "@opencode/schema/config"
 import { ConfigModel } from "@opencode/schema/config/model"
 import { ConfigProvider } from "@opencode/schema/config/provider"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
@@ -21,6 +21,8 @@ import { Project } from "@opencode/core/project"
 import { Provider } from "@opencode/core/provider"
 import { AbsolutePath } from "@opencode/core/schema"
 import { WellKnown } from "@opencode/core/wellknown"
+import { CompatStore } from "@opencode/core/compat/store"
+import { FSUtil } from "@opencode/util/fs-util"
 import { Integration } from "@opencode/schema/integration"
 import { emptyCredentialNode, emptyWellknownNode } from "../fixture/config-nodes"
 import { location } from "../fixture/location"
@@ -69,7 +71,13 @@ function testLayer(
   const built = AppNodeBuilder.build(LayerNode.group([Config.node, Bus.node]), [
     Config.node.replace(Config.configured(options)),
     Location.node.replace(locationLayer),
-    Global.node.replace(Global.layerWith({ config: globalDirectory, home: path.join(globalDirectory, "home") })),
+    Global.node.replace(
+      Global.layerWith({
+        config: globalDirectory,
+        home: path.join(globalDirectory, "home"),
+        state: path.join(globalDirectory, "state"),
+      }),
+    ),
     Credential.node.replace(credentialNode),
     WellKnown.node.replace(wellknownNode),
     Watcher.node.replace(watcher),
@@ -106,7 +114,7 @@ describe("Config", () => {
               // The fixture is real: with global enabled the walk finds both.
               const config = yield* Config.Service
               const compatibility = yield* config.compatibility!()
-              expect([...compatibility.claude, ...compatibility.agents]).toHaveLength(2)
+              expect([...compatibility.roots.claude, ...compatibility.roots.agents]).toHaveLength(2)
             }).pipe(Effect.provide(testLayer(project, global))),
           ),
           Effect.andThen(
@@ -115,7 +123,7 @@ describe("Config", () => {
             // project walk enabled.
             Effect.gen(function* () {
               const config = yield* Config.Service
-              expect(yield* config.compatibility!()).toEqual({ claude: [], agents: [] })
+              expect(Object.values((yield* config.compatibility!()).roots).flat()).toEqual([])
               const watcher = yield* Watcher.Test
               expect(
                 (yield* watcher.subscriptions()).filter((watch) => watch.type === "entries" && watch.path === home),
@@ -404,7 +412,13 @@ describe("Config", () => {
                     Location.Service.of(location({ directory: AbsolutePath.make(project) })),
                   ),
                 ),
-                Global.node.replace(Global.layerWith({ config: global, home: path.join(global, "home") })),
+                Global.node.replace(
+                  Global.layerWith({
+                    config: global,
+                    home: path.join(global, "home"),
+                    state: path.join(global, "state"),
+                  }),
+                ),
                 Credential.node.replace(emptyCredentialNode),
                 WellKnown.node.replace(emptyWellknownNode),
               ]),
@@ -890,6 +904,114 @@ describe("Config", () => {
     ),
   )
 
+  it.live("detects every ecosystem a project carries and merges the ones that are on", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const global = path.join(tmp.path, "global")
+          const project = path.join(tmp.path, "project")
+          yield* Effect.promise(() =>
+            Promise.all(
+              [".agents", ".claude", ".codex", ".gemini", ".cursor"].map((name) =>
+                fs.mkdir(path.join(project, name), { recursive: true }),
+              ),
+            ),
+          )
+          const read = Config.Service.use((config) => config.compatibility!()).pipe(
+            Effect.provide(testLayer(project, global)),
+          )
+          const all = yield* read
+          expect(all.order).toEqual(["agents", "claude", "codex", "gemini", "cursor"])
+          for (const name of ["agents", "claude", "codex", "gemini", "cursor"] as const)
+            expect(all.roots[name].filter((root) => inFixture(tmp.path, root))).toEqual([
+              AbsolutePath.make(path.join(project, `.${name}`)),
+            ])
+
+          // Config turns one off and reorders the rest; the user's per-project choice outranks config.
+          yield* Effect.promise(() =>
+            fs.writeFile(
+              path.join(project, "opencode.json"),
+              JSON.stringify({ compatibility: { ecosystems: { gemini: false, cursor: false }, order: ["codex"] } }),
+            ),
+          )
+          yield* CompatStore.choose(CompatStore.file(path.join(global, "state")), project, "cursor", true).pipe(
+            Effect.provide(AppNodeBuilder.build(FSUtil.node)),
+          )
+          const chosen = yield* read
+          expect(chosen.order).toEqual(["codex", "agents", "claude", "cursor"])
+          expect(chosen.roots.gemini).toEqual([])
+          expect(chosen.roots.cursor.filter((root) => inFixture(tmp.path, root))).toEqual([
+            AbsolutePath.make(path.join(project, ".cursor")),
+          ])
+
+          const report = yield* Config.Service.use((config) => config.ecosystems!()).pipe(
+            Effect.provide(testLayer(project, global)),
+          )
+          expect(report.ecosystems.find((item) => item.id === "cursor")).toMatchObject({
+            enabled: true,
+            decidedBy: "project",
+          })
+          expect(report.ecosystems.find((item) => item.id === "gemini")).toMatchObject({
+            enabled: false,
+            decidedBy: "config",
+          })
+        }),
+      ),
+    ),
+  )
+
+  it.live("places Claude documents below OpenCode config and rebuilds them when trust changes", () =>
+    Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const global = path.join(tmp.path, "global")
+          const project = path.join(tmp.path, "project")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(project, ".claude", "commands"), { recursive: true })
+            await fs.writeFile(path.join(project, ".claude", "commands", "review.md"), "Claude review")
+            await fs.writeFile(path.join(project, ".claude", "commands", "deploy.md"), "Claude deploy")
+            await fs.writeFile(
+              path.join(project, ".mcp.json"),
+              JSON.stringify({ mcpServers: { tool: { command: "tool" } } }),
+            )
+            await fs.writeFile(path.join(project, "CLAUDE.md"), "Use tabs.")
+            await fs.writeFile(
+              path.join(project, "opencode.json"),
+              JSON.stringify({ commands: { review: { template: "OpenCode review" } } }),
+            )
+          })
+          return yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            const commands = (entries: readonly Entry[]) =>
+              Object.assign(
+                {},
+                ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info.commands ?? {}] : [])),
+              ) as Record<string, { template: string }>
+            const servers = (entries: readonly Entry[]) =>
+              entries.flatMap((entry) => (entry.type === "document" ? Object.keys(entry.info.mcp?.servers ?? {}) : []))
+
+            const before = yield* config.entries()
+            expect(commands(before).review.template).toBe("OpenCode review")
+            expect(commands(before).deploy.template).toBe("Claude deploy")
+            expect(servers(before)).toEqual([])
+            expect((yield* config.compatibility!()).instructions.map((file) => file.content)).toEqual(["Use tabs."])
+
+            const report = yield* config.changeEcosystem!({ ecosystem: "claude", trusted: true })
+            expect(report.ecosystems.find((item) => item.id === "claude")?.loaded).toMatchObject({
+              commands: 2,
+              mcp: 1,
+            })
+            expect(servers(yield* config.entries())).toEqual(["tool"])
+
+            yield* config.changeEcosystem!({ ecosystem: "claude", enabled: false })
+            expect(commands(yield* config.entries()).deploy).toBeUndefined()
+            expect((yield* config.compatibility!()).instructions).toEqual([])
+          }).pipe(Effect.provide(testLayer(project, global)))
+        }),
+      ),
+    ),
+  )
+
   it.live("deduplicates global ecosystem directories found during upward discovery", () =>
     Effect.acquireDisposable(Effect.promise(() => tmpdir())).pipe(
       Effect.flatMap((tmp) =>
@@ -908,8 +1030,8 @@ describe("Config", () => {
             Effect.provide(testLayer(project, global)),
           )
 
-          expect(compatibility.claude).toEqual([AbsolutePath.make(path.join(home, ".claude"))])
-          expect(compatibility.agents).toEqual([AbsolutePath.make(path.join(home, ".agents"))])
+          expect(compatibility.roots.claude).toEqual([AbsolutePath.make(path.join(home, ".claude"))])
+          expect(compatibility.roots.agents).toEqual([AbsolutePath.make(path.join(home, ".agents"))])
         }),
       ),
     ),
@@ -936,10 +1058,28 @@ describe("Config", () => {
                 path: AbsolutePath.make(path.join(tmp.path, "global")),
                 ignore: ["**/{node_modules,.git}/**", ".git", "node_modules"],
               },
+              // Claude's folder is watched only at the paths that feed config, never recursively.
+              {
+                type: "entries",
+                path: path.join(tmp.path, ".claude"),
+                names: ["CLAUDE.md", "agents", "commands", "settings.json", "settings.local.json"],
+              },
               {
                 type: "entries",
                 path: tmp.path,
-                names: [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"],
+                names: [
+                  ".agents",
+                  ".claude",
+                  ".codex",
+                  ".cursor",
+                  ".gemini",
+                  ".mcp.json",
+                  ".opencode",
+                  "CLAUDE.local.md",
+                  "CLAUDE.md",
+                  "opencode.json",
+                  "opencode.jsonc",
+                ],
               },
             ])
           }).pipe(Effect.provide(testLayer(tmp.path, undefined, undefined, undefined, Watcher.testLayer)))
@@ -1505,7 +1645,19 @@ describe("Config", () => {
             expect(yield* watcher.subscriptions()).toContainEqual({
               path: tmp.path,
               type: "entries",
-              names: [".agents", ".claude", ".opencode", "opencode.json", "opencode.jsonc"],
+              names: [
+                ".agents",
+                ".claude",
+                ".codex",
+                ".cursor",
+                ".gemini",
+                ".mcp.json",
+                ".opencode",
+                "CLAUDE.local.md",
+                "CLAUDE.md",
+                "opencode.json",
+                "opencode.jsonc",
+              ],
             })
           }).pipe(Effect.provide(testLayer(tmp.path)))
         }),
@@ -1559,12 +1711,12 @@ describe("Config", () => {
               AbsolutePath.make(path.join(root, ".opencode")),
               AbsolutePath.make(path.join(directory, ".opencode")),
             ])
-            expect(compatibility.agents.filter((path) => inFixture(tmp.path, path))).toEqual([
+            expect(compatibility.roots.agents.filter((path) => inFixture(tmp.path, path))).toEqual([
               AbsolutePath.make(globalAgents),
               AbsolutePath.make(path.join(root, ".agents")),
               AbsolutePath.make(path.join(directory, ".agents")),
             ])
-            expect(compatibility.claude.filter((path) => inFixture(tmp.path, path))).toEqual([
+            expect(compatibility.roots.claude.filter((path) => inFixture(tmp.path, path))).toEqual([
               AbsolutePath.make(globalClaude),
               AbsolutePath.make(path.join(root, ".claude")),
               AbsolutePath.make(path.join(directory, ".claude")),
