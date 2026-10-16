@@ -32,3 +32,10 @@ export const Prompt = Schema.Struct({
   agents: Schema.Array(AgentAttachment).pipe(optional),
   skills: Schema.Array(SkillAttachment).pipe(optional),
 }).annotate({ identifier: "PromptInput" })
+
+/** A `session.prompt` hook refused the prompt; nothing is enqueued and the reason goes back to the sender. */
+export class Rejected extends Schema.TaggedError<Rejected>()("PromptInput.Rejected", {
+  reason: Schema.String,
+  /** What refused it, such as a hook command, for the user to find. */
+  source: Schema.String.pipe(optional),
+}) {}

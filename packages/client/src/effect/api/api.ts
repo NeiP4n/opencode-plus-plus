@@ -2482,10 +2482,75 @@ export type ConfigUpdateInput = { readonly shell?: string | null; readonly model
 export type ConfigUpdateOutput = void
 export type ConfigUpdateOperation<E = never> = (input?: ConfigUpdateInput) => Effect.Effect<ConfigUpdateOutput, E>
 
+export type ConfigCompatibilityGetInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+export type ConfigCompatibilityGetOutput = {
+  readonly root: string
+  readonly order: ReadonlyArray<"agents" | "claude" | "codex" | "gemini" | "cursor">
+  readonly ecosystems: ReadonlyArray<{
+    readonly id: "agents" | "claude" | "codex" | "gemini" | "cursor"
+    readonly label: string
+    readonly enabled: boolean
+    readonly decidedBy: "project" | "config" | "default"
+    readonly trusted: boolean
+    readonly folders: ReadonlyArray<{ readonly path: string; readonly scope: "global" | "project" }>
+    readonly markers: ReadonlyArray<string>
+    readonly loaded?: {
+      readonly instructions: number
+      readonly commands: number
+      readonly agents: number
+      readonly mcp: number
+      readonly rules: number
+      readonly hooks: number
+    }
+    readonly skipped?: ReadonlyArray<{ readonly source: string; readonly reason: string }>
+  }>
+}
+export type ConfigCompatibilityGetOperation<E = never> = (
+  input?: ConfigCompatibilityGetInput,
+) => Effect.Effect<ConfigCompatibilityGetOutput, E>
+
+export type ConfigCompatibilityUpdateInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly ecosystem: "agents" | "claude" | "codex" | "gemini" | "cursor"
+  readonly enabled?: boolean | null
+  readonly trusted?: boolean
+}
+export type ConfigCompatibilityUpdateOutput = {
+  readonly root: string
+  readonly order: ReadonlyArray<"agents" | "claude" | "codex" | "gemini" | "cursor">
+  readonly ecosystems: ReadonlyArray<{
+    readonly id: "agents" | "claude" | "codex" | "gemini" | "cursor"
+    readonly label: string
+    readonly enabled: boolean
+    readonly decidedBy: "project" | "config" | "default"
+    readonly trusted: boolean
+    readonly folders: ReadonlyArray<{ readonly path: string; readonly scope: "global" | "project" }>
+    readonly markers: ReadonlyArray<string>
+    readonly loaded?: {
+      readonly instructions: number
+      readonly commands: number
+      readonly agents: number
+      readonly mcp: number
+      readonly rules: number
+      readonly hooks: number
+    }
+    readonly skipped?: ReadonlyArray<{ readonly source: string; readonly reason: string }>
+  }>
+}
+export type ConfigCompatibilityUpdateOperation<E = never> = (
+  input: ConfigCompatibilityUpdateInput,
+) => Effect.Effect<ConfigCompatibilityUpdateOutput, E>
+
 export interface ConfigApi<E = never> {
   readonly get: ConfigGetOperation<E>
   readonly shells: ConfigShellsOperation<E>
   readonly update: ConfigUpdateOperation<E>
+  readonly compatibility: {
+    readonly get: ConfigCompatibilityGetOperation<E>
+    readonly update: ConfigCompatibilityUpdateOperation<E>
+  }
 }
 
 export type RoomListOutput = ReadonlyArray<Room.Info>

@@ -66,8 +66,10 @@ through the editors (`transform`) of the services and the hooks (`hook`).
 - `revision` determines whether a plugin is "the same": for `SdkPlugins` it is a counter, for
   `InstancePlugins` — the constant string `instance` (the list is immutable after
   the creation).
-- Of the hooks only `tool.execute.before` can fall through: the other domains
-  are declared with `never` on the error channel.
+- Of the hooks only `tool.execute.before` and `session.prompt` can fall through:
+  a `Tool.Error` rejects the call, a `PromptInput.Rejected` refuses the prompt before
+  it is enqueued (the HTTP route answers `PromptRejectedError`, 422). The other
+  domains are declared with `never` on the error channel.
 - `tool-input-repair.ts` repairs the input only with unambiguous schema support,
   the depth is limited; the `execute` tool is skipped — the external Code Mode
   is built per snapshot and is not registered.

@@ -60,6 +60,14 @@ const Handlers = Runtime.handlers(Commands, {
   run: () => import("./commands/handlers/run"),
   pair: () => import("./commands/handlers/pair"),
   reload: () => import("./commands/handlers/reload"),
+  compat: {
+    list: () => import("./commands/handlers/compat/list"),
+    enable: () => import("./commands/handlers/compat/enable"),
+    disable: () => import("./commands/handlers/compat/disable"),
+    reset: () => import("./commands/handlers/compat/reset"),
+    trust: () => import("./commands/handlers/compat/trust"),
+    untrust: () => import("./commands/handlers/compat/untrust"),
+  },
   session: {
     list: () => import("./commands/handlers/session/list"),
     delete: () => import("./commands/handlers/session/delete"),

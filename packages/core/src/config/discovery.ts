@@ -6,6 +6,7 @@ import { FSUtil } from "@opencode/util/fs-util"
 import { Global } from "@opencode/util/global"
 import { Location } from "../location.js"
 import { AbsolutePath } from "../schema.js"
+import { Ecosystem } from "../compat/ecosystem.js"
 import type { Options } from "../config.js"
 
 export const names = ["opencode.json", "opencode.jsonc"]
@@ -16,8 +17,8 @@ export interface Sources {
   readonly explicit?: AbsolutePath
   readonly direct: readonly AbsolutePath[]
   readonly project: readonly { readonly path: AbsolutePath; readonly present: boolean }[]
-  readonly claude: readonly AbsolutePath[]
-  readonly agents: readonly AbsolutePath[]
+  /** Each ecosystem's folders, global first, then project folders from farthest to nearest. */
+  readonly ecosystems: Ecosystem.ByID<readonly AbsolutePath[]>
 }
 
 export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options?: Options) {
@@ -25,9 +26,12 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
   const global = yield* Global.Service
   const location = yield* Location.Service
   const globalDirectory = AbsolutePath.make(global.config)
-  const globalAgentsDirectory = AbsolutePath.make(path.join(global.home, ".agents"))
-  const globalClaudeDirectory = AbsolutePath.make(path.join(global.home, ".claude"))
-  const globalRoots = yield* Effect.forEach([globalDirectory, globalClaudeDirectory, globalAgentsDirectory], (item) =>
+  const globalEcosystems = Ecosystem.record((id) =>
+    Ecosystem.get(id)
+      .global(global.home, process.env)
+      .map((root) => AbsolutePath.make(root)),
+  )
+  const globalRoots = yield* Effect.forEach([globalDirectory, ...Object.values(globalEcosystems).flat()], (item) =>
     fs.resolve(item),
   )
   const resolvedLocation = yield* fs.resolve(location.directory)
@@ -48,8 +52,7 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
   // A pinned project-local OpenCode config is a traversal boundary only when
   // the config root is actually the checkout's .opencode directory. Test/runtime
   // fixtures may place their isolated global config in a child named "global".
-  const globalInsideProject =
-    path.basename(globalRoots[0]) === ".opencode" && isWithin(resolvedProject, globalRoots[0])
+  const globalInsideProject = path.basename(globalRoots[0]) === ".opencode" && isWithin(resolvedProject, globalRoots[0])
   const locationInsideHome = isWithin(resolvedHome, resolvedLocation)
   const directories = yield* Effect.gen(function* () {
     const result: typeof upward = []
@@ -60,10 +63,7 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
         continue
       }
       if (locationInsideHome) {
-        if (
-          isWithin(resolvedHome, resolved) &&
-          (options?.global !== false || resolved !== resolvedHome)
-        ) {
+        if (isWithin(resolvedHome, resolved) && (options?.global !== false || resolved !== resolvedHome)) {
           result.push(directory)
         }
         continue
@@ -76,7 +76,7 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
     Effect.gen(function* () {
       // Resolve the parent too: missing children must honor symlinked global roots.
       const parent = yield* fs.resolve(directory)
-      return yield* Effect.forEach([".claude", ".agents", ".opencode", ...names.toReversed()], (name) =>
+      return yield* Effect.forEach([...Ecosystem.directories, ".opencode", ...names.toReversed()], (name) =>
         fs
           .resolve(path.join(parent, name))
           .pipe(Effect.map((resolved) => ({ item: AbsolutePath.make(path.join(directory, name)), resolved }))),
@@ -101,22 +101,18 @@ export const discover = Effect.fn("ConfigDiscovery.discover")(function* (options
   return {
     global: globalEnabled ? globalDirectory : undefined,
     explicit: options?.file ? AbsolutePath.make(path.resolve(options.file)) : undefined,
-    direct: visible.filter((item) => ![".agents", ".claude", ".opencode"].includes(path.basename(item))).toReversed(),
+    direct: visible
+      .filter((item) => ![...Ecosystem.directories, ".opencode"].includes(path.basename(item)))
+      .toReversed(),
     project: yield* Effect.forEach(
       visible.filter((item) => path.basename(item) === ".opencode").toReversed(),
       (directory) => fs.isDir(directory).pipe(Effect.map((present) => ({ path: directory, present }))),
     ),
-    claude: [
+    ecosystems: Ecosystem.record((id) => [
       ...new Set([
-        ...(globalEnabled ? [globalClaudeDirectory] : []),
-        ...visible.filter((item) => path.basename(item) === ".claude").toReversed(),
+        ...(globalEnabled ? globalEcosystems[id] : []),
+        ...visible.filter((entry) => path.basename(entry) === Ecosystem.get(id).directory).toReversed(),
       ]),
-    ],
-    agents: [
-      ...new Set([
-        ...(globalEnabled ? [globalAgentsDirectory] : []),
-        ...visible.filter((item) => path.basename(item) === ".agents").toReversed(),
-      ]),
-    ],
+    ]),
   } satisfies Sources
 })

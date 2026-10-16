@@ -18,6 +18,13 @@ import { ConfigNormalize } from "./config/normalize.js"
 import { ConfigDiscovery } from "./config/discovery.js"
 import { ConfigWatch } from "./config/watch.js"
 import { WellKnown } from "./wellknown.js"
+import { Ecosystem } from "./compat/ecosystem.js"
+import { CompatStore } from "./compat/store.js"
+import { CompatDetect } from "./compat/detect.js"
+import { ClaudeAdapter } from "./compat/claude/index.js"
+import type { ClaudeHookConfig } from "./compat/claude/hooks/config.js"
+import { InstructionDiscovery } from "./instruction-discovery.js"
+import type { ConfigCompatibility } from "@opencode/schema/config/compatibility"
 
 export function latest<K extends keyof Info>(entries: readonly Entry[], key: K): Info[K] | undefined {
   return entries.findLast((entry): entry is Document => entry.type === "document" && entry.info[key] !== undefined)
@@ -27,11 +34,12 @@ export function latest<K extends keyof Info>(entries: readonly Entry[], key: K):
 export interface Interface {
   /** Returns location config documents and discovery sources from lowest to highest priority. */
   readonly entries: () => Effect.Effect<Entry[]>
-  /** Compatibility roots consumed by internal compatibility plugins. */
-  readonly compatibility?: () => Effect.Effect<{
-    readonly claude: readonly AbsolutePath[]
-    readonly agents: readonly AbsolutePath[]
-  }>
+  /** Other ecosystems' folders consumed by internal compatibility plugins. */
+  readonly compatibility?: () => Effect.Effect<Compatibility>
+  /** Every ecosystem found for this location, on or off, for the user to choose among. */
+  readonly ecosystems?: () => Effect.Effect<ConfigCompatibility.Report>
+  /** Stores the user's per-project choice or trust outside the repository and returns the new report. */
+  readonly changeEcosystem?: (change: ConfigCompatibility.Change) => Effect.Effect<ConfigCompatibility.Report>
   /**
    * Streams raw filesystem updates under config roots. Config owns root
    * topology and watch reconciliation; domain owners filter this feed for the
@@ -42,9 +50,20 @@ export interface Interface {
   readonly update?: (patch: Patch) => Effect.Effect<void, FSUtil.Error>
 }
 
+export interface Compatibility {
+  /** Merge priority of the ecosystems that are on, highest first. */
+  readonly order: readonly Ecosystem.ID[]
+  /** Existing folders of each ecosystem, global first and nearest project folder last; empty when it is off. */
+  readonly roots: Ecosystem.ByID<readonly AbsolutePath[]>
+  /** Memory files of ecosystems that are on (CLAUDE.md with its imports), global first. */
+  readonly instructions: readonly InstructionDiscovery.File[]
+  /** Claude command hooks allowed to run in this location. */
+  readonly hooks: readonly ClaudeHookConfig.Hook[]
+}
+
 export const Options = Schema.Struct({
   project: Schema.optional(Schema.Boolean),
-  // false skips the global config dir, ~/.claude, and ~/.agents; wellknown,
+  // false skips the global config dir and every ecosystem's home folder (~/.claude, ~/.codex, ...); wellknown,
   // file, and content entries still load.
   global: Schema.optional(Schema.Boolean),
   file: Schema.optional(Schema.String),
@@ -66,10 +85,10 @@ export class Test extends Context.Service<Test, TestInterface>()("@opencode/Conf
 /** In-memory config for tests: static entries with replaceable state and a test-driven change feed. */
 export const testLayer = (
   initial: Entry[] = [],
-  compatibility: { readonly claude: readonly AbsolutePath[]; readonly agents: readonly AbsolutePath[] } = {
-    claude: [],
-    agents: [],
-  },
+  compatibility: Partial<Compatibility["roots"]> & {
+    readonly order?: readonly Ecosystem.ID[]
+    readonly hooks?: Compatibility["hooks"]
+  } = {},
 ) =>
   Layer.effectContext(
     Effect.gen(function* () {
@@ -77,7 +96,13 @@ export const testLayer = (
       const updates = yield* PubSub.unbounded<Watcher.Update>()
       const service = Test.of({
         entries: () => Ref.get(entries),
-        compatibility: () => Effect.succeed(compatibility),
+        compatibility: () =>
+          Effect.succeed({
+            order: compatibility.order ?? Ecosystem.order(),
+            roots: Ecosystem.record((id) => compatibility[id] ?? []),
+            instructions: [],
+            hooks: compatibility.hooks ?? [],
+          }),
         changes: () => Stream.fromPubSub(updates),
         setEntries: (next) => Ref.set(entries, next),
         emitChange: (update) => PubSub.publish(updates, update).pipe(Effect.asVoid),
@@ -227,26 +252,110 @@ export const layer = (options?: Options) =>
           Effect.orDie,
           Effect.map((entries) => entries.flat()),
         )
-        return [
-          ...(yield* loadWellknown().pipe(Effect.orDie)),
-          ...globalSupplementary,
-          ...explicit,
-          ...direct,
-          ...projectSupplementary,
-          ...content,
-        ]
+        const own = [...globalSupplementary, ...explicit, ...direct, ...projectSupplementary, ...content]
+        const claude = yield* loadClaude(sources, own)
+        // Each ecosystem document sits just below OpenCode's config of the same level.
+        return {
+          entries: [
+            ...(yield* loadWellknown().pipe(Effect.orDie)),
+            ...globalSupplementary,
+            ...(claude?.global ?? []),
+            ...explicit,
+            ...(claude?.project ?? []),
+            ...direct,
+            ...projectSupplementary,
+            ...content,
+          ],
+          claude,
+        }
       })
 
+      const loadClaude = Effect.fn("Config.loadClaude")(function* (
+        sources: ConfigDiscovery.Sources,
+        entries: readonly Entry[],
+      ) {
+        const choices = (yield* projectChoices()).ecosystems
+        if (!Ecosystem.enabled("claude", Ecosystem.settings(entries), choices)) return undefined
+        const project = location.project.directory
+        const includeGlobal = options?.global !== false
+        // A project inside the global config folder is global config; with global off it must not load.
+        const includeProject =
+          options?.project !== false &&
+          (includeGlobal || !FSUtil.contains(yield* fs.resolve(globalService.config), yield* fs.resolve(project)))
+        // AGENTS.md files the instruction plugin already loads; CLAUDE.md imports of them are not repeated.
+        const agents = [
+          ...(includeGlobal ? [path.join(globalService.config, "AGENTS.md")] : []),
+          ...(includeProject
+            ? ClaudeAdapter.levels(project, location.directory).map((level) => path.join(level, "AGENTS.md"))
+            : []),
+        ]
+        const roots = yield* Effect.filter(sources.ecosystems.claude, fs.isDir)
+        const result = yield* ClaudeAdapter.load({
+          roots,
+          global: Ecosystem.get("claude").global(globalService.home, process.env),
+          project,
+          directory: location.directory,
+          home: globalService.home,
+          trusted: CompatStore.trusted(yield* projectChoices(), "claude"),
+          env: process.env,
+          includeGlobal,
+          includeProject,
+          loadedInstructions: yield* Effect.filter(agents, fs.isFile),
+        }).pipe(Effect.provideService(FSUtil.Service, fs))
+        const decode = (document: Record<string, unknown> | undefined, source: string | undefined) =>
+          document
+            ? parseInfo(JSON.stringify(document), source ?? "claude").pipe(
+                Effect.map((info) => (info ? [new Document({ type: "document", info })] : [])),
+              )
+            : Effect.succeed([])
+        return {
+          global: yield* decode(result.documents.global, result.paths.global),
+          project: yield* decode(result.documents.project, result.paths.project),
+          result,
+          watch: ClaudeAdapter.watchTargets({
+            roots,
+            project,
+            directory: location.directory,
+            home: globalService.home,
+            includeGlobal,
+            includeProject,
+          }),
+        }
+      })
+
+      // The user's per-project ecosystem choices live outside the repository, beside other user state.
+      // Compatibility plugins watch that file themselves; config reloads only track repository sources.
+      const storeFile = CompatStore.file(globalService.state)
+      const projectChoices = () =>
+        options?.project === false
+          ? Effect.succeed<CompatStore.Project>({})
+          : CompatStore.project(storeFile, location.project.directory).pipe(Effect.provideService(FSUtil.Service, fs))
+      const detectEcosystems = () =>
+        CompatDetect.detect({
+          directory: location.directory,
+          root: location.project.directory,
+          home: globalService.home,
+          state: globalService.state,
+          settings: Ecosystem.settings(configs),
+          adapters: claude ? { claude: claude.result } : {},
+        }).pipe(Effect.provideService(FSUtil.Service, fs))
+      // Service methods run outside this layer, so a reload they trigger takes the layer's own services.
+      const layerContext = yield* Effect.context<FSUtil.Service | Global.Service | Location.Service>()
       const initial = yield* ConfigDiscovery.discover(options)
       let sources = initial
-      let configs = yield* load(initial)
+      const first = yield* load(initial)
+      let configs = first.entries
+      let claude = first.claude
       const updates = yield* PubSub.unbounded<Watcher.Update>()
       const reloads = yield* PubSub.sliding<void>(1)
       // Readiness rescans recover writes made before a watch attached.
       const requestReload = PubSub.publish(reloads, undefined).pipe(Effect.asVoid)
       const watched = yield* FiberMap.make<string>()
       const reconcile = Effect.fn("Config.reconcileWatches")(function* (sources: ConfigDiscovery.Sources) {
-        const plan = ConfigWatch.plan(sources)
+        const plan = ConfigWatch.plan(sources, {
+          files: claude?.watch.files ?? [],
+          directories: yield* Effect.filter(claude?.watch.directories ?? [], fs.isDir),
+        })
         for (const key of Array.from(watched, ([key]) => key)) {
           if (!plan.has(key)) yield* FiberMap.remove(watched, key)
         }
@@ -266,13 +375,14 @@ export const layer = (options?: Options) =>
         function* () {
           const discovered = yield* ConfigDiscovery.discover(options)
           const next = yield* load(discovered)
-          yield* reconcile(discovered)
           const compatibilityChanged =
-            !isDeepStrictEqual(sources.claude, discovered.claude) ||
-            !isDeepStrictEqual(sources.agents, discovered.agents)
-          if (isDeepStrictEqual(configs, next) && !compatibilityChanged) return
+            !isDeepStrictEqual(sources.ecosystems, discovered.ecosystems) ||
+            !isDeepStrictEqual(claude?.result, next.claude?.result)
+          claude = next.claude
+          yield* reconcile(discovered)
+          if (isDeepStrictEqual(configs, next.entries) && !compatibilityChanged) return
           sources = discovered
-          configs = next
+          configs = next.entries
           yield* bus.publish(Event.Updated, {})
         },
         (effect) => reloadLock.withPermit(effect),
@@ -330,7 +440,8 @@ export const layer = (options?: Options) =>
         function* (patch: Patch) {
           const directory = initial.global ?? AbsolutePath.make(globalService.config)
           const candidates = ConfigDiscovery.names.map((name) => path.join(directory, name))
-          const filepath = (yield* Effect.filter(candidates, fs.isFile)).at(-1) ?? path.join(directory, "opencode.jsonc")
+          const filepath =
+            (yield* Effect.filter(candidates, fs.isFile)).at(-1) ?? path.join(directory, "opencode.jsonc")
           const text = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
           const updated = yield* Effect.try({
             try: () =>
@@ -358,11 +469,41 @@ export const layer = (options?: Options) =>
         entries: Effect.fnUntraced(function* () {
           return configs
         }),
-        compatibility: () =>
-          Effect.all({
-            claude: Effect.filter(sources.claude, fs.isDir),
-            agents: Effect.filter(sources.agents, fs.isDir),
-          }),
+        compatibility: Effect.fnUntraced(function* () {
+          // Read the choices fresh: a consumer reacting to the raw change feed can run before the debounced reload.
+          const settings = Ecosystem.settings(configs)
+          const project = (yield* projectChoices()).ecosystems
+          const on = (id: Ecosystem.ID) => Ecosystem.enabled(id, settings, project)
+          const roots = yield* Effect.all(
+            Ecosystem.record((id) => (on(id) ? Effect.filter(sources.ecosystems[id], fs.isDir) : Effect.succeed([]))),
+          )
+          return {
+            order: Ecosystem.order(settings.order).filter(on),
+            roots,
+            instructions: on("claude")
+              ? (claude?.result.instructions ?? []).map(
+                  (file) =>
+                    new InstructionDiscovery.File({ path: AbsolutePath.make(file.path), content: file.content }),
+                )
+              : [],
+            hooks: on("claude") ? (claude?.result.hooks ?? []) : [],
+          } satisfies Compatibility
+        }),
+        ecosystems: detectEcosystems,
+        changeEcosystem: Effect.fnUntraced(
+          function* (change: ConfigCompatibility.Change) {
+            const root = location.project.directory
+            if (change.enabled !== undefined)
+              yield* CompatStore.choose(storeFile, root, change.ecosystem, change.enabled ?? undefined)
+            if (change.trusted !== undefined)
+              yield* CompatStore.trust(storeFile, root, change.ecosystem, change.trusted)
+            // Choices and trust shape the adapter documents, so rebuild them before reporting.
+            yield* reload().pipe(Effect.provideContext(layerContext))
+            return yield* detectEcosystems()
+          },
+          Effect.provideService(FSUtil.Service, fs),
+          Effect.orDie,
+        ),
         changes: () => Stream.fromPubSub(updates),
         update,
       })

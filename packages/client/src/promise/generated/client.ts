@@ -283,6 +283,10 @@ import type {
   ConfigShellsOutput,
   ConfigUpdateInput,
   ConfigUpdateOutput,
+  ConfigCompatibilityGetInput,
+  ConfigCompatibilityGetOutput,
+  ConfigCompatibilityUpdateInput,
+  ConfigCompatibilityUpdateOutput,
   RoomListOutput,
   RoomCreateInput,
   RoomCreateOutput,
@@ -857,7 +861,7 @@ export function make(options: ClientOptions) {
               resume: input["resume"],
             },
             successStatus: 200,
-            declaredStatuses: [400, 401, 404, 409],
+            declaredStatuses: [400, 401, 404, 409, 422],
             empty: false,
           },
           requestOptions,
@@ -2482,6 +2486,33 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
+      compatibility: {
+        get: (input?: ConfigCompatibilityGetInput, requestOptions?: RequestOptions) =>
+          request<ConfigCompatibilityGetOutput>(
+            {
+              method: "GET",
+              path: `/api/config/compatibility`,
+              query: { location: input?.["location"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        update: (input: ConfigCompatibilityUpdateInput, requestOptions?: RequestOptions) =>
+          request<ConfigCompatibilityUpdateOutput>(
+            {
+              method: "POST",
+              path: `/api/config/compatibility`,
+              query: { location: input["location"] },
+              body: { ecosystem: input["ecosystem"], enabled: input["enabled"], trusted: input["trusted"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
     },
     room: {
       list: (requestOptions?: RequestOptions) =>

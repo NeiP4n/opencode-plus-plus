@@ -19,9 +19,9 @@
 
 ## Important Details
 
-- `discovery.discover` returns six groups of sources: `global`, `explicit`, `direct`, `project`, `claude`, `agents`. The `.claude` and `.agents` groups are no special case: configs of other agents are read as one's own, but they arrive as a separate list.
+- `discovery.discover` returns five groups of sources: `global`, `explicit`, `direct`, `project`, `ecosystems`. The folder names in `ecosystems` come from the registry in `packages/core/src/compat/ecosystem.ts` (`.agents`, `.claude`, `.codex`, `.gemini`, `.cursor`); discovery finds all of them, and turning one off happens later, in `Config.compatibility()`.
 - The upward search starts from `location.directory` and stops as soon as it reaches the global directory or when `options.project === false`.
-- The key protection against double counting: every found path is resolved, and the global roots (`~/.config/opencode`, `~/.claude`, `~/.agents`) together with the global files themselves are filtered out of the project walk result. Without this, a config from the home directory would be applied twice.
+- The key protection against double counting: every found path is resolved, and the global roots (`~/.config/opencode` and every ecosystem's home folder) together with the global files themselves are filtered out of the project walk result. Without this, a config from the home directory would be applied twice.
 - Not only the path itself is resolved, but also its parent — the comment explains why: a missing child directory must behave the same as if the global root were a symlink.
 - File and directory names are walked in reverse order (`names.toReversed()`), so the result reflects priority from a higher level down to a lower one.
 - `watch.plan` returns a `Map` whose key is `JSON.stringify` of the watch target. Deduplication goes by key, not by path: one directory can have both a directory watch and an entries watch.

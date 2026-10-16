@@ -463,9 +463,32 @@ export type McpProtocol = "legacy" | "auto" | "2026-07-28"
 
 export type ConfigWorktree = { directory: string }
 
+export type ConfigCompatibilityChoices = {
+  agents?: boolean
+  claude?: boolean
+  codex?: boolean
+  gemini?: boolean
+  cursor?: boolean
+}
+
+export type ConfigCompatibilityEcosystem = "agents" | "claude" | "codex" | "gemini" | "cursor"
+
 export type ConfigModelCapabilities = { tools?: boolean; input?: Array<string>; output?: Array<string> }
 
 export type ConfigShellOption = { path: string; name: string; acceptable: boolean }
+
+export type ConfigCompatibilityFolder = { path: string; scope: "global" | "project" }
+
+export type ConfigCompatibilityLoaded = {
+  instructions: number
+  commands: number
+  agents: number
+  mcp: number
+  rules: number
+  hooks: number
+}
+
+export type ConfigCompatibilitySkipped = { source: string; reason: string }
 
 export type RoomInfo = {
   id: string
@@ -1846,6 +1869,23 @@ export type NoteFrontmatter = {
   updated: number
 }
 
+export type ConfigCompatibility = {
+  ecosystems?: ConfigCompatibilityChoices
+  order?: Array<ConfigCompatibilityEcosystem>
+}
+
+export type ConfigCompatibilityFound = {
+  id: ConfigCompatibilityEcosystem
+  label: string
+  enabled: boolean
+  decidedBy: "project" | "config" | "default"
+  trusted: boolean
+  folders: Array<ConfigCompatibilityFolder>
+  markers: Array<string>
+  loaded?: ConfigCompatibilityLoaded
+  skipped?: Array<ConfigCompatibilitySkipped>
+}
+
 export type RoomDod = {
   items: Array<RoomDodItem>
   status?: "ready" | "disabled" | undefined
@@ -2153,6 +2193,12 @@ export type NoteInfo = {
   mtime: number | "Infinity" | "-Infinity" | "NaN"
 }
 
+export type ConfigCompatibilityReport = {
+  root: string
+  order: Array<ConfigCompatibilityEcosystem>
+  ecosystems: Array<ConfigCompatibilityFound>
+}
+
 export type OrchestraProject = {
   id: string
   name: string
@@ -2364,6 +2410,7 @@ export type ConfigEntry =
         plugins?: Array<string | { package: string; options?: { [x: string]: JsonValue } }>
         worktree?: ConfigWorktree
         warming?: boolean | { prompt?: string; interval?: string; duration?: string }
+        compatibility?: ConfigCompatibility
         providers?: {
           [x: string]: {
             canonical?: string
@@ -2836,6 +2883,15 @@ export type MessageNotFoundError = {
 }
 export const isMessageNotFoundError = (value: unknown): value is MessageNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "MessageNotFoundError"
+
+export type PromptRejectedError = {
+  readonly _tag: "PromptRejectedError"
+  readonly message: string
+  readonly reason: string
+  readonly source?: string | undefined
+}
+export const isPromptRejectedError = (value: unknown): value is PromptRejectedError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PromptRejectedError"
 
 export type CommandNotFoundError = {
   readonly _tag: "CommandNotFoundError"
@@ -7137,6 +7193,33 @@ export type ConfigUpdateInput = {
 }
 
 export type ConfigUpdateOutput = void
+
+export type ConfigCompatibilityGetInput = {
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+}
+
+export type ConfigCompatibilityGetOutput = ConfigCompatibilityReport
+
+export type ConfigCompatibilityUpdateInput = {
+  readonly location?: { readonly location?: { readonly directory?: string | undefined } | undefined }["location"]
+  readonly ecosystem: {
+    readonly ecosystem: "agents" | "claude" | "codex" | "gemini" | "cursor"
+    readonly enabled?: boolean | null
+    readonly trusted?: boolean
+  }["ecosystem"]
+  readonly enabled?: {
+    readonly ecosystem: "agents" | "claude" | "codex" | "gemini" | "cursor"
+    readonly enabled?: boolean | null
+    readonly trusted?: boolean
+  }["enabled"]
+  readonly trusted?: {
+    readonly ecosystem: "agents" | "claude" | "codex" | "gemini" | "cursor"
+    readonly enabled?: boolean | null
+    readonly trusted?: boolean
+  }["trusted"]
+}
+
+export type ConfigCompatibilityUpdateOutput = ConfigCompatibilityReport
 
 export type RoomListOutput = { data: Array<RoomInfo> }["data"]
 
