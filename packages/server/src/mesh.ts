@@ -520,7 +520,7 @@ const layer = Layer.effect(
           { concurrency: "unbounded" },
         )
         if (results.some((result) => !result.ok)) return yield* new MeshError({ message: "Every enrolled device must be online and agree on membership before activation", status: 503 })
-        const next: StoredState = { ...state, members, preparedHash: membersHash(members) }
+        const next: StoredState = { ...state, members, voters: members.map((member) => member.id), preparedHash: membersHash(members) }
         yield* save(next)
         return next
       }))
@@ -532,7 +532,7 @@ const layer = Layer.effect(
         ),
         { concurrency: "unbounded" },
       )
-      const active: StoredState = { ...prepared, status: "active" }
+      const active: StoredState = { ...prepared, voters: prepared.members.map((member) => member.id), status: "active" }
       yield* save(active)
       resetElection(active.clusterID)
       if (results.some((result) => !result.ok)) return yield* new MeshError({ message: "Mesh activation started but not every device confirmed it; reconnect the missing devices and retry activation", status: 503 })
@@ -747,7 +747,7 @@ const layer = Layer.effect(
               const members = incoming.map((member) =>
                 member.id === state.ownerNodeID && reachableOwnerURL ? { ...member, url: reachableOwnerURL } : member,
               )
-              state = { ...state, members, preparedHash: membersHash(incoming) }
+              state = { ...state, members, voters: incoming.map((member) => member.id), preparedHash: membersHash(incoming) }
               yield* save(state)
               return response()
             }
@@ -758,7 +758,7 @@ const layer = Layer.effect(
               const members = incoming.map((member) =>
                 member.id === state.ownerNodeID && reachableOwnerURL ? { ...member, url: reachableOwnerURL } : member,
               )
-              state = { ...state, members, status: "active" }
+              state = { ...state, members, voters: incoming.map((member) => member.id), status: "active" }
               yield* save(state)
               resetElection(state.clusterID)
               return response()
