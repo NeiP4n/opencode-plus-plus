@@ -715,7 +715,8 @@ export function DialogConnect(props: { onClose?: () => void }) {
   const discoveredMeshes = createMemo(() => {
     const unique = new Map<string, FoundMesh & { seedURL: string; host: string }>()
     for (const server of found() ?? []) {
-      if (!server.mesh) continue
+      // The local Mesh is already joined on this device; don't offer it as a remote target.
+      if (!server.mesh || server.own) continue
       const mesh = {
         ...server.mesh,
         seedURL: server.mesh.ownerURL || server.url,
