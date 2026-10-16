@@ -434,7 +434,7 @@ const layer = Layer.effect(
           clusterID: "mesh_" + randomBytes(12).toString("base64url"),
           secret: token,
           ownerNodeID: nodeID,
-          members: [{ id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now() }],
+          members: [{ id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now(), ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}) }],
           currentTerm: 0,
           log: [],
           commitIndex: 0,
@@ -452,7 +452,7 @@ const layer = Layer.effect(
       // Base64url invitation tokens contain no whitespace; remove spaces and line breaks from terminal paste.
       const token = input.token.replace(/\s+/g, "")
       if (token.length < 24) return yield* new MeshError({ message: "The Mesh invitation token is incomplete", status: 400 })
-      const node: RoomMesh.Node = { id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now() }
+      const node: RoomMesh.Node = { id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now(), ...(input.directory?.trim() ? { directory: input.directory.trim() } : {}) }
       const invite = yield* callRPC(seedURL, token, { type: "enroll", node })
       if (
         !invite.ok ||
