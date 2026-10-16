@@ -329,19 +329,29 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
               </For>
 
               <Show when={state.status === "forming" && state.nodeID === state.ownerNodeID}>
-                <Section title={t("Activate after all devices have joined")} />
+                <Section title={t("Invite devices before activation")} />
                 <Show when={invite()}>
                   <text fg={theme.text.muted} wrapMode="word">
                     {t("Invitation token — share only with your own devices:")}
                   </text>
                   <text fg={theme.text.base} wrapMode="word">{invite()}</text>
                 </Show>
-                <Button variant="primary" disabled={busy()} onClick={activate}>
+                <Show when={state.members.length < 2}>
+                  <text fg={theme.text.feedback.warning.base} wrapMode="word">
+                    {t("Connect at least one other device first. New devices cannot join after activation in this version.")}
+                  </text>
+                </Show>
+                <Button variant="primary" disabled={busy() || state.members.length < 2} onClick={activate}>
                   {t("Activate Mesh")}
                 </Button>
               </Show>
 
               <Show when={state.status === "active"}>
+                <Show when={state.nodeID === state.ownerNodeID}>
+                  <text fg={theme.text.feedback.warning.base} wrapMode="word">
+                    {t("This Mesh is active. Adding new devices after activation is not supported yet. To add devices, leave this Mesh, create a new one, share its invitation token, and activate only after everyone has joined.")}
+                  </text>
+                </Show>
                 <Section title={t("Shared messages and tasks")} />
                 <For each={entries()}>
                   {(entry) => (
