@@ -814,7 +814,10 @@ export function DialogConnect(props: { onClose?: () => void }) {
       })
       .catch((error: unknown) => {
         const message = errorMessage(error)
-        if (message.includes("Mesh credential is invalid")) {
+        if (
+          message.includes("Mesh credential is invalid") ||
+          message.includes("Mesh invitation token does not match this room")
+        ) {
           setJoinError(
             t("The invitation token was rejected by {address} for Mesh {id}. Re-copy the current token from that room's owner and retry.", {
               address: mesh.seedURL,
