@@ -454,24 +454,37 @@ const layer = Layer.effect(
       if (token.length < 24) return yield* new MeshError({ message: "The Mesh invitation token is incomplete", status: 400 })
       const node: RoomMesh.Node = { id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now() }
       const invite = yield* callRPC(seedURL, token, { type: "enroll", node })
-      if (!invite.ok || !invite.clusterID || !invite.ownerNodeID || !invite.members || !invite.status)
+      if (
+        !invite.ok ||
+        typeof invite.clusterID !== "string" ||
+        typeof invite.ownerNodeID !== "string" ||
+        !invite.members ||
+        (invite.status !== "forming" && invite.status !== "active")
+      )
         return yield* new MeshError({ message: invite.message ?? "The seed did not accept this device", status: 403 })
+
+      // Copy the validated fields to locals before entering a deferred Effect closure.
+      const clusterID = invite.clusterID
+      const ownerNodeID = invite.ownerNodeID
+      const status = invite.status
       const receivedMembers = yield* normalizedMembers(invite.members)
-      if (!receivedMembers.some((member) => member.id === nodeID)) return yield* new MeshError({ message: "The seed response did not include this device", status: 502 })
+      if (!receivedMembers.some((member) => member.id === nodeID))
+        return yield* new MeshError({ message: "The seed response did not include this device", status: 502 })
       // The owner's stored URL can be a virtual adapter (e.g. 198.18.x.x). Use the
       // address that this client actually reached for its local copy of the owner node.
       const members = receivedMembers.map((member) =>
-        member.id === invite.ownerNodeID ? { ...member, url: seedURL } : member,
+        member.id === ownerNodeID ? { ...member, url: seedURL } : member,
       )
-      const voters = invite.voters ?? (invite.status === "forming" ? members.map((member) => member.id) : members.filter((member) => member.id !== nodeID).map((member) => member.id))
+      const voters =
+        invite.voters ?? (status === "forming" ? members.map((member) => member.id) : members.filter((member) => member.id !== nodeID).map((member) => member.id))
       return yield* locks.withLock("state")(Effect.gen(function* () {
         if (yield* load()) return yield* new MeshError({ message: "A Mesh was created or joined while this device was connecting", status: 409 })
         const state: StoredState = {
           nodeID,
-          status: invite.status,
-          clusterID: invite.clusterID,
+          status,
+          clusterID,
           secret: token,
-          ownerNodeID: invite.ownerNodeID,
+          ownerNodeID,
           members,
           voters,
           currentTerm: invite.currentTerm ?? 0,
