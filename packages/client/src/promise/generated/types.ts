@@ -562,7 +562,7 @@ export type RoomRunResult = { shell: string; exitCode: number; output: string; c
 export type RoomMemberView = {
   id: string
   name: string
-  role: "viewer" | "member" | "helper" | "cohost"
+  role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   device?: string | undefined
   address?: string | undefined
   joined: number
@@ -573,7 +573,7 @@ export type RoomMemberView = {
 export type RoomMember = {
   id: string
   name: string
-  role: "viewer" | "member" | "helper" | "cohost"
+  role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   device?: string | undefined
   address?: string | undefined
   joined: number
@@ -1990,7 +1990,7 @@ export type RoomFeed = { events: Array<RoomEvent> }
 export type RoomJoined = {
   token: string
   guest: RoomGuest
-  role: "viewer" | "member" | "helper" | "cohost"
+  role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   room: RoomInfo
 }
 
@@ -7655,7 +7655,7 @@ export type RoomGuestGetInput = {
 export type RoomGuestGetOutput = {
   room: RoomInfo1
   guest: RoomGuest
-  role: "viewer" | "member" | "helper" | "cohost"
+  role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   session: SessionInfo1
 }
 
@@ -7954,7 +7954,7 @@ export type RoomMemberListOutput = { data: Array<RoomMemberView> }["data"]
 export type RoomMemberUpdateInput = {
   readonly roomID: { readonly roomID: string; readonly guestID: string }["roomID"]
   readonly guestID: { readonly roomID: string; readonly guestID: string }["guestID"]
-  readonly role: { readonly role: "viewer" | "member" | "helper" | "cohost" }["role"]
+  readonly role: { readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted" }["role"]
 }
 
 export type RoomMemberUpdateOutput = { data: RoomMember }["data"]

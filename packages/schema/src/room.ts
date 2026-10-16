@@ -21,8 +21,12 @@ export type AiMessaging = typeof AiMessaging.Type
 // What a guest may do in a room. Viewers read, members also post prompts and start
 // sessions, helpers also answer the host model's permission requests, and cohosts also
 // pick the model and agent and run commands.
-export const Role = Schema.Literals(["viewer", "member", "helper", "cohost"])
+export const Role = Schema.Literals(["viewer", "member", "helper", "cohost", "trusted"])
 export type Role = typeof Role.Type
+
+// Trusted remains per-member: it is deliberately not a default role for invite codes.
+export const DefaultRole = Schema.Literals(["viewer", "member", "helper", "cohost"])
+export type DefaultRole = typeof DefaultRole.Type
 
 export const Info = Schema.Struct({
   id: ID,
@@ -33,7 +37,7 @@ export const Info = Schema.Struct({
   // Read only to choose defaultRole for such rooms.
   guestApprovals: Schema.Boolean,
   // The role a guest gets on joining; absent on rooms saved before roles existed.
-  defaultRole: Role.pipe(Schema.optional),
+  defaultRole: DefaultRole.pipe(Schema.optional)
   // Set when the room shares a whole project: every session under this directory, and
   // new ones guests start there. Without it the room shares sessionID alone.
   directory: Schema.String.pipe(Schema.optional),

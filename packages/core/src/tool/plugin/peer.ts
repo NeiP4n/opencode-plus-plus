@@ -34,7 +34,7 @@ const description = [
   "send gives the AI in a room session a task or a question; its answer comes back to you automatically as a <peer-report> message, so end your turn instead of waiting;",
   "create starts a new session in a project room, optionally with a first task sent the same way;",
   "passport describes the other computer: its system, shells, installed tools, the project's branch and commit, and the plots (участки) teams hold there, so you know what it can check that this computer cannot;",
-  "run executes one command on the other computer in the project, for example its tests on another operating system; the host approves each run, you need the cohost role, and the output comes back directly.",
+  "run executes one command on the other computer in the project; cohosts need host approval, while a Trusted member is allowed to run it without per-command confirmation.",
   "dod shows the host project's Definition of Done as the room's shared work queue: every item, its stage, state, checked steps, who in the room took it, what it waits for and its check;",
   "take claims a DoD item for you so nobody else in the room starts it: pass item, or omit it to get the first item that is free and whose dependencies are done; pass paths the work will change to hold them as a plot. The answer includes the item's handover note from whoever worked on it before. Then do it, yourself or through send to the AI there;",
   "submit hands an item you hold to the host's check: the host runs the item's verification.command in its project, and exit code 0 makes it DONE with evidence while anything else makes it FAILED with the output; pass text as a handover of what you did;",
@@ -166,15 +166,27 @@ export const Plugin = {
           execute: (input, context) =>
             Effect.gen(function* () {
               // Anything leaving for another computer asks the operator first.
-              const ask = (resource: string) =>
-                permission.assert({
-                  action: name,
-                  resources: [resource],
-                  save: ["*"],
-                  metadata: input,
-                  sessionID: context.sessionID,
-                  agent: context.agent,
-                  source: { type: "tool", messageID: context.messageID, id: context.id },
+              const ask = (resource: string, link?: Peer.Link) =>
+                Effect.gen(function* () {
+                  if (link) {
+                    const joined = yield* peers.joined(link).pipe(
+                      Effect.match({
+                        onFailure: () => undefined,
+                        onSuccess: (value) => value,
+                      }),
+                    )
+                    // Trusted means the destination admitted this device for unattended delegation.
+                    if (joined?.role === "trusted") return
+                  }
+                  yield* permission.assert({
+                    action: name,
+                    resources: [resource],
+                    save: ["*"],
+                    metadata: input,
+                    sessionID: context.sessionID,
+                    agent: context.agent,
+                    source: { type: "tool", messageID: context.messageID, id: context.id },
+                  })
                 })
               const send = (link: Peer.Link, text: string, sessionID?: string) =>
                 peers
@@ -203,7 +215,7 @@ export const Plugin = {
                 case "send": {
                   const link = yield* linkOf(input.room)
                   if (!input.text?.trim()) return yield* new ToolFailure({ message: "Pass the message as text" })
-                  yield* ask(link.name)
+                  yield* ask(link.name, link)
                   const session = yield* send(link, input.text, input.sessionID)
                   return {
                     output: `Sent to ${link.name} · ${session.title ?? session.id}. The answer will arrive here as a <peer-report> when that AI finishes.`,
@@ -217,7 +229,7 @@ export const Plugin = {
                 case "run": {
                   const link = yield* linkOf(input.room)
                   if (!input.text?.trim()) return yield* new ToolFailure({ message: "Pass the command as text" })
-                  yield* ask(link.name)
+                  yield* ask(link.name, link)
                   const result = yield* peers
                     .run({ link, command: input.text, sessionID: input.sessionID })
                     .pipe(Effect.mapError(failed))
@@ -235,7 +247,7 @@ export const Plugin = {
                 }
                 case "take": {
                   const link = yield* linkOf(input.room)
-                  yield* ask(link.name)
+                  yield* ask(link.name, link)
                   const item = input.item?.trim()
                   const dod = yield* peers
                     .claim({
@@ -262,7 +274,7 @@ export const Plugin = {
                   const link = yield* linkOf(input.room)
                   const item = input.item?.trim()
                   if (!item) return yield* new ToolFailure({ message: "Pass item, the DoD item ID you hold" })
-                  yield* ask(link.name)
+                  yield* ask(link.name, link)
                   const dod = yield* peers
                     .submit({ link, id: item, handover: input.text?.trim() || undefined, from: context.sessionID })
                     .pipe(Effect.mapError(failed))
@@ -364,7 +376,7 @@ export const Plugin = {
                 }
                 case "create": {
                   const link = yield* linkOf(input.room)
-                  yield* ask(link.name)
+                  yield* ask(link.name, link)
                   const created = yield* peers
                     .create(link, input.title?.trim() || undefined)
                     .pipe(Effect.mapError(failed))

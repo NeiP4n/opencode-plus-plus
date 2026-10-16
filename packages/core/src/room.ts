@@ -29,7 +29,7 @@ export const CreateInput = Schema.Struct({
   name: Schema.String.pipe(Schema.optional),
   ai: Room.AiMessaging.pipe(Schema.optional),
   guestApprovals: Schema.Boolean.pipe(Schema.optional),
-  defaultRole: Room.Role.pipe(Schema.optional),
+  defaultRole: Room.DefaultRole.pipe(Schema.optional),
   directory: Schema.String.pipe(Schema.optional),
   open: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Room.CreateInput" })
@@ -39,7 +39,7 @@ export const UpdateInput = Schema.Struct({
   name: Schema.String.pipe(Schema.optional),
   ai: Room.AiMessaging.pipe(Schema.optional),
   guestApprovals: Schema.Boolean.pipe(Schema.optional),
-  defaultRole: Room.Role.pipe(Schema.optional),
+  defaultRole: Room.DefaultRole.pipe(Schema.optional),
   open: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Room.UpdateInput" })
 export type UpdateInput = typeof UpdateInput.Type

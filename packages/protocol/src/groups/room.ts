@@ -121,7 +121,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         name: Schema.String.pipe(Schema.optional),
         ai: Room.AiMessaging.pipe(Schema.optional),
         guestApprovals: Schema.Boolean.pipe(Schema.optional),
-        defaultRole: Room.Role.pipe(Schema.optional),
+        defaultRole: Room.DefaultRole.pipe(Schema.optional),
         open: Schema.Boolean.pipe(Schema.optional),
         // Share the whole project under this directory, not just the session.
         directory: Schema.String.pipe(Schema.optional),
@@ -143,7 +143,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         name: Schema.String.pipe(Schema.optional),
         ai: Room.AiMessaging.pipe(Schema.optional),
         guestApprovals: Schema.Boolean.pipe(Schema.optional),
-        defaultRole: Room.Role.pipe(Schema.optional),
+        defaultRole: Room.DefaultRole.pipe(Schema.optional),
         open: Schema.Boolean.pipe(Schema.optional),
       }),
       success: Schema.Struct({ data: Room.Info }),

@@ -636,11 +636,11 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     // the passport is for guests of this room only
     expect((yield* call(`/api/room/${room.id}/guest/passport`)).status).toBe(401)
 
-    const run = () =>
+    const run = (command = "echo from-the-host; env") =>
       call(`/api/room/${room.id}/guest/run`, {
         method: "POST",
         headers: guest,
-        body: { command: "echo from-the-host; env" },
+        body: { command },
       })
     expect((yield* run()).status).toBe(403)
     yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
@@ -677,6 +677,17 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect(result.body.output).toContain("from-the-host")
     // the output goes to the guest, so the host's keys are not in the command's environment
     expect(result.body.output).not.toContain("ROOM_TEST_API_KEY")
+
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "trusted" },
+    })
+    // Trusted is a per-device opt-in: it bypasses the host permission prompt, not the guest-role check.
+    const unattended = yield* run("echo trusted-auto-run")
+    expect(unattended.status).toBe(200)
+    expect(unattended.body.exitCode).toBe(0)
+    expect(unattended.body.output).toContain("trusted-auto-run")
   }).pipe(Effect.scoped),
 )
 

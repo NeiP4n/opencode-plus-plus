@@ -66,7 +66,7 @@ function chatMessage(message: SessionMessage.Info): Room.Message[] {
   return text ? [{ id: message.id, role: "assistant" as const, text, created }] : []
 }
 
-const RANK: Record<Room.Role, number> = { viewer: 0, member: 1, helper: 2, cohost: 3 }
+const RANK: Record<Room.Role, number> = { viewer: 0, member: 1, helper: 2, cohost: 3, trusted: 4 }
 
 // Sessions a project room lists; enough for a shared project, bounded for a busy host.
 const SESSION_LIMIT = 200
@@ -629,20 +629,23 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
-          // The host sees the request in the session and decides; nothing runs before that.
-          yield* Permission.Service.use((permission) =>
-            permission.confirm({
-              action: "room.run",
-              resources: [command],
-              metadata: { guest: joined.guest.name, command },
-              sessionID: session.id,
-            }),
-          ).pipe(
-            instances.provide(session),
-            locationErrors,
-            Effect.catchTag("LocationNotFoundError", Effect.die),
-            Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
-          )
+          // A host assigns Trusted per device when its commands should run unattended.
+          // Everyone else, including ordinary cohosts, still gets the usual confirmation.
+          if (joined.member.role !== "trusted") {
+            yield* Permission.Service.use((permission) =>
+              permission.confirm({
+                action: "room.run",
+                resources: [command],
+                metadata: { guest: joined.guest.name, command },
+                sessionID: session.id,
+              }),
+            ).pipe(
+              instances.provide(session),
+              locationErrors,
+              Effect.catchTag("LocationNotFoundError", Effect.die),
+              Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
+            )
+          }
           codes.record(joined.room.id, { kind: "run", who: joined.member.name, detail: command })
           return yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, session.location.directory, signal),
@@ -750,23 +753,25 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
-          // dod.yaml can change under the host (an edit by the AI, a pull), so the host approves
-          // each check command; "always" remembers that exact command.
+          // Normal guests need approval for each check because dod.yaml can change under the host.
+          // Trusted members were explicitly admitted for unattended work.
           const session = yield* inRoom(joined.room, undefined)
-          yield* Permission.Service.use((permission) =>
-            permission.confirm({
-              action: "room.check",
-              resources: [command],
-              save: [command],
-              metadata: { guest: joined.guest.name, command, item: id },
-              sessionID: session.id,
-            }),
-          ).pipe(
-            instances.provide(session),
-            locationErrors,
-            Effect.catchTag("LocationNotFoundError", Effect.die),
-            Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this check" })),
-          )
+          if (joined.member.role !== "trusted") {
+            yield* Permission.Service.use((permission) =>
+              permission.confirm({
+                action: "room.check",
+                resources: [command],
+                save: [command],
+                metadata: { guest: joined.guest.name, command, item: id },
+                sessionID: session.id,
+              }),
+            ).pipe(
+              instances.provide(session),
+              locationErrors,
+              Effect.catchTag("LocationNotFoundError", Effect.die),
+              Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this check" })),
+            )
+          }
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, directory, signal),
             catch: (error) => new InvalidRequestError({ message: `Could not run the check: ${String(error)}` }),

@@ -666,7 +666,7 @@ export function DialogHost(props: { onClose?: () => void }) {
                   {room.open ? t("Without a code") : t("With a code")}
                 </Button>
               </Setting>
-              <Setting label={t("New guests")} help={t(ROLE_HELP)}>
+              <Setting label={t("New guests")} help={t(DEFAULT_ROLE_HELP)}>
                 <Button
                   disabled={busy()}
                   onClick={() =>
@@ -1139,17 +1139,23 @@ export function DialogConnect(props: { onClose?: () => void }) {
 
 type RoomRole = RoomMemberView["role"]
 
-export const ROLE_LABEL = { viewer: "Viewer", member: "Member", helper: "Helper", cohost: "Cohost" } as const
+export const ROLE_LABEL = { viewer: "Viewer", member: "Member", helper: "Helper", cohost: "Cohost", trusted: "Trusted" } as const
 const ROLE_HELP =
-  "Viewers only watch, members also write and start sessions, helpers also allow or deny the AI's requests, cohosts also pick the model and agent and run commands."
+  "Viewers only watch, members also write and start sessions, helpers also allow or deny the AI's requests, cohosts also pick the model and agent and run commands, and Trusted members can run remote commands and checks without host confirmation."
+const DEFAULT_ROLE_HELP = "This role is given to new guests who join with a code. Trusted access is assigned to individual people in the People list."
 const ROLES = ["viewer", "member", "helper", "cohost"] as const
+const MEMBER_ROLES: readonly RoomRole[] = [...ROLES, "trusted"]
 
-export function nextRole(role: RoomRole) {
+export function nextRole(role: Exclude<RoomRole, "trusted">) {
   return ROLES[(ROLES.indexOf(role) + 1) % ROLES.length]
 }
 
+function nextMemberRole(role: RoomRole) {
+  return MEMBER_ROLES[(MEMBER_ROLES.indexOf(role) + 1) % MEMBER_ROLES.length]
+}
+
 // Rooms saved before roles existed: guests who could answer approvals join as helpers.
-function joinRole(room: RoomInfo): RoomRole {
+function joinRole(room: RoomInfo): Exclude<RoomRole, "trusted"> {
   return room.defaultRole ?? (room.guestApprovals ? "helper" : "member")
 }
 
@@ -1180,7 +1186,7 @@ export function DialogPeople(props: { roomID: string; name: string; onClose?: ()
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
 
   const cycle = (member: RoomMemberView) => {
-    const role = nextRole(member.role)
+    const role = nextMemberRole(member.role)
     setMembers((list) => list?.map((item) => (item.id === member.id ? { ...item, role } : item)))
     act(() => client.api.room.member.update({ roomID: props.roomID, guestID: member.id, role }))
   }
