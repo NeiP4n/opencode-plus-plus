@@ -20629,6 +20629,9 @@
       "Config.Compatibility": {
         "type": "object",
         "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
           "ecosystems": {
             "$ref": "#/components/schemas/Config.Compatibility.Choices"
           },
@@ -20742,6 +20745,17 @@
             "items": {
               "$ref": "#/components/schemas/Config.Compatibility.Skipped"
             }
+          },
+          "awaitingTrust": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
           }
         },
         "required": ["id", "label", "enabled", "decidedBy", "trusted", "folders", "markers"],
@@ -20826,6 +20840,9 @@
           "root": {
             "type": "string"
           },
+          "enabled": {
+            "type": "boolean"
+          },
           "order": {
             "type": "array",
             "items": {
@@ -20839,7 +20856,7 @@
             }
           }
         },
-        "required": ["root", "order", "ecosystems"],
+        "required": ["root", "enabled", "order", "ecosystems"],
         "additionalProperties": false
       },
       "Config.Compatibility.Skipped": {
@@ -21492,6 +21509,17 @@
               }
             ],
             "description": "Default model for new sessions, as provider/model"
+          },
+          "compatibilityEnabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it"
           }
         },
         "additionalProperties": false

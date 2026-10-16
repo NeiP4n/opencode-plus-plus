@@ -1870,6 +1870,7 @@ export type NoteFrontmatter = {
 }
 
 export type ConfigCompatibility = {
+  enabled?: boolean
   ecosystems?: ConfigCompatibilityChoices
   order?: Array<ConfigCompatibilityEcosystem>
 }
@@ -1884,6 +1885,7 @@ export type ConfigCompatibilityFound = {
   markers: Array<string>
   loaded?: ConfigCompatibilityLoaded
   skipped?: Array<ConfigCompatibilitySkipped>
+  awaitingTrust?: number
 }
 
 export type RoomDod = {
@@ -2195,6 +2197,7 @@ export type NoteInfo = {
 
 export type ConfigCompatibilityReport = {
   root: string
+  enabled: boolean
   order: Array<ConfigCompatibilityEcosystem>
   ecosystems: Array<ConfigCompatibilityFound>
 }
@@ -7188,8 +7191,21 @@ export type ConfigGetOutput = Array<ConfigEntry>
 export type ConfigShellsOutput = Array<ConfigShellOption>
 
 export type ConfigUpdateInput = {
-  readonly shell?: { readonly shell?: string | null; readonly model?: string | null }["shell"]
-  readonly model?: { readonly shell?: string | null; readonly model?: string | null }["model"]
+  readonly shell?: {
+    readonly shell?: string | null
+    readonly model?: string | null
+    readonly compatibilityEnabled?: boolean | null
+  }["shell"]
+  readonly model?: {
+    readonly shell?: string | null
+    readonly model?: string | null
+    readonly compatibilityEnabled?: boolean | null
+  }["model"]
+  readonly compatibilityEnabled?: {
+    readonly shell?: string | null
+    readonly model?: string | null
+    readonly compatibilityEnabled?: boolean | null
+  }["compatibilityEnabled"]
 }
 
 export type ConfigUpdateOutput = void

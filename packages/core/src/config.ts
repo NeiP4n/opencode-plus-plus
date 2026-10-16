@@ -442,7 +442,16 @@ export const layer = (options?: Options) =>
           const candidates = ConfigDiscovery.names.map((name) => path.join(directory, name))
           const filepath =
             (yield* Effect.filter(candidates, fs.isFile)).at(-1) ?? path.join(directory, "opencode.jsonc")
-          const text = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
+          const original = (yield* fs.readFileStringSafe(filepath)) ?? "{}\n"
+          const text =
+            "compatibilityEnabled" in patch
+              ? applyEdits(
+                  original,
+                  modify(original, ["compatibility", "enabled"], patch.compatibilityEnabled ?? undefined, {
+                    formattingOptions: { tabSize: 2, insertSpaces: true },
+                  }),
+                )
+              : original
           const updated = yield* Effect.try({
             try: () =>
               (["shell", "model"] as const)

@@ -1805,9 +1805,13 @@ const EndpointConfigShells = (raw: RawClient["server.config"]) => () =>
 
 const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: ConfigUpdateInput) =>
   preserveEffect<ConfigUpdateOutput>()(
-    raw["config.update"]({ payload: { shell: input?.["shell"], model: input?.["model"] } }).pipe(
-      Effect.mapError(mapClientError),
-    ),
+    raw["config.update"]({
+      payload: {
+        shell: input?.["shell"],
+        model: input?.["model"],
+        compatibilityEnabled: input?.["compatibilityEnabled"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointConfigCompatibilityGet = (raw: RawClient["server.config"]) => (input?: ConfigCompatibilityGetInput) =>

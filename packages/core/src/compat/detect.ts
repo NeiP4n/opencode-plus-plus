@@ -11,6 +11,7 @@ import { FSUtil } from "@opencode/util/fs-util"
 import type { ConfigCompatibility } from "@opencode/schema/config/compatibility"
 import { Ecosystem } from "./ecosystem.js"
 import { CompatStore } from "./store.js"
+import { ClaudeContext } from "./claude/context.js"
 
 export type Folder = ConfigCompatibility.Folder
 export type Found = ConfigCompatibility.Found
@@ -74,7 +75,7 @@ export const detect = Effect.fn("CompatDetect.detect")(function* (input: {
       const decidedBy: Found["decidedBy"] =
         record.ecosystems?.[item.id] !== undefined
           ? "project"
-          : settings.ecosystems?.[item.id] !== undefined
+          : settings.ecosystems?.[item.id] !== undefined || settings.enabled === false
             ? "config"
             : "default"
       return {
@@ -89,7 +90,13 @@ export const detect = Effect.fn("CompatDetect.detect")(function* (input: {
         ],
         markers,
         ...(input.adapters?.[item.id]
-          ? { loaded: input.adapters[item.id]!.loaded, skipped: input.adapters[item.id]!.skipped }
+          ? {
+              loaded: input.adapters[item.id]!.loaded,
+              skipped: input.adapters[item.id]!.skipped,
+              awaitingTrust: input.adapters[item.id]!.skipped.filter((skip) =>
+                skip.reason.includes(ClaudeContext.TRUST_HINT),
+              ).length,
+            }
           : {}),
       } satisfies Found
     }),
@@ -97,6 +104,7 @@ export const detect = Effect.fn("CompatDetect.detect")(function* (input: {
     Effect.map(
       (found): ConfigCompatibility.Report => ({
         root,
+        enabled: settings.enabled !== false,
         order: Ecosystem.order(settings.order).filter((id) => found.some((item) => item.id === id && item.enabled)),
         ecosystems: found,
       }),

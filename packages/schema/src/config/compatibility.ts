@@ -20,6 +20,9 @@ export const Choices = Schema.Struct({
 export interface Choices extends Schema.Schema.Type<typeof Choices> {}
 
 export const Info = Schema.Struct({
+  enabled: Schema.Boolean.pipe(optional).annotate({
+    description: "false stops reading every ecosystem unless a project turns one on explicitly",
+  }),
   ecosystems: Choices.pipe(optional).annotate({
     description: "Turn reading an ecosystem's folders on or off; every detected ecosystem is on by default",
   }),
@@ -65,12 +68,16 @@ export const Found = Schema.Struct({
   loaded: Schema.optionalKey(Loaded),
   /** What was found but not carried over, and why. */
   skipped: Schema.optionalKey(Schema.Array(Skipped)),
+  /** How many of the skipped items would load once the user trusts this ecosystem for the project. */
+  awaitingTrust: Schema.optionalKey(Schema.Number),
 }).annotate({ identifier: "Config.Compatibility.Found" })
 export interface Found extends Schema.Schema.Type<typeof Found> {}
 
 export const Report = Schema.Struct({
   /** Project root the per-project choices are stored under. */
   root: Schema.String,
+  /** The master switch from config; ecosystems are off by default when it is false. */
+  enabled: Schema.Boolean,
   /** Merge priority of the ecosystems that are on, highest first. */
   order: Schema.Array(Ecosystem),
   ecosystems: Schema.Array(Found),

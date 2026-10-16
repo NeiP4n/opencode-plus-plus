@@ -2479,7 +2479,11 @@ export function make(options: ClientOptions) {
           {
             method: "PATCH",
             path: `/api/experimental/config`,
-            body: { shell: input?.["shell"], model: input?.["model"] },
+            body: {
+              shell: input?.["shell"],
+              model: input?.["model"],
+              compatibilityEnabled: input?.["compatibilityEnabled"],
+            },
             successStatus: 204,
             declaredStatuses: [400, 401, 404],
             empty: true,

@@ -119,6 +119,9 @@ export const Patch = Schema.Struct({
   model: Schema.optionalKey(Schema.NullOr(Schema.String)).annotate({
     description: "Default model for new sessions, as provider/model",
   }),
+  compatibilityEnabled: Schema.optionalKey(Schema.NullOr(Schema.Boolean)).annotate({
+    description: "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it",
+  }),
 }).annotate({ identifier: "Config.Patch" })
 export interface Patch extends Schema.Schema.Type<typeof Patch> {}
 

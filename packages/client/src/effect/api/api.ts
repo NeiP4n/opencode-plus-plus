@@ -2478,7 +2478,11 @@ export type ConfigShellsOutput = ReadonlyArray<{
 }>
 export type ConfigShellsOperation<E = never> = () => Effect.Effect<ConfigShellsOutput, E>
 
-export type ConfigUpdateInput = { readonly shell?: string | null; readonly model?: string | null }
+export type ConfigUpdateInput = {
+  readonly shell?: string | null
+  readonly model?: string | null
+  readonly compatibilityEnabled?: boolean | null
+}
 export type ConfigUpdateOutput = void
 export type ConfigUpdateOperation<E = never> = (input?: ConfigUpdateInput) => Effect.Effect<ConfigUpdateOutput, E>
 
@@ -2487,6 +2491,7 @@ export type ConfigCompatibilityGetInput = {
 }
 export type ConfigCompatibilityGetOutput = {
   readonly root: string
+  readonly enabled: boolean
   readonly order: ReadonlyArray<"agents" | "claude" | "codex" | "gemini" | "cursor">
   readonly ecosystems: ReadonlyArray<{
     readonly id: "agents" | "claude" | "codex" | "gemini" | "cursor"
@@ -2505,6 +2510,7 @@ export type ConfigCompatibilityGetOutput = {
       readonly hooks: number
     }
     readonly skipped?: ReadonlyArray<{ readonly source: string; readonly reason: string }>
+    readonly awaitingTrust?: number
   }>
 }
 export type ConfigCompatibilityGetOperation<E = never> = (
@@ -2519,6 +2525,7 @@ export type ConfigCompatibilityUpdateInput = {
 }
 export type ConfigCompatibilityUpdateOutput = {
   readonly root: string
+  readonly enabled: boolean
   readonly order: ReadonlyArray<"agents" | "claude" | "codex" | "gemini" | "cursor">
   readonly ecosystems: ReadonlyArray<{
     readonly id: "agents" | "claude" | "codex" | "gemini" | "cursor"
@@ -2537,6 +2544,7 @@ export type ConfigCompatibilityUpdateOutput = {
       readonly hooks: number
     }
     readonly skipped?: ReadonlyArray<{ readonly source: string; readonly reason: string }>
+    readonly awaitingTrust?: number
   }>
 }
 export type ConfigCompatibilityUpdateOperation<E = never> = (
