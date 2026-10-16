@@ -32,7 +32,8 @@ export const Snapshot = Schema.Struct({
   currentTerm: Schema.Number,
   leaderID: Schema.String.pipe(Schema.optional),
   members: Schema.Array(Node),
-  // Learners can exchange work and receive replicated entries but do not vote until promoted.
+  // The active voting set stays fixed while newly joined workers are learners.
+  voters: Schema.Array(Schema.String),
   voter: Schema.Boolean,
   logIndex: Schema.Number,
   commitIndex: Schema.Number,
