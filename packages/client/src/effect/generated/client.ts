@@ -1978,6 +1978,10 @@ const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshR
         return raw["room.mesh.rpc"]({
           payload: { type: "add-learner", clusterID: input.clusterID, fromNodeID: input.fromNodeID, node: input.node },
         })
+      case "remove-learner":
+        return raw["room.mesh.rpc"]({
+          payload: { type: "remove-learner", clusterID: input.clusterID, fromNodeID: input.fromNodeID, nodeID: input.nodeID },
+        })
       case "prepare":
         return raw["room.mesh.rpc"]({
           payload: {
