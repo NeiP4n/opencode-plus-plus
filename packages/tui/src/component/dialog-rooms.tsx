@@ -491,7 +491,7 @@ export function DialogHost(props: { onClose?: () => void }) {
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Multiplayer")} onClose={props.onClose} />
-      <MultiplayerModeSelector value={mode()} onChange={setMode} />
+      <MultiplayerModeSelector value={mode()} onChange={(value) => setMode(value === "mesh" ? "mesh" : "host")} />
       <Show when={mode() === "host"}>
         <Show when={server.error}>
           {(error) => (
