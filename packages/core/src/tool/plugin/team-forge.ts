@@ -15,11 +15,14 @@ export const name = "team_forge"
 export const command = "forge-teams"
 
 const description = [
-  "Design and add AI teams to the team registry the operator opens projects from. Only a session running the /forge-teams command has this tool.",
-  "Actions: list shows every role (id, category, tools, read-only) and every team with its members, plus the tool groups, Registry categories and installed Registry programs a role can be limited to;",
-  "role adds a new custom role (name, description, rules, category, readOnly, optional tools, hub, registry) and returns its id;",
-  "team adds a new team (name, description, playbook, members: each an exact role id, a session title and a category). A team must not repeat the name or the same set of roles as an existing one.",
-  "This tool only adds; it never edits or removes the operator's roles and teams.",
+  "Manage the team registry used when the operator opens projects. Only a session running the /forge-teams command has this tool.",
+  "Actions: list shows role/team ids and summaries; get_role and get_team return the full editable definition by exact id;",
+  "role creates a custom role; edit_role fully replaces an existing role by id; delete_role removes a custom role or restores an edited built-in role to defaults;",
+  "team creates a team; edit_team fully replaces an existing team by id; delete_team removes a custom team or restores a built-in team to defaults.",
+  "For edit_role, provide id, name, description, rules, category and readOnly. Optional model, models, autoTools, tools, hub and registry are replacement fields: omit a field to clear its override (omitting tools/hub/registry means unrestricted defaults).",
+  "For edit_team, provide id, name, description and the complete members array. Omit playbook to clear it. Members use exact role ids, titles and optional categories.",
+  "Deleting a role still used by a team fails; remove it from those teams first. Built-in roles/teams cannot be permanently deleted: the delete action restores their defaults.",
+  "Never edit or delete an existing entry unless the operator explicitly requests that exact change. Automated forge runs should only list and add.",
 ].join("\n")
 
 const Member = Schema.Struct({
@@ -29,7 +32,8 @@ const Member = Schema.Struct({
 })
 
 export const Input = Schema.Struct({
-  action: Schema.Literals(["list", "role", "team"]),
+  action: Schema.Literals(["list", "get_role", "get_team", "role", "edit_role", "delete_role", "team", "edit_team", "delete_team"]),
+  id: Schema.optionalKey(Schema.String).annotate({ description: "Exact role/team id returned by list or get_role/get_team; required for get, edit and delete actions" }),
   name: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
   rules: Schema.optionalKey(Schema.String).annotate({
@@ -37,6 +41,9 @@ export const Input = Schema.Struct({
   }),
   category: Schema.optionalKey(Schema.String),
   readOnly: Schema.optionalKey(Schema.Boolean),
+  model: Schema.optionalKey(Schema.String).annotate({ description: "For role: default model as provider/model" }),
+  models: Schema.optionalKey(Schema.Array(Schema.String)).annotate({ description: "For role: allowed model list; omit to use defaults" }),
+  autoTools: Schema.optionalKey(Schema.Boolean).annotate({ description: "For role: enable automatically discovered tools" }),
   tools: Schema.optionalKey(Schema.Array(Schema.String)).annotate({
     description: "For role: permission actions it may use (see the tool groups in list); omit for every tool",
   }),
@@ -75,13 +82,13 @@ export const Plugin = {
         "Roles:",
         ...roles.map(
           (role) =>
-            `- ${role.id} (${role.name}, ${role.category}${role.readOnly ? ", read-only" : ""}${role.tools ? `, tools ${role.tools.join(" ")}` : ""}): ${role.description}`,
+            `- ${role.id} (${role.name}, ${role.category}, ${role.origin}${role.readOnly ? ", read-only" : ""}${role.tools === undefined ? ", all tools" : `, tools ${role.tools.join(" ") || "none"}`}): ${role.description}`,
         ),
         "",
         "Teams:",
         ...templates.map(
           (template) =>
-            `- ${template.name}: ${template.description} [${template.members
+            `- ${template.id} (${template.origin}) ${template.name}: ${template.description} [${template.members
               .map((member) => roles.find((role) => role.agent === member.agent)?.id ?? member.agent)
               .join(", ")}]`,
         ),
@@ -109,6 +116,60 @@ export const Plugin = {
               switch (input.action) {
                 case "list":
                   return { output: yield* list() }
+                case "get_role": {
+                  const id = input.id?.trim()
+                  if (!id) return yield* new ToolFailure({ message: "get_role requires the exact role id. Call list first." })
+                  const role = (yield* orchestra.roles()).find((item) => item.id === id)
+                  if (!role) return yield* new ToolFailure({ message: `Unknown role id: ${id}. Call list to see the current ids.` })
+                  const spec = {
+                    name: role.name,
+                    description: role.description,
+                    rules: role.rules,
+                    category: role.category,
+                    readOnly: role.readOnly,
+                    ...(role.model !== undefined ? { model: role.model } : {}),
+                    ...(role.models !== undefined ? { models: role.models } : {}),
+                    ...(role.autoTools !== undefined ? { autoTools: role.autoTools } : {}),
+                    ...(role.tools !== undefined ? { tools: role.tools } : {}),
+                    ...(role.hub !== undefined ? { hub: role.hub } : {}),
+                    ...(role.registry !== undefined ? { registry: role.registry } : {}),
+                  }
+                  return {
+                    output: [
+                      `Role id: ${role.id}`,
+                      `Origin: ${role.origin}`,
+                      "The following is the complete editable definition. For edit_role, send these fields with any desired changes.",
+                      "When editing, omit optional fields to clear their overrides; for tools/hub/registry, omission means unrestricted defaults.",
+                      JSON.stringify(spec, null, 2),
+                    ].join("\n"),
+                  }
+                }
+                case "get_team": {
+                  const id = input.id?.trim()
+                  if (!id) return yield* new ToolFailure({ message: "get_team requires the exact team id. Call list first." })
+                  const template = (yield* orchestra.templates()).find((item) => item.id === id)
+                  if (!template) return yield* new ToolFailure({ message: `Unknown team id: ${id}. Call list to see the current ids.` })
+                  const roles = yield* orchestra.roles()
+                  const spec = {
+                    name: template.name,
+                    description: template.description,
+                    ...(template.playbook !== undefined ? { playbook: template.playbook } : {}),
+                    members: template.members.map((member) => ({
+                      role: roles.find((role) => role.agent === member.agent)?.id ?? member.agent,
+                      title: member.title,
+                      category: member.category,
+                    })),
+                  }
+                  return {
+                    output: [
+                      `Team id: ${template.id}`,
+                      `Origin: ${template.origin}`,
+                      "The following is the complete editable definition. For edit_team, send the full name, description and members array.",
+                      "Omit playbook when editing to clear it.",
+                      JSON.stringify(spec, null, 2),
+                    ].join("\n"),
+                  }
+                }
                 case "role": {
                   const role = yield* orchestra
                     .saveRole(undefined, {
@@ -117,12 +178,59 @@ export const Plugin = {
                       rules: input.rules ?? "",
                       category: input.category ?? "",
                       readOnly: input.readOnly ?? false,
-                      ...(input.tools ? { tools: input.tools } : {}),
-                      ...(input.hub ? { hub: input.hub } : {}),
-                      ...(input.registry ? { registry: input.registry } : {}),
+                      ...(input.model !== undefined ? { model: input.model } : {}),
+                      ...(input.models !== undefined ? { models: input.models } : {}),
+                      ...(input.autoTools !== undefined ? { autoTools: input.autoTools } : {}),
+                      ...(input.tools !== undefined ? { tools: input.tools } : {}),
+                      ...(input.hub !== undefined ? { hub: input.hub } : {}),
+                      ...(input.registry !== undefined ? { registry: input.registry } : {}),
                     })
                     .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
                   return { output: `Added role ${role.id} (${role.name}). Use this id in a team's members.` }
+                }
+                case "edit_role": {
+                  const id = input.id?.trim()
+                  if (!id) return yield* new ToolFailure({ message: "edit_role requires the exact role id. Call list first." })
+                  if (
+                    input.name === undefined ||
+                    input.description === undefined ||
+                    input.rules === undefined ||
+                    input.category === undefined ||
+                    input.readOnly === undefined
+                  )
+                    return yield* new ToolFailure({
+                      message: "edit_role is a full replacement, not a patch. Provide id, name, description, rules, category and readOnly; use get_role first to preserve fields you do not intend to change.",
+                    })
+                  const existing = (yield* orchestra.roles()).find((item) => item.id === id)
+                  if (!existing) return yield* new ToolFailure({ message: `Unknown role id: ${id}. Call list to see the current ids.` })
+                  const role = yield* orchestra
+                    .saveRole(id, {
+                      name: input.name,
+                      description: input.description,
+                      rules: input.rules,
+                      category: input.category,
+                      readOnly: input.readOnly,
+                      ...(input.model !== undefined ? { model: input.model } : {}),
+                      ...(input.models !== undefined ? { models: input.models } : {}),
+                      ...(input.autoTools !== undefined ? { autoTools: input.autoTools } : {}),
+                      ...(input.tools !== undefined ? { tools: input.tools } : {}),
+                      ...(input.hub !== undefined ? { hub: input.hub } : {}),
+                      ...(input.registry !== undefined ? { registry: input.registry } : {}),
+                    })
+                    .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
+                  return { output: `Updated role ${role.id} (${role.name}) using a full replacement.` }
+                }
+                case "delete_role": {
+                  const id = input.id?.trim()
+                  if (!id) return yield* new ToolFailure({ message: "delete_role requires the exact role id. Call list first." })
+                  const existing = (yield* orchestra.roles()).find((item) => item.id === id)
+                  if (!existing) return yield* new ToolFailure({ message: `Unknown role id: ${id}. Call list to see the current ids.` })
+                  yield* orchestra.removeRole(id).pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
+                  return {
+                    output: existing.origin === "custom"
+                      ? `Deleted custom role ${existing.name} (${id}).`
+                      : `Restored built-in role ${existing.name} (${id}) to defaults; built-in roles cannot be permanently deleted.`,
+                  }
                 }
                 case "team": {
                   const roles = yield* orchestra.roles()
@@ -167,6 +275,63 @@ export const Plugin = {
                         : " That was the last requested team: summarize what you added and stop."
                   if (forge?.remaining === 0) forging.delete(context.sessionID)
                   return { output: `Added team ${template.name} (${template.members.length} members).${left}` }
+                }
+                case "edit_team": {
+                  const id = input.id?.trim()
+                  if (!id) return yield* new ToolFailure({ message: "edit_team requires the exact team id. Call list first." })
+                  if (input.name === undefined || input.description === undefined || input.members === undefined)
+                    return yield* new ToolFailure({
+                      message: "edit_team is a full replacement, not a patch. Provide id, name, description and the complete members array; use get_team first to preserve existing members and the playbook if needed.",
+                    })
+                  const roles = yield* orchestra.roles()
+                  const templates = yield* orchestra.templates()
+                  const existing = templates.find((item) => item.id === id)
+                  if (!existing) return yield* new ToolFailure({ message: `Unknown team id: ${id}. Call list to see the current ids.` })
+                  const members = input.members
+                  const unknown = members.filter((member) => !roles.some((role) => role.id === member.role))
+                  if (unknown.length > 0)
+                    return yield* new ToolFailure({
+                      message: `Unknown role ids: ${unknown.map((member) => member.role).join(", ")}. Call list or get_role first.`,
+                    })
+                  const agents = members.map((member) => roles.find((role) => role.id === member.role)!.agent)
+                  const key = [...agents].sort().join(" ")
+                  const normalizedName = input.name.trim().toLowerCase()
+                  const same = templates.find(
+                    (template) =>
+                      template.id !== id &&
+                      (template.name.trim().toLowerCase() === normalizedName ||
+                        template.members.map((member) => member.agent).sort().join(" ") === key),
+                  )
+                  if (same)
+                    return yield* new ToolFailure({
+                      message: `Cannot update ${existing.name}: team ${same.name} already has this name or exactly these roles.`,
+                    })
+                  const template = yield* orchestra
+                    .saveTemplate(id, {
+                      name: input.name,
+                      description: input.description,
+                      ...(input.playbook !== undefined ? { playbook: input.playbook } : {}),
+                      members: members.map((member, index) => ({
+                        agent: agents[index]!,
+                        title: member.title,
+                        category:
+                          member.category ?? roles.find((role) => role.id === member.role)?.category ?? "Team",
+                      })),
+                    })
+                    .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
+                  return { output: `Updated team ${template.id} (${template.name}) with a full replacement.` }
+                }
+                case "delete_team": {
+                  const id = input.id?.trim()
+                  if (!id) return yield* new ToolFailure({ message: "delete_team requires the exact team id. Call list first." })
+                  const existing = (yield* orchestra.templates()).find((item) => item.id === id)
+                  if (!existing) return yield* new ToolFailure({ message: `Unknown team id: ${id}. Call list to see the current ids.` })
+                  yield* orchestra.removeTemplate(id).pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
+                  return {
+                    output: existing.origin === "custom"
+                      ? `Deleted custom team ${existing.name} (${id}).`
+                      : `Restored built-in team ${existing.name} (${id}) to defaults; built-in teams cannot be permanently deleted.`,
+                  }
                 }
               }
             }).pipe(Effect.map((output) => ({ output, content: output.output }))),
@@ -252,5 +417,6 @@ function prompt(count: number | undefined, focus: string) {
     "3. Add each missing role with action role: a precise description the Orchestrator can route on, concrete one-line rules (mission, what to read first, how to work, what evidence to report), readOnly for roles that must not edit, and the tool groups it really needs (a reviewer does not need edit; a researcher needs web).",
     "4. Add the team with action team: a clear name and description, members with titles and categories, and a playbook: phases, which role does what, what runs in parallel, and the definition of done with the checks that prove it.",
     "5. Say in one line what you added and why it is better than what existed, then go straight to the next team.",
+    "Never edit or delete an existing role or team unless the operator explicitly asked for that exact change; this automated loop only adds.",
   ].join("\n")
 }
