@@ -732,10 +732,10 @@ export function DialogConnect(props: { onClose?: () => void }) {
     const urls = localServer.state === "ready" ? localServer().urls : []
     const candidates = urls
       .map((url) => new URL(url))
-      .filter((url) => !/^(localhost|127\\.|0\\.0\\.0\\.0|\\[::1\\])$/.test(url.hostname))
-      .filter((url) => !/^(198\\.1[89]\\.|169\\.254\\.)/.test(url.hostname))
+      .filter((url) => !/^(localhost|127\.|0\.0\.0\.0|\[::1\])$/.test(url.hostname))
+      .filter((url) => !/^(198\.1[89]\.|169\.254\.)/.test(url.hostname))
     const privateLAN = candidates.find((url) =>
-      /^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.)/.test(url.hostname),
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url.hostname),
     )
     return (privateLAN ?? candidates[0])?.origin ?? ""
   }
@@ -843,11 +843,16 @@ export function DialogConnect(props: { onClose?: () => void }) {
       { bind: "shift+tab", title: "Previous field", group: "Connect", run: () => cycle(-1) },
     ],
   }))
-  onMount(() =>
+  onMount(() => {
     setTimeout(() => {
       if (fields.address && !fields.address.isDestroyed) fields.address.focus()
-    }, 1),
-  )
+    }, 1)
+    // Keep the list fresh while the Connect dialog is open; Mesh peers appear without a manual rescan.
+    const timer = setInterval(() => {
+      if (!found.loading) void rescan()
+    }, 5000)
+    onCleanup(() => clearInterval(timer))
+  })
 
   // An open room joins at once; any other only lacks the code: fill its address and move to the code field.
   const pick = (room: FoundRoom) => {
