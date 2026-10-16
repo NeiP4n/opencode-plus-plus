@@ -7608,7 +7608,7 @@ export type RoomCodeOutput = RoomJoinCode
 export type RoomPublicOutput = {
   host: string
   rooms: Array<{ id: string; name?: string; open: boolean }>
-  mesh?: { clusterID: string; status: "forming" | "active"; name: string; ownerURL: string; memberCount: number }
+  mesh?: { clusterID: string; status: "forming" | "active"; name: string; ownerURL: string; isOwner: boolean; memberCount: number }
 }
 
 export type RoomJoinInput = {
