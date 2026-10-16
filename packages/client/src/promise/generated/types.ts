@@ -7605,7 +7605,11 @@ export type RoomCodeInput = { readonly roomID: { readonly roomID: string }["room
 
 export type RoomCodeOutput = RoomJoinCode
 
-export type RoomPublicOutput = { host: string; rooms: Array<{ id: string; name?: string; open: boolean }> }
+export type RoomPublicOutput = {
+  host: string
+  rooms: Array<{ id: string; name?: string; open: boolean }>
+  mesh?: { clusterID: string; status: "forming" | "active"; name: string; ownerURL: string; memberCount: number }
+}
 
 export type RoomJoinInput = {
   readonly code?: {
