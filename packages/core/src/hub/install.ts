@@ -94,11 +94,20 @@ const PACKAGE: Record<string, Partial<Record<Manager, string>>> = {
   traceroute: { apt: "traceroute", dnf: "traceroute", pacman: "traceroute", zypper: "traceroute" },
   // semgrep is not packaged for apt or pacman; brew carries it, elsewhere it is a pip install.
   semgrep: { brew: "semgrep" },
+  adb: { apt: "adb", dnf: "android-tools", pacman: "android-tools", brew: "android-platform-tools", winget: "Google.PlatformTools", scoop: "adb", choco: "adb" },
+  npm: { brew: "node", winget: "OpenJS.NodeJS.LTS", scoop: "nodejs-lts", choco: "nodejs-lts", pacman: "npm", apk: "npm" },
+  npx: { apt: "npm", dnf: "npm", pacman: "npm", zypper: "npm", apk: "npm", brew: "node", winget: "OpenJS.NodeJS.LTS", scoop: "nodejs-lts", choco: "nodejs-lts" },
+  dotnet: { apt: "dotnet-sdk-8.0", dnf: "dotnet-sdk-8.0", pacman: "dotnet-sdk", brew: "dotnet", winget: "Microsoft.DotNet.SDK.8", scoop: "dotnet-sdk", choco: "dotnet-sdk" },
+  cargo: { brew: "rust", winget: "Rustlang.Rustup", scoop: "rustup", choco: "rustup.install" },
 }
 
 // Tools that only exist on some managers' systems: Debian's package tooling
 // cannot be installed through pacman or dnf, so offering it there only fails.
 const ONLY: Record<string, readonly Manager[]> = {
+  // Flutter, the Android emulator and Xcode come from their own installers, not package managers.
+  flutter: [],
+  emulator: [],
+  xcrun: [],
   "apt-cache": ["apt"],
   "dpkg-query": ["apt"],
   // Semgrep is only provided by the system package managers here through Homebrew;
@@ -111,6 +120,9 @@ const ONLY: Record<string, readonly Manager[]> = {
 // What to tell the operator when the manager cannot install a tool itself.
 const MANUAL: Record<string, Partial<Record<Manager, string>>> = {
   pwsh: { pacman: "from the AUR: yay -S powershell-bin" },
+  flutter: { winget: "from https://docs.flutter.dev/get-started/install", scoop: "from https://docs.flutter.dev/get-started/install", choco: "from https://docs.flutter.dev/get-started/install", apt: "with snap: sudo snap install flutter --classic", brew: "with brew install --cask flutter" },
+  emulator: { winget: "with Android Studio (SDK Manager → Android Emulator)", apt: "with Android Studio (SDK Manager → Android Emulator)", brew: "with Android Studio (SDK Manager → Android Emulator)" },
+  xcrun: { brew: "with Xcode from the App Store" },
 }
 
 export function manualInstall(tool: string, manager: Manager | undefined) {

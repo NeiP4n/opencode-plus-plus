@@ -108,9 +108,31 @@ test("the team editor creates a role and a team made of it", async () => {
   setup.mockInput.typeText("Quality")
   setup.mockInput.pressTab()
   setup.mockInput.pressTab()
+  // model: the Orchestrator's → fixed → automatic, which asks for the models to pick from
+  setup.mockInput.pressArrow("right")
+  setup.mockInput.pressArrow("right")
+  await setup.waitForFrame((frame) => frame.includes("models the Orchestrator picks from"))
+  setup.mockInput.pressTab()
+  setup.mockInput.typeText("test/fast, test/strong")
   setup.mockInput.pressTab()
   // the file access switch
   setup.mockInput.pressArrow("right")
+  setup.mockInput.pressTab()
+  // tools: only reading files plus an MCP pattern, and the Orchestrator may narrow them
+  setup.mockInput.pressArrow("right")
+  await setup.waitForFrame((frame) => frame.includes("Read files") && frame.includes("Browser"))
+  setup.mockInput.pressTab()
+  setup.mockInput.pressKey(" ")
+  setup.mockInput.pressTab()
+  setup.mockInput.typeText("context7_*")
+  setup.mockInput.pressTab()
+  setup.mockInput.pressKey(" ")
+  setup.mockInput.pressTab()
+  // registry: only the first category
+  setup.mockInput.pressArrow("right")
+  await setup.waitForFrame((frame) => frame.includes("mobile"))
+  setup.mockInput.pressTab()
+  setup.mockInput.pressKey(" ")
   setup.mockInput.pressTab()
   setup.mockInput.typeText("Check licenses.")
   setup.mockInput.pressKey("s", { ctrl: true })
@@ -121,19 +143,16 @@ test("the team editor creates a role and a team made of it", async () => {
     description: "",
     rules: "Check licenses.",
     readOnly: true,
+    models: ["test/fast", "test/strong"],
+    tools: ["read", "glob", "grep", "context7_*"],
+    autoTools: true,
+    hub: ["build"],
   })
   await setup.waitForFrame((frame) => frame.includes("Auditor") && frame.includes("custom"))
 
   // teams tab, new team with the new role
   setup.mockInput.pressKey("n", { ctrl: true })
   await setup.waitForFrame((frame) => frame.includes("Rules"))
-  setup.mockInput.pressTab()
-  setup.mockInput.pressTab()
-  setup.mockInput.pressTab()
-  setup.mockInput.pressTab()
-  setup.mockInput.pressTab()
-  setup.mockInput.pressTab()
-  setup.mockInput.pressTab()
   // back on the list
   setup.mockInput.pressArrow("left")
   await setup.waitForFrame((frame) => frame.includes("+ New team"))
@@ -148,6 +167,15 @@ test("the team editor creates a role and a team made of it", async () => {
   setup.mockInput.pressTab()
   setup.mockInput.pressArrow("right")
   await setup.waitForFrame((frame) => frame.includes("‹ Auditor"))
+  // enter opens the role picker; typing filters it and enter picks the match
+  setup.mockInput.pressEnter()
+  await setup.waitForFrame((frame) => frame.includes("Type to filter roles") && frame.includes("Quality · read only"))
+  setup.mockInput.typeText("devel")
+  await setup.waitForFrame((frame) => !frame.includes("Quality") && frame.includes("Developer"))
+  setup.mockInput.pressEnter()
+  await setup.waitForFrame((frame) => frame.includes("‹ Developer") && frame.includes("Playbook"))
+  setup.mockInput.pressArrow("right")
+  await setup.waitForFrame((frame) => frame.includes("‹ Auditor"))
   setup.mockInput.pressKey("s", { ctrl: true })
   await setup.waitFor(() => calls.some((call) => call.method === "POST" && call.path === "/api/orchestra/template"))
   expect(calls.find((call) => call.path === "/api/orchestra/template" && call.method === "POST")?.body).toEqual({
@@ -155,7 +183,7 @@ test("the team editor creates a role and a team made of it", async () => {
     description: "",
     members: [{ agent: "team-auditor", title: "", category: "" }],
   })
-})
+}, 30_000)
 
 test("the team editor follows the language switch", async () => {
   await using state = await tmpdir()

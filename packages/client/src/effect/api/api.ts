@@ -3875,6 +3875,7 @@ export type OrchestraTemplateCreateInput = {
   readonly name: string
   readonly description: string
   readonly members: ReadonlyArray<Orchestra.Member>
+  readonly playbook?: string | undefined
 }
 export type OrchestraTemplateCreateOutput = Orchestra.Template
 export type OrchestraTemplateCreateOperation<E = never> = (
@@ -3886,6 +3887,7 @@ export type OrchestraTemplateUpdateInput = {
   readonly name: string
   readonly description: string
   readonly members: ReadonlyArray<Orchestra.Member>
+  readonly playbook?: string | undefined
 }
 export type OrchestraTemplateUpdateOutput = Orchestra.Template
 export type OrchestraTemplateUpdateOperation<E = never> = (
@@ -3908,6 +3910,10 @@ export type OrchestraRoleCreateInput = {
   readonly category: string
   readonly readOnly: boolean
   readonly model?: string | undefined
+  readonly models?: ReadonlyArray<string> | undefined
+  readonly tools?: ReadonlyArray<string> | undefined
+  readonly autoTools?: boolean | undefined
+  readonly hub?: ReadonlyArray<string> | undefined
 }
 export type OrchestraRoleCreateOutput = Orchestra.Role
 export type OrchestraRoleCreateOperation<E = never> = (
@@ -3922,6 +3928,10 @@ export type OrchestraRoleUpdateInput = {
   readonly category: string
   readonly readOnly: boolean
   readonly model?: string | undefined
+  readonly models?: ReadonlyArray<string> | undefined
+  readonly tools?: ReadonlyArray<string> | undefined
+  readonly autoTools?: boolean | undefined
+  readonly hub?: ReadonlyArray<string> | undefined
 }
 export type OrchestraRoleUpdateOutput = Orchestra.Role
 export type OrchestraRoleUpdateOperation<E = never> = (
