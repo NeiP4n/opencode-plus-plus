@@ -2,9 +2,9 @@
 #
 #   irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 | iex
 #
-# The installer is intentionally self-contained: it installs Git through winget when needed,
-# installs Bun through the official Bun PowerShell installer, checks out the lan-rooms branch
-# (or the newest release tag), installs the CLI dependencies, and creates `opencode-pp.cmd`.
+# The installer installs Git through winget when needed, installs Bun through the official
+# Bun PowerShell installer, checks out the lan-rooms branch (or the newest release tag),
+# installs the CLI dependencies, and creates `opencode-pp.cmd`.
 # A normal `opencode` installation is left untouched.
 & {
 $ErrorActionPreference = "Stop"
@@ -76,7 +76,7 @@ if ($Tag) {
 $PreviousStash = (git -C $Source stash list --format=%H -1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect the Git stash." }
 
-git -C $Source stash push --include-untracked --message "opencode-pp installer update $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK)"
+git -C $Source stash push --include-untracked --message "opencode-pp installer update $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')"
 if ($LASTEXITCODE -ne 0) { throw "Could not save local changes; no checkout was attempted." }
 
 $CurrentStash = (git -C $Source stash list --format=%H -1 | Out-String).Trim()
@@ -134,7 +134,7 @@ if ($UserPathEntries -notcontains $Bin) {
   Write-Host "Added $Bin to your user PATH."
 }
 
-# `irm | iex` runs in this PowerShell session, so make the command available immediately.
+# `irm | iex` runs in this PowerShell session, so the command works immediately.
 if (@($env:Path -split ";") -notcontains $Bin) { $env:Path = "$Bin;$env:Path" }
 
 Write-Host ""
