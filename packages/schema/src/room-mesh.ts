@@ -71,6 +71,7 @@ export const RunAI = Schema.Struct({
   type: Schema.Literal("run-ai"),
   clusterID: Schema.String,
   fromNodeID: Schema.String,
+  targetNodeID: Schema.String,
   requestID: Schema.String,
   prompt: Schema.String,
   directory: Schema.String,
@@ -81,51 +82,12 @@ export const RunAI = Schema.Struct({
 export interface RunAI extends Schema.Schema.Type<typeof RunAI> {}
 
 export const RpcRequest = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("enroll"),
-    node: Node,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("prepare"),
-    clusterID: Schema.String,
-    fromNodeID: Schema.String,
-    members: Schema.Array(Node),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("activate"),
-    clusterID: Schema.String,
-    fromNodeID: Schema.String,
-    members: Schema.Array(Node),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("request-vote"),
-    clusterID: Schema.String,
-    fromNodeID: Schema.String,
-    term: Schema.Number,
-    lastLogIndex: Schema.Number,
-    lastLogTerm: Schema.Number,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("append-entries"),
-    clusterID: Schema.String,
-    fromNodeID: Schema.String,
-    term: Schema.Number,
-    leaderID: Schema.String,
-    prevLogIndex: Schema.Number,
-    prevLogTerm: Schema.Number,
-    entries: Schema.Array(Entry),
-    leaderCommit: Schema.Number,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("propose"),
-    clusterID: Schema.String,
-    fromNodeID: Schema.String,
-    entry: Schema.Struct({
-      id: Schema.String,
-      kind: Schema.Literals(["message", "task"]),
-      payload: Schema.Json,
-    }),
-  }),
+  Schema.Struct({ type: Schema.Literal("enroll"), node: Node }),
+  Schema.Struct({ type: Schema.Literal("prepare"), clusterID: Schema.String, fromNodeID: Schema.String, members: Schema.Array(Node) }),
+  Schema.Struct({ type: Schema.Literal("activate"), clusterID: Schema.String, fromNodeID: Schema.String, members: Schema.Array(Node) }),
+  Schema.Struct({ type: Schema.Literal("request-vote"), clusterID: Schema.String, fromNodeID: Schema.String, term: Schema.Number, lastLogIndex: Schema.Number, lastLogTerm: Schema.Number }),
+  Schema.Struct({ type: Schema.Literal("append-entries"), clusterID: Schema.String, fromNodeID: Schema.String, term: Schema.Number, leaderID: Schema.String, prevLogIndex: Schema.Number, prevLogTerm: Schema.Number, entries: Schema.Array(Entry), leaderCommit: Schema.Number }),
+  Schema.Struct({ type: Schema.Literal("propose"), clusterID: Schema.String, fromNodeID: Schema.String, entry: Schema.Struct({ id: Schema.String, kind: Schema.Literals(["message", "task"]), payload: Schema.Json }) }),
   RunAI,
 ]).annotate({ identifier: "RoomMesh.RpcRequest" })
 export type RpcRequest = typeof RpcRequest.Type
