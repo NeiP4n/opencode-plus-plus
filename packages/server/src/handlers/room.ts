@@ -910,6 +910,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         }),
       )
       .handle(
+        "room.mesh.invite",
+        Effect.fn(function* () {
+          return yield* mesh.invite().pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
         "room.mesh.create",
         Effect.fn(function* (ctx) {
           return yield* mesh.create(ctx.payload).pipe(
