@@ -812,6 +812,18 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     ),
   )
   .add(
+    HttpApiEndpoint.post("room.mesh.leave", "/api/room/mesh/leave", {
+      success: RoomMesh.Snapshot,
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.leave",
+        summary: "Disconnect this device from its local Mesh",
+        description: "Forget the Mesh state stored on this device so it can join another room. Remaining peers keep their current fixed membership.",
+      }),
+    ),
+  )
+  .add(
     HttpApiEndpoint.post("room.mesh.activate", "/api/room/mesh/activate", {
       success: RoomMesh.Snapshot,
       error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
