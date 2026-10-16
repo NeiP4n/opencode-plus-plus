@@ -319,11 +319,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.public",
         Effect.fn(function* () {
           const list = yield* rooms.list()
-          const state = yield* mesh.status()
-          const owner = state.members.find((member) => member.id === state.ownerNodeID)
-          const local = state.members.find((member) => member.id === state.nodeID)
+          // Public Host discovery must still work if the optional Mesh store cannot be read.
+          const meshResult = yield* mesh.status().pipe(
+            Effect.map((value) => ({ value })),
+            Effect.catchTag("ServerMesh.Error", () => Effect.succeed({ value: undefined })),
+          )
+          const state = meshResult.value
+          const owner = state?.members.find((member) => member.id === state.ownerNodeID)
+          const local = state?.members.find((member) => member.id === state.nodeID)
           const meshInfo =
-            state.status === "unconfigured"
+            !state || state.status === "unconfigured"
               ? undefined
               : {
                   clusterID: state.clusterID ?? state.nodeID,
