@@ -234,6 +234,14 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         // empty: absent says "the host is not sharing it", empty would look like a
         // room actually called nothing.
         rooms: Schema.Array(Schema.Struct({ id: Room.ID, name: optional(Schema.String), open: Schema.Boolean })),
+        // Safe discovery metadata only: never expose the invitation secret on this public endpoint.
+        mesh: Schema.Struct({
+          clusterID: Schema.String,
+          status: Schema.Literals(["forming", "active"]),
+          name: Schema.String,
+          ownerURL: Schema.String,
+          memberCount: Schema.Number,
+        }).pipe(Schema.optional),
       }),
     }).annotateMerge(
       OpenApi.annotations({
