@@ -908,6 +908,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         }),
       )
       .handle(
+        "room.mesh.leave",
+        Effect.fn(function* () {
+          return yield* mesh.leave().pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
         "room.mesh.activate",
         Effect.fn(function* () {
           return yield* mesh.activate().pipe(
