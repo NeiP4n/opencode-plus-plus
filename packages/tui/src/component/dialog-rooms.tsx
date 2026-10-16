@@ -24,22 +24,25 @@ import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DISCOVERY_PORTS, readServer, scanRooms, type FoundRoom } from "@opencode/client/room-discovery"
 
 
-type MultiplayerMode = "host" | "mesh"
+type MultiplayerMode = "host" | "connect" | "mesh"
 
 function MultiplayerModeSelector(props: {
   value: MultiplayerMode
   onChange: (value: MultiplayerMode) => void
+  leftMode?: "host" | "connect"
 }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
+  const leftMode = () => props.leftMode ?? "host"
+  const leftLabel = () => t(leftMode() === "host" ? "Host" : "Connect")
   return (
     <box flexDirection="row" gap={1}>
-      <HoverAction onClick={() => props.onChange("host")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
+      <HoverAction onClick={() => props.onChange(leftMode())} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
         <text
-          fg={props.value === "host" ? theme.text.action.primary.selected : theme.text.action.primary.base}
-          attributes={props.value === "host" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
+          fg={props.value === leftMode() ? theme.text.action.primary.selected : theme.text.action.primary.base}
+          attributes={props.value === leftMode() ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         >
-          {t("Host")}
+          {leftLabel()}
         </text>
       </HoverAction>
       <HoverAction onClick={() => props.onChange("mesh")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
@@ -71,6 +74,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string>()
   const [kind, setKind] = createSignal<"message" | "task">("message")
+  const [leaveArmed, setLeaveArmed] = createSignal(false)
   const fields: {
     url?: InputRenderable
     seedURL?: InputRenderable
@@ -156,6 +160,22 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
 
   const activate = () =>
     run(() => client.api.room.mesh.activate(), (value) => setSnapshot(value as RoomMeshSnapshot))
+
+  const disconnect = () => {
+    if (!leaveArmed()) {
+      setLeaveArmed(true)
+      return
+    }
+    setLeaveArmed(false)
+    run(() => client.api.room.mesh.leave(), (value) => {
+      setSnapshot(value as RoomMeshSnapshot)
+      setInvite("")
+      setEntries([])
+      setCursor(0)
+      if (fields.seedURL) fields.seedURL.value = ""
+      if (fields.token) fields.token.value = ""
+    })
+  }
 
   const send = () => {
     const text = fields.text?.value.trim() ?? ""
@@ -281,6 +301,14 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
               </text>
               <text fg={theme.text.muted} wrapMode="word">
                 {t("Coordinator: {leader}", { leader: state.leaderID ?? t("electing") })} · {t("Commit: {index}", { index: state.commitIndex })} · {t("Quorum requires {count} of {total} devices", { count: state.quorum, total: state.members.length })}
+              </text>
+              <box flexDirection="row" gap={1}>
+                <Button disabled={busy()} variant={leaveArmed() ? "primary" : undefined} onLeave={() => setLeaveArmed(false)} onClick={disconnect}>
+                  {leaveArmed() ? t("Click again to leave Mesh") : t("Leave Mesh")}
+                </Button>
+              </box>
+              <text fg={theme.text.muted} wrapMode="word">
+                {t("Leaving clears this device's Mesh state. Other devices keep their current membership until membership changes are supported.")}
               </text>
               <Section title={t("Devices")} />
               <For each={state.members}>
@@ -677,6 +705,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
   const [armed, setArmed] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const [joinError, setJoinError] = createSignal<string>()
+  const [mode, setMode] = createSignal<"connect" | "mesh">("connect")
   const fields: { address?: InputRenderable; code?: InputRenderable; name?: InputRenderable } = {}
 
   const enter = (url: string, request: { code?: string; roomID?: string }) => {
@@ -803,17 +832,9 @@ export function DialogConnect(props: { onClose?: () => void }) {
 
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-      <Header title={t("Connect")} onClose={props.onClose} />
-      <box flexDirection="row">
-        <Button
-          onClick={() => {
-            dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
-            dialog.setCentered(true)
-          }}
-        >
-          {t("Open Mesh room")}
-        </Button>
-      </box>
+      <Header title={t("Multiplayer")} onClose={props.onClose} />
+      <MultiplayerModeSelector value={mode()} onChange={(value) => setMode(value === "mesh" ? "mesh" : "connect")} leftMode="connect" />
+      <Show when={mode() === "connect"}>
       {/* Small terminals cut the window off; scrolling keeps the address fields reachable. */}
       <scrollbox
         maxHeight={Math.max(8, dimensions().height - 8)}
@@ -910,6 +931,10 @@ export function DialogConnect(props: { onClose?: () => void }) {
           )}
         </For>
       </scrollbox>
+      </Show>
+      <Show when={mode() === "mesh"}>
+        <DialogMesh onClose={props.onClose} hideHeader />
+      </Show>
     </box>
   )
 }
