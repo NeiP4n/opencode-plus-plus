@@ -363,12 +363,12 @@ export const Plugin = {
                   "Use team_forge list/get_role/get_team to inspect entries, edit_role/edit_team for full replacements, and delete_role/delete_team for removals.",
                   "For deletion, first list the registry and use the exact ID; ask for clarification if the requested entry is ambiguous.",
                   "Acknowledge that management mode is ready, then wait.",
-                ].join("\\n"),
+                ].join("\n"),
                 delivery: input.delivery,
               })
               .pipe(Effect.asVoid)
           }
-          const count = first && /^\\d+$/.test(first) ? Number(first) : undefined
+          const count = first && /^\d+$/.test(first) ? Number(first) : undefined
           const focus = (count === undefined ? input.prompt.text : rest.join(" ")).trim()
           forging.set(input.sessionID, { remaining: count, focus })
           return ctx.session
