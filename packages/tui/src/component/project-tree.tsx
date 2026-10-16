@@ -18,7 +18,7 @@ import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { roomListChanged, roomListRevision, sameRoom, useJoinedRooms, type JoinedRoom } from "../util/room"
-import { DialogConnect, DialogHost, nextRole, ROLE_LABEL } from "./dialog-rooms"
+import { DialogConnect, DialogHost, DialogMesh, nextRole, ROLE_LABEL } from "./dialog-rooms"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
@@ -53,6 +53,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const projects = projectList.list
   const notes = useNotes()
   const [rooms] = createResource(roomListRevision, () => client.api.room.list().catch(() => []))
+  const [meshStatus, { refetch: refreshMesh }] = createResource(() =>
+    client.api.room.mesh.status().catch(() => undefined),
+  )
+  onMount(() => {
+    const timer = setInterval(() => void refreshMesh(), 2000)
+    onCleanup(() => clearInterval(timer))
+  })
   const [joined, updateJoined] = useJoinedRooms()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
   const [access, setAccess] = createStore<Record<string, OrchestraAccess>>({})
@@ -239,6 +246,19 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   const openRooms = (window: typeof DialogHost | typeof DialogConnect) => {
     dialog.replace(() => window({ onClose: () => dialog.clear() }), undefined, { size: "large" })
     dialog.setCentered(true)
+  }
+  const openMesh = () => {
+    dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
+    dialog.setCentered(true)
+  }
+
+  const leaveMesh = () => {
+    if (armed() !== "mesh:leave") return arm("mesh:leave")
+    clearArmed()
+    void client.api.room.mesh
+      .leave()
+      .then(() => refreshMesh())
+      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
   const sessionsOf = (project: OrchestraProject) =>
@@ -450,6 +470,46 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               <box flexDirection="row" paddingLeft={3} paddingRight={1}>
                 <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
               </box>
+            </Show>
+            <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
+              <Row
+                id="mesh:connected"
+                hover={hover}
+                setHover={setHover}
+                onClick={openMesh}
+              >
+                <text flexShrink={0} fg={theme.text.action.secondary.base}>
+                  {"  ⇄ "}
+                </text>
+                <box flexGrow={1} minWidth={0}>
+                  <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+                    {t("Mesh")} · {meshStatus()!.clusterID ?? t("connected")}
+                  </text>
+                  <text fg={theme.text.muted} wrapMode="none" truncate>
+                    {meshStatus()!.status === "active"
+                      ? meshStatus()!.leaderID
+                        ? t("active · coordinator {id}", { id: meshStatus()!.leaderID })
+                        : t("active · electing coordinator")
+                      : t("waiting for members")}
+                  </text>
+                </box>
+                <HoverAction
+                  id="mesh:leave"
+                  onMouseEnter={() => setHover("mesh:connected")}
+                  onMouseLeave={() => setHover("mesh:connected")}
+                  onClick={leaveMesh}
+                >
+                  <text
+                    fg={
+                      armed() === "mesh:leave"
+                        ? theme.text.action.destructive.focused
+                        : theme.text.action.destructive.base
+                    }
+                  >
+                    {armed() === "mesh:leave" ? " leave?" : " ×"}
+                  </text>
+                </HoverAction>
+              </Row>
             </Show>
             <RoomPeople rooms={rooms.latest ?? []} hover={hover} setHover={setHover} />
             <For each={rooms.latest ?? []}>
