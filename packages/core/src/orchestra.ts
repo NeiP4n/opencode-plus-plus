@@ -22,9 +22,12 @@ import { Project as CoreProject } from "./project.js"
 import { Git } from "./git.js"
 import { Global } from "@opencode/util/global"
 import { which } from "./util/which.js"
+import { Wildcard } from "./util/wildcard.js"
+import type { Permission } from "@opencode/schema/permission"
 
 export const agent = Orchestra.agent
 export const role = Orchestra.role
+export const toolGroups = Orchestra.toolGroups
 export const Access = Orchestra.Access
 export type Access = Orchestra.Access
 export const allows = Orchestra.allows
@@ -152,6 +155,10 @@ export interface Interface {
   readonly templates: () => Effect.Effect<ReadonlyArray<Template>>
   readonly saveTemplate: (id: string | undefined, spec: TemplateSpec) => Effect.Effect<Template, TeamError>
   readonly removeTemplate: (id: string) => Effect.Effect<void, TeamError>
+  // The playbook of the team template a project was opened from, which the Orchestrator follows.
+  readonly playbook: (id: ProjectID) => Effect.Effect<{ name: string; text: string } | undefined>
+  // The outcome of each worker's latest report in the project, by worker session ID.
+  readonly outcomes: (id: ProjectID) => Effect.Effect<Record<string, { outcome: TaskReportInfo["outcome"]; created: number }>>
   // Emits after every saved or removed role or template, so agents can be rebuilt.
   readonly changes: Stream.Stream<void>
 }
@@ -167,6 +174,8 @@ const TASK = "orchestra/task/"
 const REPORT = "orchestra/report/"
 const ROLE = "orchestra/role/"
 const TEMPLATE = "orchestra/template/"
+// The template a project was opened from, so its Orchestrator follows that team's playbook.
+const PROJECT_TEMPLATE = "orchestra/project-template/"
 // A project-owned write-ahead roster. Each Session ID is persisted before the worker is created.
 const TEAM_PLAN = "orchestra/team-plan/"
 // Durable intent for workspace moves interrupted between session relocations.
@@ -911,20 +920,26 @@ const layer: Layer.Layer<
           const answer = workerRemoved
             ? "(worker session was deleted before it could report)"
             : taskMessages.flatMap(finalText).at(0) ?? "(no text answer)"
-          const firstLine = answer.split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.toUpperCase() ?? ""
           // A worker's execution can finish while its assigned task is only partly complete.
           // Keep that semantic outcome separate from the execution event's terminal state.
-          const outcome = workerRemoved
+          const stated = workerRemoved
             ? "failed"
             : state === "failed" || state === "stopped"
               ? state
-              : /^PARTLY DONE\b/.test(firstLine)
-                ? "partial"
-                : /^NOT DONE\b/.test(firstLine)
-                  ? "incomplete"
-                  : /^DONE\b/.test(firstLine)
-                    ? "complete"
-                    : "unknown"
+              : outcomeOf(answer)
+          // DONE from a role that changes files is evidence only with a check it actually ran and
+          // none that failed; otherwise the task stays open as partial, whatever the worker says.
+          const editor = (yield* roles()).some((role) => role.agent === session?.agent && !role.readOnly)
+          const checks = checksOf(answer)
+          const unproven =
+            stated === "complete" && editor
+              ? checks.failed > 0
+                ? `Reported DONE but ${checks.failed} check(s) failed: treated as partial.`
+                : checks.executed === 0
+                  ? "Reported DONE without any executed check in CHECKS: treated as partial until a check is run."
+                  : undefined
+              : undefined
+          const outcome = unproven ? "partial" : stated
           const body =
             answer.length > REPORT_LIMIT
               ? `${answer.slice(0, REPORT_LIMIT)}\n… (cut; read the worker session for the rest)`
@@ -936,7 +951,7 @@ const layer: Layer.Layer<
           const detailForReport =
             workerRemoved
               ? `Worker session ${sessionID} was removed before it could report the assigned task.`
-              : detail
+              : [detail, unproven].filter(Boolean).join("\n") || undefined
           // "recovered" is provisional until admitted. If a real terminal event arrives after
           // recovery prepared but failed to admit its report, the terminal event must replace it.
           const preservePreparedTerminalPayload = wasPrepared && task.value.reportState !== "recovered"
@@ -1416,6 +1431,7 @@ const layer: Layer.Layer<
           // Save the exact roster before making the project visible. A restart can recreate
           // every intended worker with the same IDs even if the original template is later edited.
           yield* kv.set(TEAM_PLAN + record.id, Schema.encodeSync(TeamPlan)(plan))
+          yield* kv.set(PROJECT_TEMPLATE + record.id, template.id)
         }
         const project = yield* save(record)
         // Serialize main initialization and the full team roster against project deletion or movement.
@@ -1520,6 +1536,7 @@ const layer: Layer.Layer<
                 yield* kv.remove(MAIN_INITIALIZING + id)
                 yield* kv.remove(PROJECT + id)
                 yield* kv.remove(TEAM_PLAN + id)
+                yield* kv.remove(PROJECT_TEMPLATE + id)
                 yield* kv.remove(MOVE_PLAN + id)
                 const reports = yield* scanAll(reportPrefix(id))
                 yield* Effect.forEach(reports, (entry) => kv.remove(entry.key), { discard: true })
@@ -1838,6 +1855,22 @@ const layer: Layer.Layer<
         yield* kv.remove(TEMPLATE + id)
         yield* PubSub.publish(changed, undefined)
       }),
+      playbook: Effect.fn("Orchestra.playbook")(function* (id) {
+        const templateID = yield* kv.get(PROJECT_TEMPLATE + id)
+        if (typeof templateID !== "string") return undefined
+        const template = (yield* templates()).find((item) => item.id === templateID)
+        if (!template) return undefined
+        const text = Orchestra.playbookOf(template)
+        return text ? { name: template.name, text } : undefined
+      }),
+      outcomes: Effect.fn("Orchestra.outcomes")(function* (id) {
+        const reports = (yield* scanAll(reportPrefix(id))).flatMap((entry) => Option.toArray(decodeTaskReport(entry.value)))
+        return Object.fromEntries(
+          reports
+            .toSorted((a, b) => a.created - b.created)
+            .map((report) => [report.workerID, { outcome: report.outcome, created: report.created }]),
+        )
+      }),
       changes: Stream.fromPubSub(changed),
     })
   }),
@@ -1859,6 +1892,30 @@ function merge<A extends { id: string }, B extends { id: string; created: number
       .toSorted((a, b) => a.created - b.created)
       .map((item) => ({ ...item, origin: "custom" as const })),
   ]
+}
+
+// Permission rules that leave only these tools (permission actions or patterns) usable.
+// Asking the operator and reaching another directory are not tools, so they keep their
+// usual "ask"; .env files stay behind a question even when reading is allowed.
+export function toolRules(tools: ReadonlyArray<string>): Permission.Ruleset {
+  return [
+    { action: "*", resource: "*", effect: "deny" },
+    ...tools.map((tool) => ({ action: tool, resource: "*", effect: "allow" as const })),
+    { action: "question", resource: "*", effect: "allow" },
+    { action: "external_directory", resource: "*", effect: "ask" },
+    ...(tools.some((tool) => Wildcard.match("read", tool))
+      ? [
+          { action: "read", resource: "*.env", effect: "ask" as const },
+          { action: "read", resource: "*.env.*", effect: "ask" as const },
+          { action: "read", resource: "*.env.example", effect: "allow" as const },
+        ]
+      : []),
+  ]
+}
+
+// Whether a role or session limited to these tools may use the permission action.
+export function toolAllowed(tools: ReadonlyArray<string>, action: string) {
+  return tools.some((tool) => Wildcard.match(action, tool))
 }
 
 // The runner only reads a session's own model, so a role's model is set on the
@@ -1887,12 +1944,15 @@ const requireRole = Effect.fnUntraced(function* (input: RoleSpec) {
   const name = input.name.trim()
   if (!name) return yield* new TeamError({ message: "Enter the role's name", field: "name" })
   const model = input.model?.trim()
+  const models = unique(input.models)
   // Parsed the way the agent plugin parses it, so a saved model never breaks agent loading.
-  if (model)
+  for (const [field, value] of [...(model ? [["model", model] as const] : []), ...models.map((item) => ["models", item] as const)])
     yield* Effect.try({
-      try: () => Model.Ref.parse(model),
-      catch: () => new TeamError({ message: "Model must look like provider/model", field: "model" }),
+      try: () => Model.Ref.parse(value),
+      catch: () => new TeamError({ message: `Model must look like provider/model: ${value}`, field }),
     })
+  const tools = input.tools === undefined ? undefined : unique(input.tools)
+  const hub = input.hub === undefined ? undefined : unique(input.hub)
   return {
     name,
     description: input.description.trim(),
@@ -1900,8 +1960,17 @@ const requireRole = Effect.fnUntraced(function* (input: RoleSpec) {
     category: input.category.trim() || "Team",
     readOnly: input.readOnly,
     ...(model ? { model } : {}),
+    ...(models.length > 0 ? { models } : {}),
+    ...(tools ? { tools } : {}),
+    ...(input.autoTools ? { autoTools: true } : {}),
+    ...(hub ? { hub } : {}),
   }
 })
+
+// Trimmed, non-empty and without repeats, in the order given.
+function unique(values: ReadonlyArray<string> | undefined) {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))]
+}
 
 function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
   const name = input.name.trim()
@@ -1910,9 +1979,11 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
     return Effect.fail(new TeamError({ message: "Add at least one member", field: "members" }))
   const unknown = input.members.find((member) => !roles.some((role) => role.agent === member.agent))
   if (unknown) return Effect.fail(new TeamError({ message: `Unknown role: ${unknown.agent}`, field: "members" }))
+  const playbook = input.playbook?.trim()
   return Effect.succeed({
     name,
     description: input.description.trim(),
+    ...(playbook ? { playbook } : {}),
     members: input.members.map((member) => {
       const role = roles.find((item) => item.agent === member.agent)
       return {
@@ -1922,6 +1993,57 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
       }
     }),
   })
+}
+
+// The task progress a worker's report states on its first line: DONE, PARTLY DONE or NOT DONE.
+// Models often decorate it ("**DONE**", "Status: DONE", "✅ DONE") or answer in Russian, so
+// markup, a status label and emoji are ignored, and a labelled status line further down counts.
+// Anything else is "unknown", which the Orchestrator judges from the report text itself.
+export function outcomeOf(answer: string): "complete" | "partial" | "incomplete" | "unknown" {
+  const lines = answer
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .replace(/[^\p{L}\p{N}\s:]/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toUpperCase(),
+    )
+    .filter(Boolean)
+  const labelled = lines.flatMap((line) => {
+    const match = /^(?:STATUS|OUTCOME|СТАТУС|ИТОГ)\s*:?\s*(.*)$/.exec(line)
+    return match?.[1] ? [match[1]] : []
+  })
+  return (
+    [lines[0] ?? "", ...labelled].map((line) => line.replace(/^(?:STATUS|OUTCOME|СТАТУС|ИТОГ)\s*:?\s*/, "")).flatMap((line) => {
+      if (/^(?:PARTLY|PARTIALLY) DONE\b|^ЧАСТИЧНО(?=[\s:]|$)/.test(line)) return ["partial" as const]
+      if (/^NOT DONE\b|^НЕ (?:ГОТОВО|ВЫПОЛНЕНО|СДЕЛАНО)(?=[\s:]|$)/.test(line)) return ["incomplete" as const]
+      if (/^DONE\b|^(?:ГОТОВО|ВЫПОЛНЕНО|СДЕЛАНО)(?=[\s:]|$)/.test(line)) return ["complete" as const]
+      return []
+    })[0] ?? "unknown"
+  )
+}
+
+// The checks a report lists in its CHECKS section: how many were actually run, how many of
+// those failed, and how many are marked NOT RUN. A run check names a result (PASS, FAIL, OK,
+// ✓, ✗, exit code); a line without one is not counted as evidence.
+export function checksOf(answer: string) {
+  const lines = answer.split(/\r?\n/)
+  const plain = (line: string) => line.replace(/[*_`#>|]/g, " ").trim().toUpperCase()
+  const start = lines.findIndex((line) => /^(?:CHECKS|ПРОВЕРКИ)\b/.test(plain(line)))
+  if (start < 0) return { executed: 0, failed: 0, notRun: 0 }
+  const end = lines.findIndex(
+    (line, index) => index > start && /^(?:RISKS|NEXT|RESULT|РИСКИ|ДАЛЕЕ|РЕЗУЛЬТАТ)\b/.test(plain(line)),
+  )
+  const section = lines.slice(start, end < 0 ? undefined : end).map(plain)
+  const notRun = section.filter((line) => /NOT RUN|НЕ ЗАПУСКАЛ/.test(line)).length
+  const run = section.filter(
+    (line) =>
+      !/NOT RUN|НЕ ЗАПУСКАЛ/.test(line) &&
+      /\b(?:PASS(?:ED)?|FAIL(?:ED|S)?|OK)\b|✓|✔|✗|✘|❌|EXIT(?: CODE)? ?\d|ПРОШ(?:ЁЛ|ЕЛ|ЛИ)|УПАЛ/.test(line),
+  )
+  const failed = run.filter((line) => /(?<!\b0 )\bFAIL(?:ED|S)?\b|✗|✘|❌|УПАЛ|EXIT(?: CODE)? ?[1-9]/.test(line)).length
+  return { executed: run.length, failed, notRun }
 }
 
 // The last assistant answer with text, newest first.

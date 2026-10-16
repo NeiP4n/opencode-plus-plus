@@ -15,6 +15,8 @@ import { entries as network } from "./network.js"
 import { entries as system } from "./system.js"
 import { entries as security } from "./security.js"
 import { entries as windows } from "./windows.js"
+import { entries as mobile } from "./mobile.js"
+import { entries as build } from "./build.js"
 
 // Single flat list; ids are unique and asserted once at module load so a
 // duplicate id fails fast instead of shadowing an entry at lookup time.
@@ -33,6 +35,8 @@ export const all: readonly Entry[] = [
   ...system,
   ...security,
   ...windows,
+  ...mobile,
+  ...build,
 ]
 
 const byId = new Map(all.map((entry) => [entry.id, entry]))

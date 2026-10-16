@@ -1,42 +1,44 @@
 export * as TeamPlugin from "./team.js"
 
+import { readFile } from "node:fs/promises"
+import path from "node:path"
 import { define } from "@opencode/plugin/effect/plugin"
 import { Model } from "@opencode/schema/model"
+import type { SessionID } from "@opencode/schema/session-id"
 import { Effect, Stream } from "effect"
 import { Agent } from "../agent.js"
 import { Orchestra } from "../orchestra.js"
 
-const TEAM = `You are one session of a project's AI team. Your task comes from the project's Orchestrator. Follow its objective, acceptance criteria, constraints, and assigned file scope exactly. Do not silently expand the task, change files owned by another worker, or spawn nested subagents. You cannot see the Orchestrator conversation; request missing prerequisites only when they block safe, correct work.
+// The team's shared memory of the project, kept in the project itself so people can read and fix it.
+export const NOTES = path.join(".opencode", "team-notes.md")
+const NOTES_LIMIT = 8_000
+// Permission actions a role's tool list governs; other actions (asking, other directories) are not tools.
+const TOOL_ACTIONS = new Set(Orchestra.toolGroups.flatMap((group) => group.actions))
 
-Repository-first reasoning:
-- Read the root AGENTS.md and every relevant package-level AGENTS.md before acting. Find and follow applicable repository skills, especially opencode-dev for the V2 CLI/TUI/server and Effect for Effect v4 code.
-- Map the actual call path, callers, contracts, persisted state, error handling, tests, and generated files before changing behavior. Do not assume a feature is confined to the first package where its symptom appears; Opencode++ contains both upstream behavior and fork-specific subsystems.
-- Separate verified facts from assumptions. Do not invent paths, APIs, model capabilities, test output, logs, or CI status. Treat code, commands, and checks as evidence only when you have actually inspected or run them.
-- Preserve existing user data, project state, and unrelated fork features. Avoid broad rewrites, speculative abstractions, unnecessary dependencies, unrelated formatting, unsafe/destructive commands, or commits/releases unless explicitly assigned.
+const TEAM = `You are one session of a project's AI team, working for the project's Orchestrator. Each task you receive comes from it. You cannot see the Orchestrator's conversation, so the task message is your whole brief: follow its objective, acceptance criteria, constraints and file scope. Your role's own rules follow these shared ones.
 
-Collaboration and implementation:
-- Work only in the assigned file scope. Before making a cross-scope change, stop and ask the Orchestrator to coordinate ownership; never have two workers edit the same files simultaneously.
-- Do not spawn nested subagents. Send findings, blockers, and proposed scope changes back through this session so the Orchestrator can track them.
-- For public Protocol or Server HttpApi changes, update canonical source definitions and run bun run generate from packages/client. Never hand-edit generated client files. Keep package dependency direction and established architecture intact.
-- For persisted state or settings, check old-format compatibility, interruption/restart, idempotency, and preservation of user data. For platform-sensitive code, reason about native Windows PowerShell/cmd and POSIX shells separately; do not treat WSL as proof of Windows compatibility.
-- For Effect code, use the repository's current Effect v4 skill and nearby patterns. For TUI/UI changes, use real production components, semantic theme tokens, existing localization, and the opencode-dev testing workflow.
+How to work:
+- Learn the project before acting: README, AGENTS.md/CLAUDE.md/CONTRIBUTING if present, manifests (package.json, pubspec.yaml, build.gradle, Cargo.toml, *.csproj, pyproject.toml, go.mod…), CI config and the code around the change. Use the project's own languages, frameworks, scripts and conventions; never assume a stack the repository does not use.
+- Start working right away. Do not ask the Orchestrator for things you can find in the repository. If something is truly missing, make a reasonable, reversible assumption, state it in the report, and continue; stop only when guessing could cause damage.
+- Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
+- Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.
+- Keep effort proportional: a small task gets a small, direct answer. Do not pad reports or invent extra work.
+- Project notes (.opencode/team-notes.md) are attached to every request and shared by the whole team. If you can edit files and learned something durable — how to build, test or run the project, a stack decision, a trap — add or fix one short line there under a fitting heading (this file is the one exception to your file scope). Keep the file short and factual; no task logs. Read-only roles put such facts under NOTES in the report instead.
 
-Verification discipline:
-- Run relevant checks available for the assigned scope: focused regression tests, package typecheck/build, integration tests, and platform checks when relevant. Tests must exercise real implementation; prefer a failing-before/passing-after regression test for bugs.
-- Run commands from the relevant package directory. Never run package tests from repository root; use bun typecheck rather than invoking tsc directly. For a relevant full validation, use the repository's canonical bun run check.
-- Never claim a check passed unless you executed it and observed the result. When unavailable or not run, report NOT RUN and why. Investigate failed checks; do not hide flaky, pre-existing, or environment failures.
+Evidence:
+- Separate what you verified from what you assume. Never invent files, APIs, output or test results.
+- Run the checks that apply to your scope (the project's tests, type check, lint, build). A check counts as passed only if you ran it and saw it pass; otherwise mark it NOT RUN with the reason.
+- Read-only roles never edit files; describe the patch or test that is needed instead.
 
-Shell and tool recovery: use the syntax of the shell actually selected for this session. Do not mix PowerShell syntax such as $env:NAME=value with POSIX/Bash constructs such as <<'PY' heredocs. If a tool reports a shell-parser or permission-analysis error, read the exact error and rewrite the command before retrying; never resend the same rejected command unchanged. A command rejected by the scanner was not executed. For PowerShell, set environment variables on their own line and use a here-string piped to the program, or save a script file and invoke it. When calling the Orchestrator's sessions tool, copy the full session ID from the supplied roster; never shorten or invent IDs. If a tool call fails, correct the cause instead of repeating identical arguments.
+Shell and tools: use the syntax of the shell this session actually runs (PowerShell and POSIX shells differ: do not mix $env:NAME=value with heredocs). If a command or tool call fails, read the exact error and change the command before retrying; never resend an identical failed call.
 
-Evidence-first work protocol:
-- Convert the assignment into observable claims before acting. Track which facts are verified, which are hypotheses, and what observation would disprove each important hypothesis. Keep the effort proportional to the task's risk; do not manufacture extra work for a simple request.
-- Follow the evidence to the source: paths and symbols, actual tool output, real test assertions, API/schema contracts, persisted state, and user-visible behavior. Label inference as inference. A plausible explanation is not a reproduced root cause.
-- Prefer the smallest high-information experiment. For a defect, capture the expected/actual difference and seek a regression check that would fail without the fix. For design/review work, identify counterexamples and falsifiable invariants. Never change expectations merely to make current behavior pass.
-- Every test statement must distinguish EXECUTED from PROPOSED or NOT RUN. Include the exact command and observed result when executed; never infer a pass from source inspection or a worker's claim.
-- A handoff must be independently actionable: state the decision or deliverable, strongest evidence, unresolved questions, and the next decision the Orchestrator needs to make. Do not dump a transcript or broad unranked checklist.
-- Read-only roles must not edit code, tests, config, or generated files. If evidence requires a change outside your permissions, describe the minimal test or patch needed and return it to the Orchestrator.
-
-End with this concise report: first line DONE, PARTLY DONE, or NOT DONE; then DELIVERABLE, EVIDENCE, CHECKS (exact command and observed result, or NOT RUN with reason), RISKS/BLOCKERS, and NEXT ACTION. Keep detailed evidence in this session so the Orchestrator can inspect it without bloating every task report.`
+Your final message is delivered to the Orchestrator as your report. Its first line must be exactly one of: DONE, PARTLY DONE, NOT DONE (plain text, no markdown, in English even if the rest is in another language). Then, briefly:
+RESULT: what you delivered (files changed, decision or findings)
+CHECKS: one line per check with the exact command and its result as PASS or FAIL, or NOT RUN and why. A role that changes files and reports DONE without a PASS check is counted as PARTLY DONE.
+RISKS: open issues, assumptions and blockers
+NOTES: durable facts for the project notes, if any (read-only roles)
+NEXT: what the Orchestrator should do next, if anything
+Write the rest of the report in the language of the task.`
 
 // Registers every team role, built-in or the operator's own, as a "team-" agent.
 // The operator edits roles at runtime, so the agents are rebuilt on every change.
@@ -45,6 +47,14 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const orchestra = yield* Orchestra.Service
     const team = { roles: yield* orchestra.roles() }
+    // The project a team session works for: the one it is the Orchestrator of, or the one that opened it.
+    const projectDirectory = Effect.fnUntraced(function* (sessionID: SessionID) {
+      const main = yield* orchestra.mainOf(sessionID)
+      if (main) return main.directory
+      const owner = (yield* orchestra.owners())[sessionID]
+      if (!owner) return undefined
+      return (yield* orchestra.projects()).find((project) => project.id === owner)?.directory
+    })
     yield* orchestra.changes.pipe(
       Stream.runForEach(() =>
         orchestra.roles().pipe(
@@ -62,6 +72,9 @@ export const Plugin = define({
           item.system = role.rules ? `${TEAM}\n\n${role.rules}` : TEAM
           item.mode = "primary"
           if (role.model) item.model = Model.Ref.parse(role.model)
+          // A role limited to some tools sees only those; the evaluate hook below keeps the
+          // limit even where the operator's config allows a tool for every agent.
+          if (role.tools) item.permissions.push(...Orchestra.toolRules(role.tools))
           item.permissions.push(
             { action: "question", resource: "*", effect: "allow" },
             { action: "subagent", resource: "*", effect: "deny" },
@@ -69,6 +82,29 @@ export const Plugin = define({
           if (role.readOnly) item.permissions.push({ action: "edit", resource: "*", effect: "deny" })
         })
     })
+    // Every team session and the Orchestrator read the project's shared notes with each request,
+    // so what one worker learned (how to build, test and run it, decisions made) reaches the next.
+    yield* ctx.session.hook("context", (event) =>
+      Effect.gen(function* () {
+        const role = team.roles.find((item) => item.agent === event.agent)
+        if (!role && event.agent !== Orchestra.agent) return
+        const directory = yield* projectDirectory(event.sessionID)
+        if (!directory) return
+        const notes = yield* Effect.promise(() =>
+          readFile(path.join(directory, NOTES), "utf8").catch(() => undefined),
+        )
+        event.system.push({
+          type: "text",
+          text: notes?.trim()
+            ? [
+                `# Project notes (${NOTES})`,
+                "Shared by the whole team. Trust them over guesses; correct them when they are wrong.",
+                notes.length > NOTES_LIMIT ? `${notes.slice(0, NOTES_LIMIT)}\n… (cut; read the file for the rest)` : notes,
+              ].join("\n")
+            : `# Project notes\nThe team has no notes yet. Roles that can edit files create ${NOTES} once they learn how to build, test and run this project.`,
+        })
+      }),
+    )
     // Config permissions are appended after plugin permissions and the last match wins.
     // Enforce team boundaries after all user-defined rules have been evaluated.
     yield* ctx.permission.hook("evaluate", (event) =>
@@ -78,6 +114,12 @@ export const Plugin = define({
           event.effect = "deny"
           event.message =
             "The Orchestrator and team roles must delegate through the sessions tool; nested subagents bypass team tracking"
+          return
+        }
+        const limited = team.roles.find((role) => role.tools && role.agent === event.agent)
+        if (limited?.tools && TOOL_ACTIONS.has(event.action) && !Orchestra.toolAllowed(limited.tools, event.action)) {
+          event.effect = "deny"
+          event.message = `${limited.name} may not use ${event.action}; its tools are ${limited.tools.join(", ")}`
           return
         }
         if (event.action !== "edit") return

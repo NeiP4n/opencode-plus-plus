@@ -2228,7 +2228,12 @@ const EndpointOrchestraTemplateList = (raw: RawClient["server.orchestra"]) => ()
 const EndpointOrchestraTemplateCreate = (raw: RawClient["server.orchestra"]) => (input: OrchestraTemplateCreateInput) =>
   preserveEffect<OrchestraTemplateCreateOutput>()(
     raw["orchestra.template.create"]({
-      payload: { name: input["name"], description: input["description"], members: input["members"] },
+      payload: {
+        name: input["name"],
+        description: input["description"],
+        members: input["members"],
+        playbook: input["playbook"],
+      },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
@@ -2236,7 +2241,12 @@ const EndpointOrchestraTemplateUpdate = (raw: RawClient["server.orchestra"]) => 
   preserveEffect<OrchestraTemplateUpdateOutput>()(
     raw["orchestra.template.update"]({
       params: { templateID: input["templateID"] },
-      payload: { name: input["name"], description: input["description"], members: input["members"] },
+      payload: {
+        name: input["name"],
+        description: input["description"],
+        members: input["members"],
+        playbook: input["playbook"],
+      },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
@@ -2260,6 +2270,10 @@ const EndpointOrchestraRoleCreate = (raw: RawClient["server.orchestra"]) => (inp
         category: input["category"],
         readOnly: input["readOnly"],
         model: input["model"],
+        models: input["models"],
+        tools: input["tools"],
+        autoTools: input["autoTools"],
+        hub: input["hub"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )
@@ -2275,6 +2289,10 @@ const EndpointOrchestraRoleUpdate = (raw: RawClient["server.orchestra"]) => (inp
         category: input["category"],
         readOnly: input["readOnly"],
         model: input["model"],
+        models: input["models"],
+        tools: input["tools"],
+        autoTools: input["autoTools"],
+        hub: input["hub"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )

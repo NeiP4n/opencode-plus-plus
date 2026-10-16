@@ -22,6 +22,8 @@ export type Category =
   | "system"
   | "security"
   | "windows"
+  | "mobile"
+  | "build"
 
 // One ready-made fast command. Templates are keyed by backend and may declare
 // `{placeholder}` slots filled from user args at run time.
