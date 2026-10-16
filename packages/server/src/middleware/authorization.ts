@@ -85,7 +85,10 @@ export const authorizationLayer = Layer.effect(
           hasPtyConnectTicketURL(url) ||
           hasPersistentPtyConnectTicketURL(url) ||
           isPairingConnectURL(url) ||
-          isRoomGuestURL(url)
+          isRoomGuestURL(url) ||
+          // Mesh RPC authenticates each peer with the room's high-entropy invitation secret
+          // in ServerMesh.rpc. Requiring Basic auth here would block peer-to-peer replication.
+          url.pathname === "/api/room/mesh/rpc"
         )
           return yield* effect
         if (yield* authorizedRequest(request, config)) return yield* effect
