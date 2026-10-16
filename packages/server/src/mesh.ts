@@ -449,9 +449,11 @@ const layer = Layer.effect(
       const nodeID = yield* localNodeID()
       const seedURL = yield* normalizedURL(input.seedURL)
       const url = yield* normalizedURL(input.url)
-      if (input.token.trim().length < 24) return yield* new MeshError({ message: "The Mesh invitation token is incomplete", status: 400 })
+      // Base64url invitation tokens contain no whitespace; remove spaces and line breaks from terminal paste.
+      const token = input.token.replace(/\s+/g, "")
+      if (token.length < 24) return yield* new MeshError({ message: "The Mesh invitation token is incomplete", status: 400 })
       const node: RoomMesh.Node = { id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now() }
-      const invite = yield* callRPC(seedURL, input.token, { type: "enroll", node })
+      const invite = yield* callRPC(seedURL, token, { type: "enroll", node })
       if (!invite.ok || !invite.clusterID || !invite.ownerNodeID || !invite.members || !invite.status)
         return yield* new MeshError({ message: invite.message ?? "The seed did not accept this device", status: 403 })
       const receivedMembers = yield* normalizedMembers(invite.members)
@@ -468,7 +470,7 @@ const layer = Layer.effect(
           nodeID,
           status: invite.status,
           clusterID: invite.clusterID,
-          secret: input.token,
+          secret: token,
           ownerNodeID: invite.ownerNodeID,
           members,
           voters,
@@ -572,8 +574,11 @@ const layer = Layer.effect(
       return yield* enrollmentLocks.withLock("membership")(Effect.gen(function* () {
         const plan = yield* locks.withLock("state")(Effect.gen(function* () {
           const current = yield* requireState()
-          if (!secretMatches(token, current.secret))
-            return yield* new MeshError({ message: "Mesh credential is invalid", status: 401 })
+          if (!secretMatches(token.replace(/\s+/g, ""), current.secret))
+            return yield* new MeshError({
+              message: "Mesh invitation token does not match this room. Copy the current token from the owner of the selected Mesh.",
+              status: 401,
+            })
           if (current.nodeID !== current.ownerNodeID || current.status === "unconfigured")
             return yield* new MeshError({ message: "Only the Mesh owner can enroll devices", status: 409 })
           const url = yield* normalizedURL(input.url)
