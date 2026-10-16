@@ -795,6 +795,18 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     ),
   )
   .add(
+    HttpApiEndpoint.get("room.mesh.invite", "/api/room/mesh/invite", {
+      success: Schema.Struct({ token: Schema.String }),
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.invite",
+        summary: "Read the owner's Mesh invitation token",
+        description: "Return the existing Mesh invitation token only to the original owner so it can invite additional learner devices after activation.",
+      }),
+    ),
+  )
+  .add(
     HttpApiEndpoint.post("room.mesh.create", "/api/room/mesh", {
       payload: RoomMesh.CreateInput,
       success: Schema.Struct({ data: RoomMesh.Snapshot, token: Schema.String }),
