@@ -13,8 +13,6 @@ export interface Node extends Schema.Schema.Type<typeof Node> {}
 export const Status = Schema.Literals(["unconfigured", "forming", "active"])
 export type Status = typeof Status.Type
 
-// Mesh log entries contain shared conversation/task state only. Credentials, local
-// filesystem paths and machine-local session IDs must never be put in payloads.
 export const Entry = Schema.Struct({
   id: Schema.String,
   index: Schema.Number,
@@ -69,9 +67,19 @@ export const Feed = Schema.Struct({
 }).annotate({ identifier: "RoomMesh.Feed" })
 export interface Feed extends Schema.Schema.Type<typeof Feed> {}
 
-// Internal peer RPCs are authenticated by the mesh credential in Authorization:
-// Bearer. Membership setup is allowed only while forming. Once active, the voter
-// set is fixed; changing it later needs a joint-consensus membership change.
+export const RunAI = Schema.Struct({
+  type: Schema.Literal("run-ai"),
+  clusterID: Schema.String,
+  fromNodeID: Schema.String,
+  requestID: Schema.String,
+  prompt: Schema.String,
+  directory: Schema.String,
+  agent: Schema.String.pipe(Schema.optional),
+  providerID: Schema.String.pipe(Schema.optional),
+  modelID: Schema.String.pipe(Schema.optional),
+}).annotate({ identifier: "RoomMesh.RunAI" })
+export interface RunAI extends Schema.Schema.Type<typeof RunAI> {}
+
 export const RpcRequest = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("enroll"),
@@ -118,6 +126,7 @@ export const RpcRequest = Schema.Union([
       payload: Schema.Json,
     }),
   }),
+  RunAI,
 ]).annotate({ identifier: "RoomMesh.RpcRequest" })
 export type RpcRequest = typeof RpcRequest.Type
 
@@ -132,6 +141,7 @@ export const RpcResponse = Schema.Struct({
   members: Schema.Array(Node).pipe(Schema.optional),
   entry: Entry.pipe(Schema.optional),
   commitIndex: Schema.Number.pipe(Schema.optional),
+  text: Schema.String.pipe(Schema.optional),
   message: Schema.String.pipe(Schema.optional),
 }).annotate({ identifier: "RoomMesh.RpcResponse" })
 export interface RpcResponse extends Schema.Schema.Type<typeof RpcResponse> {}
