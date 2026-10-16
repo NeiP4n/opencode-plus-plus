@@ -3,12 +3,29 @@ export * as PeerTool from "./peer.js"
 import { ToolFailure } from "@opencode/ai"
 import type { Context } from "@opencode/plugin/effect/plugin"
 import type { SessionHooks } from "@opencode/plugin/effect/session"
-import { Effect, Schema } from "effect"
+import { randomUUID } from "node:crypto"
+import { Effect, Option, Schema } from "effect"
 import { Peer } from "../../peer.js"
+import { KV } from "../../kv.js"
+import { Session } from "../../session.js"
 import type { Room } from "@opencode/schema/room"
+import { RoomMesh } from "@opencode/schema/room-mesh"
 import { Permission } from "../../permission.js"
 
 export const name = "peers"
+
+const MESH_STATE_KEY = "room-mesh/state"
+const MeshToolState = Schema.Struct({
+  nodeID: Schema.String,
+  status: RoomMesh.Status,
+  clusterID: Schema.String,
+  secret: Schema.String,
+  ownerNodeID: Schema.String,
+  members: Schema.Array(RoomMesh.Node),
+  voters: Schema.Array(Schema.String).pipe(Schema.optional),
+  currentTerm: Schema.Number,
+  leaderID: Schema.String.pipe(Schema.optional),
+})
 
 const description = [
   "Work together with the AI on another computer: the rooms this computer joined over the network, each a project or session another person hosts with their own AI.",
@@ -26,7 +43,11 @@ const description = [
   "Respect plots and owners: do not ask the other AI to change files inside a plot another team holds, and do not work on a DoD item someone else took.",
   "Pass room as the room ID from list, and sessionID to pick a session other than the room's own.",
   "Write to the other AI as to a capable colleague: say what you need, what you already know, and what the answer should contain.",
-].join("\n")
+  "Mesh is a separate device-to-device AI network. mesh-list shows enrolled computers, node IDs, voter/worker roles and each computer\'s advertised project root.",
+  "mesh-run starts a fresh AI session on the selected Mesh computer using that computer\'s own provider credentials and model configuration. Pass node as its name or ID from mesh-list and text as the task; directory overrides the advertised project root.",
+  "Use mesh-run when another computer\'s OS, tools, files, GPU or AI credentials help. The destination AI can use the same peers tool to delegate further. Remote execution asks the operator for permission.",
+  "Do not assume project paths are identical between computers. Prefer the path displayed by mesh-list; if a path is not advertised, establish it before dispatching work.",
+].join("\\n")
 
 export const Input = Schema.Struct({
   action: Schema.Literals([
@@ -41,6 +62,8 @@ export const Input = Schema.Struct({
     "submit",
     "release",
     "feed",
+    "mesh-list",
+    "mesh-run",
   ]),
   room: Schema.optionalKey(Schema.String).annotate({ description: "Room ID from list, for read, send and create" }),
   sessionID: Schema.optionalKey(Schema.String).annotate({
@@ -58,6 +81,15 @@ export const Input = Schema.Struct({
     description: "Project files or folders the item's work changes, held as a plot for take",
   }),
   limit: Schema.optionalKey(Schema.Int).annotate({ description: "How many recent messages read returns (default 10)" }),
+  node: Schema.optionalKey(Schema.String).annotate({
+    description: "Mesh computer name or node ID from mesh-list; required for mesh-run",
+  }),
+  directory: Schema.optionalKey(Schema.String).annotate({
+    description: "Absolute project path on the remote computer; defaults to its advertised project directory",
+  }),
+  agent: Schema.optionalKey(Schema.String).annotate({ description: "Optional agent ID configured on the remote computer" }),
+  providerID: Schema.optionalKey(Schema.String).annotate({ description: "Optional provider ID configured on the remote computer" }),
+  modelID: Schema.optionalKey(Schema.String).annotate({ description: "Optional model ID configured on the remote computer" }),
 })
 
 export const Output = Schema.Struct({ output: Schema.String })
