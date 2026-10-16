@@ -776,6 +776,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
   .add(
     HttpApiEndpoint.get("room.mesh.status", "/api/room/mesh", {
       success: RoomMesh.Snapshot,
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.status",

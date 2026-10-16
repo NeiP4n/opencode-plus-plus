@@ -48,7 +48,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ServerMesh") {}
 
-const layer: Layer.Layer<Service, never, KV.Service> = Layer.effect(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const kv = yield* KV.Service
@@ -594,7 +594,7 @@ const layer: Layer.Layer<Service, never, KV.Service> = Layer.effect(
           return { leader, state }
         }),
       )
-      if ("entry" in routed) return routed.entry
+      if (!("leader" in routed)) return routed.entry
       const reply = yield* callRPC(routed.leader.url, routed.state.secret, {
         type: "propose",
         clusterID: routed.state.clusterID,
@@ -688,7 +688,7 @@ const layer: Layer.Layer<Service, never, KV.Service> = Layer.effect(
       )
     })
 
-    yield* tick.pipe(
+    yield* tick().pipe(
       Effect.catch(() => Effect.void),
       Effect.repeat(Schedule.spaced(Duration.millis(HEARTBEAT_MS))),
       Effect.forkScoped({ startImmediately: true }),
