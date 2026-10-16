@@ -119,7 +119,7 @@ export const RpcRequest = Schema.Union([
     }),
   }),
 ]).annotate({ identifier: "RoomMesh.RpcRequest" })
-export interface RpcRequest extends Schema.Schema.Type<typeof RpcRequest> {}
+export type RpcRequest = typeof RpcRequest.Type
 
 export const RpcResponse = Schema.Struct({
   ok: Schema.Boolean,
