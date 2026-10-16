@@ -595,7 +595,7 @@ export type RoomMessage = {
   created: number | "Infinity" | "-Infinity" | "NaN"
 }
 
-export type RoomMeshNode = { id: string; url: string; name: string; joined: number }
+export type RoomMeshNode = { id: string; url: string; name: string; joined: number; directory?: string | undefined }
 export type RoomMeshStatus = "unconfigured" | "forming" | "active"
 export type RoomMeshEntry = {
   id: string
@@ -8084,9 +8084,9 @@ export type RoomGuestPermissionReplyOutput = void
 
 export type RoomMeshStatusOutput = RoomMeshSnapshot
 export type RoomMeshInviteOutput = { token: string }
-export type RoomMeshCreateInput = { url: string; name?: string | undefined }
+export type RoomMeshCreateInput = { url: string; name?: string | undefined; directory?: string | undefined }
 export type RoomMeshCreateOutput = { data: RoomMeshSnapshot; token: string }
-export type RoomMeshJoinInput = { seedURL: string; token: string; url: string; name?: string | undefined }
+export type RoomMeshJoinInput = { seedURL: string; token: string; url: string; name?: string | undefined; directory?: string | undefined }
 export type RoomMeshJoinOutput = RoomMeshSnapshot
 export type RoomMeshLeaveOutput = RoomMeshSnapshot
 export type RoomMeshActivateOutput = RoomMeshSnapshot
