@@ -240,6 +240,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
           status: Schema.Literals(["forming", "active"]),
           name: Schema.String,
           ownerURL: Schema.String,
+          isOwner: Schema.Boolean,
           memberCount: Schema.Number,
         }).pipe(Schema.optional),
       }),
