@@ -451,7 +451,7 @@ const layer = Layer.effect(
       if (input.token.trim().length < 24) return yield* new MeshError({ message: "The Mesh invitation token is incomplete", status: 400 })
       const node: RoomMesh.Node = { id: nodeID, url, name: input.name?.trim() || nodeID, joined: Date.now() }
       const invite = yield* callRPC(seedURL, input.token, { type: "enroll", node })
-      if (!invite.ok || !invite.clusterID || !invite.ownerNodeID || !invite.members)
+      if (!invite.ok || !invite.clusterID || !invite.ownerNodeID || !invite.members || !invite.status)
         return yield* new MeshError({ message: invite.message ?? "The seed did not accept this device", status: 403 })
       const receivedMembers = yield* normalizedMembers(invite.members)
       if (!receivedMembers.some((member) => member.id === nodeID)) return yield* new MeshError({ message: "The seed response did not include this device", status: 502 })
@@ -460,16 +460,19 @@ const layer = Layer.effect(
       const members = receivedMembers.map((member) =>
         member.id === invite.ownerNodeID ? { ...member, url: seedURL } : member,
       )
+      const voters = invite.voters ?? (invite.status === "forming" ? members.map((member) => member.id) : members.filter((member) => member.id !== nodeID).map((member) => member.id))
       return yield* locks.withLock("state")(Effect.gen(function* () {
         if (yield* load()) return yield* new MeshError({ message: "A Mesh was created or joined while this device was connecting", status: 409 })
         const state: StoredState = {
           nodeID,
-          status: "forming",
+          status: invite.status,
           clusterID: invite.clusterID,
           secret: input.token,
           ownerNodeID: invite.ownerNodeID,
           members,
-          currentTerm: 0,
+          voters,
+          currentTerm: invite.currentTerm ?? 0,
+          leaderID: invite.leaderID,
           log: [],
           commitIndex: 0,
         }
@@ -494,6 +497,13 @@ const layer = Layer.effect(
         }
         return yield* snapshot()
       }))
+    })
+
+    const invite = Effect.fn("ServerMesh.invite")(function* () {
+      const state = yield* requireState()
+      if (state.nodeID !== state.ownerNodeID)
+        return yield* new MeshError({ message: "Only the device that created this Mesh can view its invitation token", status: 403 })
+      return { token: state.secret }
     })
 
     const activate = Effect.fn("ServerMesh.activate")(function* () {
@@ -603,6 +613,7 @@ const layer = Layer.effect(
 
     return Service.of({
       status: () => load().pipe(Effect.flatMap((state) => snapshot(state))),
+      invite,
       create,
       join,
       leave,
