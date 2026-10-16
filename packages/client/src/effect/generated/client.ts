@@ -290,6 +290,7 @@ import type {
   ConfigCompatibilityUpdateInput,
   ConfigCompatibilityUpdateOutput,
   RoomMeshStatusOutput,
+  RoomMeshInviteOutput,
   RoomMeshCreateInput,
   RoomMeshCreateOutput,
   RoomMeshJoinInput,
@@ -1935,6 +1936,9 @@ const EndpointRoomJoin = (raw: RawClient["server.room"]) => (input: RoomJoinInpu
 const EndpointRoomMeshStatus = (raw: RawClient["server.room"]) => () =>
   preserveEffect<RoomMeshStatusOutput>()(raw["room.mesh.status"]({}).pipe(Effect.mapError(mapClientError)))
 
+const EndpointRoomMeshInvite = (raw: RawClient["server.room"]) => () =>
+  preserveEffect<RoomMeshInviteOutput>()(raw["room.mesh.invite"]({}).pipe(Effect.mapError(mapClientError)))
+
 const EndpointRoomMeshCreate = (raw: RawClient["server.room"]) => (input: RoomMeshCreateInput) =>
   preserveEffect<RoomMeshCreateOutput>()(
     raw["room.mesh.create"]({ payload: { url: input.url, name: input.name } }).pipe(Effect.mapError(mapClientError)),
@@ -1970,6 +1974,10 @@ const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshR
     switch (input.type) {
       case "enroll":
         return raw["room.mesh.rpc"]({ payload: { type: "enroll", node: input.node } })
+      case "add-learner":
+        return raw["room.mesh.rpc"]({
+          payload: { type: "add-learner", clusterID: input.clusterID, fromNodeID: input.fromNodeID, node: input.node },
+        })
       case "prepare":
         return raw["room.mesh.rpc"]({
           payload: {
@@ -2325,6 +2333,7 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   join: EndpointRoomJoin(raw),
   mesh: {
     status: EndpointRoomMeshStatus(raw),
+    invite: EndpointRoomMeshInvite(raw),
     create: EndpointRoomMeshCreate(raw),
     join: EndpointRoomMeshJoin(raw),
     leave: EndpointRoomMeshLeave(raw),
