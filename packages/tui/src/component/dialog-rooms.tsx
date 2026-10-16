@@ -82,9 +82,12 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
 
   const addresses = () => {
     const urls = server.state === "ready" ? server().urls : []
-    return urls
+    const candidates = urls
       .filter((url) => !/^(https?:\/\/)(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(url))
       .map((url) => new URL(url).origin)
+      .filter((url) => !/^(https?:\/\/)(198\.1[89]\.|169\.254\.)/.test(url))
+    const isLAN = (url: string) => /^(https?:\/\/)(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url)
+    return [...candidates.filter(isLAN), ...candidates.filter((url) => !isLAN(url))]
   }
 
   const refresh = async () => {
@@ -719,12 +722,12 @@ export function DialogConnect(props: { onClose?: () => void }) {
       if (!server.mesh || server.own) continue
       const mesh = {
         ...server.mesh,
-        seedURL: server.mesh.ownerURL || server.url,
+        seedURL: server.mesh.isOwner ? server.url : server.mesh.ownerURL || server.url,
         host: server.host,
       }
       const existing = unique.get(mesh.clusterID)
       // Prefer a discovery record that points directly at the Mesh owner.
-      if (!existing || server.url === mesh.ownerURL) unique.set(mesh.clusterID, mesh)
+      if (!existing || mesh.isOwner) unique.set(mesh.clusterID, mesh)
     }
     return [...unique.values()]
   })
@@ -808,7 +811,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
         setFound((previous) => [...(previous ?? []).filter((item) => item.url !== url), server])
         const unlocked = rooms.filter((room) => room.open)
         if (rooms.length === 0 && server.mesh) {
-          chooseMesh({ ...server.mesh, seedURL: server.mesh.ownerURL || server.url, host: server.host })
+          chooseMesh({ ...server.mesh, seedURL: server.mesh.isOwner ? server.url : server.mesh.ownerURL || server.url, host: server.host })
           return setJoinError(t("Mesh found. Paste its invitation token in the Mesh connection panel below."))
         }
         if (rooms.length === 0) return setJoinError(t("No rooms at this address"))
