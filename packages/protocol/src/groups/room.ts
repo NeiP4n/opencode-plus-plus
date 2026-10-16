@@ -24,6 +24,7 @@ import {
   PermissionNotFoundError,
   RoomNotFoundError,
   SessionNotFoundError,
+  ServiceUnavailableError,
   UnauthorizedError,
   UnknownError,
 } from "../errors.js"
@@ -787,7 +788,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     HttpApiEndpoint.post("room.mesh.create", "/api/room/mesh", {
       payload: RoomMesh.CreateInput,
       success: Schema.Struct({ data: RoomMesh.Snapshot, token: Schema.String }),
-      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.create",
@@ -800,7 +801,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     HttpApiEndpoint.post("room.mesh.join", "/api/room/mesh/join", {
       payload: RoomMesh.JoinInput,
       success: RoomMesh.Snapshot,
-      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.join",
@@ -812,7 +813,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
   .add(
     HttpApiEndpoint.post("room.mesh.activate", "/api/room/mesh/activate", {
       success: RoomMesh.Snapshot,
-      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.activate",
@@ -825,7 +826,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     HttpApiEndpoint.post("room.mesh.append", "/api/room/mesh/append", {
       payload: RoomMesh.AppendInput,
       success: RoomMesh.Entry,
-      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.append",
@@ -838,7 +839,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     HttpApiEndpoint.get("room.mesh.feed", "/api/room/mesh/feed", {
       query: { after: Schema.NumberFromString.pipe(Schema.optional) },
       success: RoomMesh.Feed,
-      error: [UnauthorizedError, InvalidRequestError],
+      error: [UnauthorizedError, InvalidRequestError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.feed",
@@ -851,7 +852,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     HttpApiEndpoint.post("room.mesh.rpc", "/api/room/mesh/rpc", {
       payload: RoomMesh.RpcRequest,
       success: RoomMesh.RpcResponse,
-      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.rpc",
