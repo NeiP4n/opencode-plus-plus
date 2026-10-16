@@ -2622,6 +2622,7 @@ export type RoomPublicOutput = {
         readonly status: "forming" | "active"
         readonly name: string
         readonly ownerURL: string
+        readonly isOwner: boolean
         readonly memberCount: number
       }
     | undefined
