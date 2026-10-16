@@ -26,6 +26,18 @@ import { DISCOVERY_PORTS, readServer, scanRooms, type FoundMesh, type FoundRoom 
 
 type MultiplayerMode = "host" | "mesh"
 
+function useMeshDirectory() {
+  const data = useData()
+  const route = useRoute()
+  return () => {
+    const sessionID = "sessionID" in route.data ? route.data.sessionID : undefined
+    const session = sessionID ? data.session.get(sessionID) : undefined
+    if (session?.location.directory) return session.location.directory
+    if (route.data.type === "home" && route.data.location?.directory) return route.data.location.directory
+    return process.cwd()
+  }
+}
+
 function MultiplayerModeSelector(props: {
   value: MultiplayerMode
   onChange: (value: MultiplayerMode) => void
@@ -63,6 +75,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
   const dimensions = useTerminalDimensions()
   const t = useT()
   const config = useConfig().data
+  const ownDirectory = useMeshDirectory()
   const [server] = createResource(() => client.api.server.info())
   const [snapshot, setSnapshot] = createSignal<RoomMeshSnapshot>()
   const [invite, setInvite] = createSignal("")
@@ -143,7 +156,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
     const url = ownURL()
     if (!url) return setError(t("Enter this device's reachable address, including its port."))
     run(
-      () => client.api.room.mesh.create({ url, name: ownName() }),
+      () => client.api.room.mesh.create({ url, name: ownName(), directory: ownDirectory() }),
       (value) => {
         const result = value as { data: RoomMeshSnapshot; token: string }
         setSnapshot(result.data)
@@ -161,7 +174,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
     if (!seedURL || !token || !url)
       return setError(t("Enter the seed address, invitation token and this device's reachable address."))
     run(
-      () => client.api.room.mesh.join({ seedURL, token, url, name: ownName() }),
+      () => client.api.room.mesh.join({ seedURL, token, url, name: ownName(), directory: ownDirectory() }),
       (value) => {
         setSnapshot(value as RoomMeshSnapshot)
         setInvite(token)
@@ -732,6 +745,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
   const client = useClient()
   const dialog = useDialog()
   const route = useRoute()
+  const ownDirectory = useMeshDirectory()
   const theme = useTheme().surface("dialog")
   const config = useConfig().data
   const dimensions = useTerminalDimensions()
@@ -809,7 +823,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
     setBusy(true)
     setMeshJoinError()
     void client.api.room.mesh
-      .join({ seedURL: mesh.seedURL, token, url, name: hostname() })
+      .join({ seedURL: mesh.seedURL, token, url, name: hostname(), directory: ownDirectory() })
       .then(() => {
         setSelectedMesh(undefined)
         dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
