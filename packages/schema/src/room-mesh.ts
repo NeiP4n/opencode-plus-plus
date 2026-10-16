@@ -7,6 +7,8 @@ export const Node = Schema.Struct({
   url: Schema.String,
   name: Schema.String,
   joined: Schema.Number,
+  // The project root this device has opened in OpenCode++; used as the default remote-worker workspace.
+  directory: Schema.String.pipe(Schema.optional),
 }).annotate({ identifier: "RoomMesh.Node" })
 export interface Node extends Schema.Schema.Type<typeof Node> {}
 
@@ -46,6 +48,7 @@ export interface Snapshot extends Schema.Schema.Type<typeof Snapshot> {}
 export const CreateInput = Schema.Struct({
   url: Schema.String,
   name: Schema.String.pipe(Schema.optional),
+  directory: Schema.String.pipe(Schema.optional),
 }).annotate({ identifier: "RoomMesh.CreateInput" })
 export interface CreateInput extends Schema.Schema.Type<typeof CreateInput> {}
 
@@ -54,6 +57,7 @@ export const JoinInput = Schema.Struct({
   token: Schema.String,
   url: Schema.String,
   name: Schema.String.pipe(Schema.optional),
+  directory: Schema.String.pipe(Schema.optional),
 }).annotate({ identifier: "RoomMesh.JoinInput" })
 export interface JoinInput extends Schema.Schema.Type<typeof JoinInput> {}
 
