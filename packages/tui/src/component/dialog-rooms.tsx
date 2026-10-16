@@ -90,9 +90,22 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
     return [...candidates.filter(isLAN), ...candidates.filter((url) => !isLAN(url))]
   }
 
+  let inviteRequesting = false
   const refresh = async () => {
     const state = await client.api.room.mesh.status()
     setSnapshot(state)
+    // The owner secret persists in server storage. Fetch it when reopening an
+    // existing room so invitation does not disappear when the dialog is remounted.
+    if (state.status !== "unconfigured" && state.ownerNodeID === state.nodeID && !invite() && !inviteRequesting) {
+      inviteRequesting = true
+      void client.api.room.mesh
+        .invite()
+        .then((result) => setInvite(result.token))
+        .catch(() => {})
+        .finally(() => {
+          inviteRequesting = false
+        })
+    }
     if (state.status !== "active") return
     const page = await client.api.room.mesh.feed({ after: cursor() })
     if (page.data.length) {
@@ -297,7 +310,9 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                   ? t("Quorum healthy — shared writes are available")
                   : state.leader
                     ? t("Coordinator elected, but quorum is missing — read-only")
-                    : t("Replica mode — waiting for a healthy coordinator")}
+                    : state.leaderID
+                      ? t("Connected to coordinator: {leader}", { leader: state.leaderID })
+                      : t("Replica mode — waiting for a healthy coordinator")}
               </text>
               <text fg={theme.text.muted} wrapMode="word">
                 {t("Coordinator: {leader}", { leader: state.leaderID ?? t("electing") })} · {t("Commit: {index}", { index: state.commitIndex })} · {t("Quorum requires {count} of {total} devices", { count: state.quorum, total: state.members.length })}
@@ -307,8 +322,13 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                   {leaveArmed() ? t("Click again to leave Mesh") : t("Leave Mesh")}
                 </Button>
               </box>
+              <Show when={!state.voter}>
+                <text fg={theme.text.feedback.warning.base} wrapMode="word">
+                  {t("This device is connected as a worker. It can exchange shared messages and run local work, but it does not vote in coordinator elections and does not increase the quorum.")}
+                </text>
+              </Show>
               <text fg={theme.text.muted} wrapMode="word">
-                {t("Leaving clears this device's Mesh state. Other devices keep their current membership until membership changes are supported.")}
+                {t("Leaving clears this device's Mesh state. Other devices keep their current membership, so leaving an active worker does not change the voter quorum.")}
               </text>
               <Section title={t("Devices")} />
               <For each={state.members}>
@@ -324,6 +344,9 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                     <text fg={theme.text.muted} wrapMode="none" truncate>
                       {new URL(member.url).host}
                     </text>
+                    <text fg={theme.text.muted} wrapMode="none" truncate>
+                      {state.voters.includes(member.id) ? t("Voter") : t("Worker")}
+                    </text>
                   </box>
                 )}
               </For>
@@ -338,7 +361,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                 </Show>
                 <Show when={state.members.length < 2}>
                   <text fg={theme.text.feedback.warning.base} wrapMode="word">
-                    {t("Connect at least one other device first. New devices cannot join after activation in this version.")}
+                    {t("Connect at least one other device first. Devices invited after activation can join as non-voting workers.")}
                   </text>
                 </Show>
                 <Button variant="primary" disabled={busy() || state.members.length < 2} onClick={activate}>
@@ -348,9 +371,13 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
 
               <Show when={state.status === "active"}>
                 <Show when={state.nodeID === state.ownerNodeID}>
-                  <text fg={theme.text.feedback.warning.base} wrapMode="word">
-                    {t("This Mesh is active. Adding new devices after activation is not supported yet. To add devices, leave this Mesh, create a new one, share its invitation token, and activate only after everyone has joined.")}
+                  <Section title={t("Invite another device")} />
+                  <text fg={theme.text.muted} wrapMode="word">
+                    {t("Share this token only with trusted devices. New devices join as non-voting workers, so the current quorum stays unchanged.")}
                   </text>
+                  <Show when={invite()}>
+                    <text fg={theme.text.base} wrapMode="word">{invite()}</text>
+                  </Show>
                 </Show>
                 <Section title={t("Shared messages and tasks")} />
                 <For each={entries()}>
@@ -372,7 +399,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                 </box>
                 {field("text", t("Message or task"), t("Enter a shared message; tasks can be dispatched to peers later"), 58)}
                 <box flexDirection="row" gap={1}>
-                  <Button variant="primary" disabled={busy() || !state.writable} onClick={send}>
+                  <Button variant="primary" disabled={busy() || !state.leaderID} onClick={send}>
                     {t("Send")}
                   </Button>
                   <Button disabled={busy()} onClick={() => run(() => refresh())}>
