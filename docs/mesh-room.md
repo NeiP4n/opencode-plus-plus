@@ -1,0 +1,55 @@
+# Mesh room: architecture and implementation contract
+
+## Goal
+
+A Mesh room is one logical multiplayer room spanning several OpenCode++ installations. Every enrolled device is a full peer: four phones, two laptops and a desktop can all contribute work. A coordinator is elected temporarily; it is not a permanent host. When that device disappears, another peer takes over without losing already committed room state.
+
+The operator can issue work from any connected device. The mesh schedules each operation to a suitable peer—for example, a request may be sent to the desktop that has a working provider login, while a code-change task is assigned to the laptop that has the repository checkout.
+
+## Why this must not be implemented as a larger LAN room
+
+The existing LAN room protocol is host-owned: room metadata, its event feed and the hosted session live on that server. Guest tokens grant access to that host. If the host disappears, the current room is unavailable. Reusing those tokens or merely listing several hosts does not provide failover.
+
+Mesh therefore needs a replicated control plane separate from the existing host-owned room. A peer's local OpenCode session, filesystem, shell, provider credentials and installed tools remain local. The mesh replicates the logical room log and task/control state; it does not copy API keys or pretend every machine has the same filesystem.
+
+## Consistency and availability contract
+
+- Use a Raft-style term, vote, replicated log and commit index for room-control writes.
+- For a fixed membership of seven voters, a write requires four acknowledgements. Election and log entries require a majority of the voters in the active configuration.
+- Count each node once; duplicate acknowledgements or unknown node IDs never count toward quorum.
+- Persist a new term/vote before sending a positive vote response. Persist log entries before acknowledging replication. Commit only after the quorum rule is satisfied.
+- The coordinator is temporary. A newly elected coordinator recovers the committed log and resumes eligible jobs using stable job IDs and idempotent state transitions.
+- If the peer cannot reach a quorum, it may display its last committed snapshot and keep local drafts, but it must not claim a new coordinator or commit shared writes. This avoids split-brain writes.
+- This is crash-fault tolerance, not protection against malicious enrolled nodes. Node enrollment and transport authentication still matter.
+
+A fixed voter set is the first safe milestone. Adding/removing a voter must be a committed membership change; silently changing the quorum count when devices disappear can create two leaders.
+
+## Provider and task routing
+
+Each node advertises capabilities, not credentials: available provider/model identifiers, whether the provider is currently usable, local cooldown/backoff, execution capacity, and the kinds of work it can accept. A scheduler selects an eligible node and sends a bounded, authenticated inference/task request to that node's OpenCode server. The node uses its own credentials locally and returns the result; API keys, cookies and provider tokens never travel through the mesh protocol.
+
+Tasks need a stable ID, deadline/lease, cancellation state, origin, destination and result reference. Retries must use the same ID so a timeout does not execute a destructive task twice. Queue state and task transitions belong in the replicated log; raw credentials and unnecessary local paths do not.
+
+For repository edits, the control plane should assign a task/worktree to a device and publish a patch or commit result. It must not let multiple peers silently write the same working tree. Existing permission controls remain enforced on the machine that executes a command.
+
+## Connectivity
+
+- On the same LAN, use the existing UDP discovery as a locator only; discovery is not authentication.
+- Across networks, allow a manually entered address or a private VPN such as WireGuard/Tailscale. Do not expose a privileged mesh API directly to the public internet without authenticated encrypted transport.
+- Do not open a general shell because two devices are paired. Remote model calls and remote command execution are separate capabilities with separate permissions.
+- A device leaving the network stops receiving new leases; committed room history remains available on the surviving replicas.
+
+## Rollout
+
+1. **Consensus primitives** — deterministic quorum, vote and commit rules with unit tests. This is the scope of the initial mesh-control-plane change.
+2. **Persistent node state and transport** — stable node identity, authenticated enrollment, heartbeat, vote and append RPCs, durable log, replay and crash-recovery tests.
+3. **Mesh room API** — create/join/list/leave, replicated room feed, membership change protocol and read-only degraded mode.
+4. **Distributed worker broker** — advertise provider capability, dispatch idempotent inference tasks, stream progress/results, cancel and retry.
+5. **UI integration** — one Mesh room panel in CLI/TUI and Android, showing all peers, the temporary coordinator, quorum health, available providers and jobs.
+6. **Failure tests** — kill the coordinator, drop one replica mid-append, reorder/duplicate RPCs, restart nodes, partition the network, and verify that only a majority can commit.
+
+## Acceptance criteria
+
+For a seven-device room: any single device may go offline without losing committed room state; if the coordinator goes offline, a survivor can be elected by the remaining majority; concurrent partitions cannot both commit; AI work can be executed using a provider already configured on another enrolled device without exporting that provider's credentials; retries do not duplicate a committed job; losing quorum visibly moves the room to read-only mode.
+
+The consensus helpers in \`packages/core/src/room-mesh.ts\` are only the first building block. This branch is not an end-to-end Mesh room yet: the helpers must be wired to persisted server state, authenticated RPCs, and the room UI before users can create and operate a mesh.
