@@ -68,6 +68,29 @@ test("a branch without an upstream follows the matching origin branch", async ()
   expect(await Bun.file(path.join(repo.install, "notes.txt")).text()).toBe("three")
   expect(await SourceRelease.branch(repo.install)).toEqual({ type: "current" })
 })
+test("a branch with an upstream refreshes its exact ref despite a narrow fetch refspec", async () => {
+  await using repo = await setup()
+  await `git -C ${repo.install} checkout -q main`.quiet()
+  // Keep origin/main stale by telling plain git fetch origin to fetch only another branch.
+  await `git -C ${repo.install} config --unset-all remote.origin.fetch`.quiet()
+  await `git -C ${repo.install} config --add remote.origin.fetch +refs/heads/other:refs/remotes/origin/other`.quiet()
+
+  await writeFile(path.join(repo.origin, "notes.txt"), "three")
+  await `git -C ${repo.origin} add -A`.quiet()
+  await `git -C ${repo.origin} commit -qm three`.env({
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  }).quiet()
+
+  expect(await SourceRelease.branch(repo.install)).toEqual({ type: "behind", name: "main", behind: 1 })
+  await SourceRelease.pull(repo.install)
+  expect(await Bun.file(path.join(repo.install, "notes.txt")).text()).toBe("three")
+  expect(await SourceRelease.branch(repo.install)).toEqual({ type: "current" })
+})
+
 test("the newest release is chosen by version, not by name order", () => {
   expect(SourceRelease.newest(["1.9.0", "1.10.0", "1.2.3"])).toBe("1.10.0")
 })
