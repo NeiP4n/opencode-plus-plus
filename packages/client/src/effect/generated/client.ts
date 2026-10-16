@@ -2018,6 +2018,21 @@ const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshR
             entry: input.entry,
           },
         })
+      case "run-ai":
+        return raw["room.mesh.rpc"]({
+          payload: {
+            type: "run-ai",
+            clusterID: input.clusterID,
+            fromNodeID: input.fromNodeID,
+            targetNodeID: input.targetNodeID,
+            requestID: input.requestID,
+            prompt: input.prompt,
+            directory: input.directory,
+            agent: input.agent,
+            providerID: input.providerID,
+            modelID: input.modelID,
+          },
+        })
     }
   })()
   return preserveEffect<RoomMeshRpcOutput>()(request.pipe(Effect.mapError(mapClientError)))

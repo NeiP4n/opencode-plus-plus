@@ -650,6 +650,18 @@ export type RoomMeshRpcRequest =
       fromNodeID: string
       entry: { id: string; kind: "message" | "task"; payload: JsonValue }
     }
+  | {
+      type: "run-ai"
+      clusterID: string
+      fromNodeID: string
+      targetNodeID: string
+      requestID: string
+      prompt: string
+      directory: string
+      agent?: string
+      providerID?: string
+      modelID?: string
+    }
 export type RoomMeshRpcResponse = {
   ok: boolean
   currentTerm?: number | undefined
@@ -661,6 +673,7 @@ export type RoomMeshRpcResponse = {
   members?: Array<RoomMeshNode> | undefined
   entry?: RoomMeshEntry | undefined
   commitIndex?: number | undefined
+  text?: string | undefined
   message?: string | undefined
 }
 
