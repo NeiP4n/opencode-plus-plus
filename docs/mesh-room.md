@@ -54,7 +54,7 @@ For a seven-device room: any single device may go offline without losing committ
 
 ## Current implementation status on `lan-rooms`
 
-Under **Multiplayer**, choose **+ Host** to switch between **Host / Mesh**, or **+ Connect** to switch between **Connect / Mesh**. Both Mesh tabs open the same local Mesh state. The current panel supports creating a room, joining with an invitation token, activating the initial membership, viewing coordinator/quorum status, and appending shared messages or task notes.
+Under **Multiplayer**, choose **+ Host** to create either a normal Host room or a Mesh. **+ Connect** automatically scans the LAN for both types; discovered rooms are labelled **Host** or **Mesh**. To join a discovered Mesh, choose **Connect** beside it and paste the invitation token from its creator. The token is intentionally not included in discovery metadata. The Mesh panel supports activation, coordinator/quorum status, and shared messages or task notes.
 
 ### Manual smoke test
 
@@ -69,7 +69,7 @@ Under **Multiplayer**, choose **+ Host** to switch between **Host / Mesh**, or *
    ```
    Allow the selected TCP port through the device firewall only on trusted LAN/VPN networks.
 2. On the first device, open **+ Host**, select the **Mesh** tab, enter its reachable address (for example, `http://192.168.1.10:4096`), and choose **Create Mesh**. Share the invitation token only with devices you trust.
-3. On every other device, open **+ Connect**, select **Mesh**, enter the first device's address as the seed, paste the invitation token, enter that device's own reachable address, and choose **Join Mesh**.
+3. On every other device, open **+ Connect** and wait for the **Mesh** room to appear in the automatic scan. Choose **Connect** next to it, paste the invitation token, confirm this device's reachable address, and choose **Join Mesh**. The list rescans periodically while the dialog remains open; use **Search again** for an immediate scan.
 4. When every expected device appears on the creator, choose **Activate Mesh**. All enrolled peers must be reachable for initial activation.
 5. Confirm the status says **Quorum healthy**. Send a message and verify that it appears on the other peers. A minority partition should not be treated as writable.
 
