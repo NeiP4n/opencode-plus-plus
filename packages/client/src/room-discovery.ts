@@ -14,13 +14,23 @@ export type FoundRoom = {
   readonly open: boolean
 }
 
-// An opencode server that answered, with the rooms it shares; a server sharing none is still listed.
+export type FoundMesh = {
+  readonly clusterID: string
+  readonly status: "forming" | "active"
+  readonly name: string
+  // Mesh enrollment is accepted only by the owner, so expose its address to the LAN scan.
+  readonly ownerURL: string
+  readonly memberCount: number
+}
+
+// An opencode server that answered, with ordinary Host rooms and optional Mesh membership.
 export type FoundServer = {
   readonly url: string
   readonly host: string
   // This computer's own server, which answers the scan like any other.
   readonly own: boolean
   readonly rooms: readonly FoundRoom[]
+  readonly mesh?: FoundMesh
 }
 
 // UDP ports a firewall must open for discovery: hosts listen on the first, guests on the second.
@@ -45,6 +55,7 @@ export async function readServer(url: string, own = false): Promise<FoundServer>
     host: list.host,
     own,
     rooms: list.rooms.map((room) => ({ id: room.id, name: room.name, host: list.host, url, open: room.open })),
+    mesh: list.mesh?.ownerURL ? list.mesh : undefined,
   }
 }
 
