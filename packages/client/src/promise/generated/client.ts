@@ -292,6 +292,7 @@ import type {
   RoomMeshCreateOutput,
   RoomMeshJoinInput,
   RoomMeshJoinOutput,
+  RoomMeshLeaveOutput,
   RoomMeshActivateOutput,
   RoomMeshAppendInput,
   RoomMeshAppendOutput,
@@ -2681,6 +2682,17 @@ export function make(options: ClientOptions) {
               method: "POST",
               path: "/api/room/mesh/join",
               body: { seedURL: input["seedURL"], token: input["token"], url: input["url"], name: input["name"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        leave: (requestOptions?: RequestOptions) =>
+          request<RoomMeshLeaveOutput>(
+            {
+              method: "POST",
+              path: "/api/room/mesh/leave",
               successStatus: 200,
               declaredStatuses: [400, 401, 403, 503],
               empty: false,
