@@ -54,7 +54,7 @@ For a seven-device room: any single device may go offline without losing committ
 
 ## Current implementation status on `lan-rooms`
 
-The CLI/TUI entry point is **+ Host** under Multiplayer. The window has **Host** and **Mesh** mode tabs; choose **Mesh** to enter the Mesh room workflow. The current panel supports creating a room, joining with an invitation token, activating the initial membership, viewing coordinator/quorum status, and appending shared messages or task notes.
+Under **Multiplayer**, choose **+ Host** to switch between **Host / Mesh**, or **+ Connect** to switch between **Connect / Mesh**. Both Mesh tabs open the same local Mesh state. The current panel supports creating a room, joining with an invitation token, activating the initial membership, viewing coordinator/quorum status, and appending shared messages or task notes.
 
 ### Manual smoke test
 
@@ -69,7 +69,7 @@ The CLI/TUI entry point is **+ Host** under Multiplayer. The window has **Host**
    ```
    Allow the selected TCP port through the device firewall only on trusted LAN/VPN networks.
 2. On the first device, open **+ Host**, select the **Mesh** tab, enter its reachable address (for example, `http://192.168.1.10:4096`), and choose **Create Mesh**. Share the invitation token only with devices you trust.
-3. On every other device, open **+ Host**, select **Mesh**, enter the first device's address as the seed, paste the invitation token, enter that device's own reachable address, and choose **Join Mesh**.
+3. On every other device, open **+ Connect**, select **Mesh**, enter the first device's address as the seed, paste the invitation token, enter that device's own reachable address, and choose **Join Mesh**.
 4. When every expected device appears on the creator, choose **Activate Mesh**. All enrolled peers must be reachable for initial activation.
 5. Confirm the status says **Quorum healthy**. Send a message and verify that it appears on the other peers. A minority partition should not be treated as writable.
 
@@ -77,4 +77,4 @@ Use only a trusted LAN or private VPN; do not port-forward the server to the pub
 
 ### Current limitations
 
-This is a usable Mesh-room MVP, **not yet the complete remote-AI orchestration experience**. The panel shares message/task entries and displays membership/quorum state; it does not yet dispatch a task entry as an AI prompt to a selected remote worker, advertise model/provider capabilities, stream remote execution progress, or manage returned code changes. The `run-ai` RPC plumbing exists, but there is no end-user TUI flow for selecting and starting such work yet. Failover and network-partition behavior still need full integration and failure testing before being relied on for important work.
+This is a usable Mesh-room MVP, **not yet the complete remote-AI orchestration experience**. The panel shares message/task entries and displays membership/quorum state; it does not yet dispatch a task entry as an AI prompt to a selected remote worker, advertise model/provider capabilities, stream remote execution progress, or manage returned code changes. The Mesh panel now has **Leave Mesh**: click it, then confirm with the second click. This erases the local Mesh state on this device so it can join another room. It does not yet commit a membership-removal change to the remaining peers; they retain their fixed voter list, so treat disconnecting an active peer as a local reset and be aware it can reduce quorum. The `run-ai` RPC plumbing exists, but there is no end-user TUI flow for selecting and starting such work yet. Failover and network-partition behavior still need full integration and failure testing before being relied on for important work.
