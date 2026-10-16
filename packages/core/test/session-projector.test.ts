@@ -559,6 +559,49 @@ describe("SessionProjector", () => {
     }),
   )
 
+  it.effect("clears a failed step's retry when a continuation step takes over", () =>
+    Effect.gen(function* () {
+      const db = yield* seedSession()
+      const bus = yield* Bus.Service
+      const failed = SessionMessage.ID.make("msg_retry_failed")
+      const continued = SessionMessage.ID.make("msg_retry_continued")
+      const error = { type: "provider.transport" as const, message: "Connection lost while reading the response" }
+      yield* bus.publish(SessionEvent.Step.Started, {
+        sessionID,
+        assistantMessageID: failed,
+        agent: build,
+        model,
+        started: 0,
+      })
+      yield* bus.publish(SessionEvent.Step.Failed, { sessionID, assistantMessageID: failed, error })
+      yield* bus.publish(SessionEvent.RetryScheduled, {
+        sessionID,
+        assistantMessageID: failed,
+        attempt: 2,
+        at: 2_000,
+        error,
+      })
+      yield* bus.publish(SessionEvent.Step.Started, {
+        sessionID,
+        assistantMessageID: continued,
+        agent: build,
+        model,
+        started: 3_000,
+      })
+
+      const row = yield* db
+        .select()
+        .from(SessionMessageTable)
+        .where(eq(SessionMessageTable.id, failed))
+        .get()
+        .pipe(Effect.orDie)
+      const projected = row ?? (yield* Effect.die(new Error("Missing failed step projection")))
+      const message = Schema.decodeUnknownSync(SessionMessage.Info)({ ...projected.data, id: projected.id, type: projected.type })
+      expect(message).not.toHaveProperty("retry")
+      expect(message).toMatchObject({ finish: "error", error })
+    }),
+  )
+
   it.effect("does not infer restart continuation from lifecycle history", () =>
     Effect.gen(function* () {
       const db = yield* seedSession()

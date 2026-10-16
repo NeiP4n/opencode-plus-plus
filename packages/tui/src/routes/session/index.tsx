@@ -1953,15 +1953,25 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
     turnTokensPerSecond(props.message, messages(), ctx.messageIndex(props.message.id), ctx.legacyTurns()),
   )
   const interrupted = createMemo(() => props.message.error?.message === "Step interrupted")
+  // Older projections left a retry on a failed step after a continuation retry took over in a newer step.
+  const retry = createMemo(() => {
+    const index = ctx.messageIndex(props.message.id)
+    if (index === undefined) return props.message.retry
+    return messages()
+      .slice(index + 1)
+      .some((message) => message.type === "assistant")
+      ? undefined
+      : props.message.retry
+  })
   return (
     <>
-      <Show when={props.message.error && !interrupted() && !props.message.retry}>
+      <Show when={props.message.error && !interrupted() && !retry()}>
         <box paddingLeft={3}>
           <text fg={theme.text.feedback.error.base}>Error: {errorMessage(props.message.error)}</text>
         </box>
       </Show>
-      <AssistantRetry retry={props.message.retry} />
-      <box paddingLeft={3} marginTop={props.message.retry || (props.message.error && !interrupted()) ? 1 : 0}>
+      <AssistantRetry retry={retry()} />
+      <box paddingLeft={3} marginTop={retry() || (props.message.error && !interrupted()) ? 1 : 0}>
         <text>
           <span style={{ fg: props.message.error ? theme.text.muted : local.agent.color(props.message.agent) }}>
             {Locale.titlecase(props.message.agent)}

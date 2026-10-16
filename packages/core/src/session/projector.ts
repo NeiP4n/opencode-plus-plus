@@ -304,9 +304,9 @@ function run(db: DatabaseService, event: MessageEvent) {
             ),
           )
       },
-      getCurrentAssistant() {
+      getLatestAssistant() {
         return Effect.gen(function* () {
-          // A newer step supersedes stale incomplete rows; never resume an older assistant projection.
+          // A newer step supersedes stale rows; never resume an older assistant projection.
           const row = yield* db
             .select()
             .from(SessionMessageTable)
@@ -319,7 +319,7 @@ function run(db: DatabaseService, event: MessageEvent) {
             .pipe(Effect.orDie)
           if (!row) return
           const message = decodeRow(row)
-          return message.type === "assistant" && !message.time.completed ? message : undefined
+          return message.type === "assistant" ? message : undefined
         })
       },
       getAssistant(messageID) {
