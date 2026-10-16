@@ -1,8 +1,9 @@
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
-import type { RoomInfo, RoomJoinCode, RoomMemberView } from "@opencode/client/promise"
+import type { RoomInfo, RoomJoinCode, RoomMemberView, RoomMeshEntry, RoomMeshSnapshot } from "@opencode/client/promise"
 import { hostname } from "node:os"
+import { randomUUID } from "node:crypto"
 import { useConfig } from "../config"
 import { useClient } from "../context/client"
 import { useData } from "../context/data"
@@ -20,6 +21,292 @@ import { roomListChanged, sameRoom, useDeviceKey, useJoinedRooms, type JoinedRoo
 import { Button } from "./devtools-registry"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { DISCOVERY_PORTS, readServer, scanRooms, type FoundRoom } from "@opencode/client/room-discovery"
+
+
+// Mesh is a shared room whose state survives a coordinator leaving. Unlike a LAN
+// room, every enrolled device participates in the replicated log and elections.
+export function DialogMesh(props: { onClose?: () => void }) {
+  const client = useClient()
+  const dialog = useDialog()
+  const theme = useTheme().surface("dialog")
+  const dimensions = useTerminalDimensions()
+  const t = useT()
+  const config = useConfig().data
+  const [server] = createResource(() => client.api.server.info())
+  const [snapshot, setSnapshot] = createSignal<RoomMeshSnapshot>()
+  const [invite, setInvite] = createSignal("")
+  const [entries, setEntries] = createSignal<ReadonlyArray<RoomMeshEntry>>([])
+  const [cursor, setCursor] = createSignal(0)
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal<string>()
+  const [kind, setKind] = createSignal<"message" | "task">("message")
+  const fields: {
+    url?: InputRenderable
+    seedURL?: InputRenderable
+    token?: InputRenderable
+    name?: InputRenderable
+    text?: InputRenderable
+  } = {}
+
+  const addresses = () => {
+    const urls = server.state === "ready" ? server().urls : []
+    return urls
+      .filter((url) => !/^(https?:\/\/)(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(url))
+      .map((url) => new URL(url).origin)
+  }
+
+  const refresh = async () => {
+    const state = await client.api.room.mesh.status()
+    setSnapshot(state)
+    if (state.status !== "active") return
+    const page = await client.api.room.mesh.feed({ after: cursor() })
+    if (page.data.length) {
+      setEntries((previous) => {
+        const known = new Set(previous.map((entry) => entry.index))
+        return [...previous, ...page.data.filter((entry) => !known.has(entry.index))].slice(-80)
+      })
+    }
+    setCursor((previous) => Math.max(previous, page.commitIndex))
+  }
+
+  onMount(() => {
+    const poll = () => void refresh().catch((reason: unknown) => setError(errorMessage(reason)))
+    poll()
+    const timer = setInterval(poll, 1200)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const run = (action: () => Promise<unknown>, after?: (value: unknown) => void) => {
+    setBusy(true)
+    setError()
+    void action()
+      .then((value) => {
+        after?.(value)
+        return refresh()
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)))
+      .finally(() => setBusy(false))
+  }
+
+  const ownURL = () => fields.url?.value.trim() || addresses()[0] || ""
+  const ownName = () => fields.name?.value.trim() || hostname()
+
+  const create = () => {
+    const url = ownURL()
+    if (!url) return setError(t("Enter this device's reachable address, including its port."))
+    run(
+      () => client.api.room.mesh.create({ url, name: ownName() }),
+      (value) => {
+        const result = value as { data: RoomMeshSnapshot; token: string }
+        setSnapshot(result.data)
+        setInvite(result.token)
+        setCursor(0)
+        setEntries([])
+      },
+    )
+  }
+
+  const join = () => {
+    const seedURL = fields.seedURL?.value.trim() ?? ""
+    const token = fields.token?.value.trim() ?? ""
+    const url = ownURL()
+    if (!seedURL || !token || !url)
+      return setError(t("Enter the seed address, invitation token and this device's reachable address."))
+    run(
+      () => client.api.room.mesh.join({ seedURL, token, url, name: ownName() }),
+      (value) => {
+        setSnapshot(value as RoomMeshSnapshot)
+        setInvite(token)
+        setCursor(0)
+        setEntries([])
+      },
+    )
+  }
+
+  const activate = () =>
+    run(() => client.api.room.mesh.activate(), (value) => setSnapshot(value as RoomMeshSnapshot))
+
+  const send = () => {
+    const text = fields.text?.value.trim() ?? ""
+    if (!text) return setError(t("Write a message or task first."))
+    run(
+      () =>
+        client.api.room.mesh.append({
+          id: "evt_" + randomUUID(),
+          kind: kind(),
+          payload: { text, author: hostname() },
+        }),
+      () => {
+        if (fields.text) fields.text.value = ""
+      },
+    )
+  }
+
+  const describe = (entry: RoomMeshEntry) => {
+    const payload = entry.payload
+    if (payload && typeof payload === "object" && !Array.isArray(payload) && "text" in payload && typeof payload.text === "string")
+      return payload.text
+    return JSON.stringify(payload)
+  }
+
+  const field = (
+    key: "url" | "seedURL" | "token" | "name" | "text",
+    label: string,
+    placeholder: string,
+    width = 42,
+  ) => (
+    <Labeled label={label}>
+      <input
+        width={width}
+        cursorStyle={config.cursor}
+        ref={(element: InputRenderable) => {
+          fields[key] = element
+        }}
+        onMouseDown={() => fields[key]?.focus()}
+        placeholder={placeholder}
+        placeholderColor={theme.text.muted}
+        textColor={theme.text.formfield.base}
+        focusedTextColor={theme.text.formfield.focused}
+        cursorColor={theme.text.formfield.focused}
+        backgroundColor={theme.background.formfield.base}
+        focusedBackgroundColor={theme.background.formfield.focused}
+        onSubmit={() => key === "text" ? send() : undefined}
+      />
+    </Labeled>
+  )
+
+  const showing = () => snapshot() && snapshot()!.status !== "unconfigured"
+
+  return (
+    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+      <Header title={t("Mesh room")} onClose={props.onClose} />
+      <scrollbox
+        maxHeight={Math.max(8, dimensions().height - 8)}
+        contentOptions={{ minHeight: 0, gap: 1 }}
+        scrollbarOptions={{ visible: false }}
+      >
+        <text fg={theme.text.muted} wrapMode="word">
+          {t("All devices are equal peers. The coordinator is elected automatically; shared writes need a majority.")}
+        </text>
+        <Show when={addresses().length > 0}>
+          <text fg={theme.text.muted} wrapMode="word">
+            {t("Addresses advertised by this server: {addresses}", { addresses: addresses().join(", ") })}
+          </text>
+        </Show>
+        <Show when={server.error}>
+          <text fg={theme.text.feedback.warning.base} wrapMode="word">
+            {t("Could not discover this device's addresses. Enter a reachable LAN or VPN address manually.")}
+          </text>
+        </Show>
+
+        <Show when={!showing()}>
+          <Section title={t("Create the Mesh on this device")} />
+          {field("url", t("This device's address"), t("e.g. http://192.168.1.12:4096"))}
+          {field("name", t("Device name"), t("Default: {name}", { name: hostname() }), 32)}
+          <box flexDirection="row">
+            <Button variant="primary" disabled={busy()} onClick={create}>
+              {t("Create Mesh")}
+            </Button>
+          </box>
+
+          <Section title={t("Join a Mesh created on another device")} />
+          {field("seedURL", t("Seed device address"), t("e.g. http://192.168.1.12:4096"))}
+          {field("token", t("Invitation token"), t("Paste the token shown by the creator"), 54)}
+          <box flexDirection="row">
+            <Button disabled={busy()} onClick={join}>
+              {t("Join Mesh")}
+            </Button>
+          </box>
+        </Show>
+
+        <Show when={showing()}>
+          {(state) => (
+            <>
+              <Section title={t("Mesh status")} />
+              <text fg={theme.text.base} wrapMode="word">
+                {t("Room: {id}", { id: state().clusterID ?? "—" })}
+              </text>
+              <text fg={state().writable ? theme.text.feedback.success.base : theme.text.feedback.warning.base} wrapMode="word">
+                {state().writable
+                  ? t("Quorum healthy — shared writes are available")
+                  : state().leader
+                    ? t("Coordinator elected, but quorum is missing — read-only")
+                    : t("Replica mode — waiting for a healthy coordinator")}
+              </text>
+              <text fg={theme.text.muted} wrapMode="word">
+                {t("Coordinator: {leader}", { leader: state().leaderID ?? t("electing") })} · {t("Commit: {index}", { index: state().commitIndex })} · {t("Quorum requires {count} of {total} devices", { count: state().quorum, total: state().members.length })}
+              </text>
+              <Section title={t("Devices")} />
+              <For each={state().members}>
+                {(member) => (
+                  <box flexDirection="row" gap={1}>
+                    <text fg={member.id === state().leaderID ? theme.text.feedback.success.base : theme.text.base}>
+                      {member.id === state().leaderID ? "●" : "○"}
+                    </text>
+                    <text fg={theme.text.base} wrapMode="none" truncate>
+                      {member.name}
+                    </text>
+                    <box flexGrow={1} />
+                    <text fg={theme.text.muted} wrapMode="none" truncate>
+                      {new URL(member.url).host}
+                    </text>
+                  </box>
+                )}
+              </For>
+
+              <Show when={state().status === "forming" && state().nodeID === state().ownerNodeID}>
+                <Section title={t("Activate after all devices have joined")} />
+                <Show when={invite()}>
+                  <text fg={theme.text.muted} wrapMode="word">
+                    {t("Invitation token — share only with your own devices:")}
+                  </text>
+                  <text fg={theme.text.base} wrapMode="word">{invite()}</text>
+                </Show>
+                <Button variant="primary" disabled={busy()} onClick={activate}>
+                  {t("Activate Mesh")}
+                </Button>
+              </Show>
+
+              <Show when={state().status === "active"}>
+                <Section title={t("Shared messages and tasks")} />
+                <For each={entries()}>
+                  {(entry) => (
+                    <box gap={0}>
+                      <text fg={theme.text.muted} wrapMode="word">
+                        {entry.index + ". " + entry.kind + " · " + entry.originID}
+                      </text>
+                      <text fg={theme.text.base} wrapMode="word">
+                        {describe(entry)}
+                      </text>
+                    </box>
+                  )}
+                </For>
+                <box flexDirection="row" gap={1}>
+                  <Button disabled={busy()} onClick={() => setKind(kind() === "message" ? "task" : "message")}>
+                    {kind() === "message" ? t("Type: message") : t("Type: task")}
+                  </Button>
+                </box>
+                {field("text", t("Message or task"), t("Enter a shared message; tasks can be dispatched to peers later"), 58)}
+                <box flexDirection="row" gap={1}>
+                  <Button variant="primary" disabled={busy() || !state().writable} onClick={send}>
+                    {t("Send")}
+                  </Button>
+                  <Button disabled={busy()} onClick={() => run(() => refresh())}>
+                    {t("Refresh")}
+                  </Button>
+                </box>
+              </Show>
+            </>
+          )}
+        </Show>
+
+        <Show when={error()}>
+          {(message) => <text fg={theme.text.feedback.error.base} wrapMode="word">{message()}</text>}
+        </Show>
+      </scrollbox>
+    </box>
+  )
+}
 
 // Host: the rooms this computer shares. A room is one session other devices
 // join with a short code; only this computer's AI answers in it.
@@ -129,6 +416,16 @@ export function DialogHost(props: { onClose?: () => void }) {
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Host")} onClose={props.onClose} />
+      <box flexDirection="row">
+        <Button
+          onClick={() => {
+            dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
+            dialog.setCentered(true)
+          }}
+        >
+          {t("Open Mesh room")}
+        </Button>
+      </box>
       <Show when={server.error}>
         {(error) => (
           <text fg={theme.text.feedback.error.base} wrapMode="word">
@@ -464,6 +761,16 @@ export function DialogConnect(props: { onClose?: () => void }) {
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Connect")} onClose={props.onClose} />
+      <box flexDirection="row">
+        <Button
+          onClick={() => {
+            dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
+            dialog.setCentered(true)
+          }}
+        >
+          {t("Open Mesh room")}
+        </Button>
+      </box>
       {/* Small terminals cut the window off; scrolling keeps the address fields reachable. */}
       <scrollbox
         maxHeight={Math.max(8, dimensions().height - 8)}
