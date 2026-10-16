@@ -331,6 +331,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                   name: local?.name ?? hostname(),
                   // Joining enrollment is owner-only, so discovery supplies the actual seed.
                   ownerURL: owner?.url ?? "",
+                  isOwner: state.nodeID === state.ownerNodeID,
                   memberCount: state.members.length,
                 }
           return {
@@ -344,7 +345,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               name: room.open === true ? room.name : undefined,
               open: room.open === true,
             })),
-            mesh: meshInfo,
+            ...(meshInfo ? { mesh: meshInfo } : {}),
           }
         }),
       )
