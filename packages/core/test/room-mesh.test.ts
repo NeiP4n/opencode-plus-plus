@@ -14,6 +14,14 @@ describe("mesh quorum", () => {
     expect(hasQuorum(voters, ["phone-1", "phone-1", "phone-1", "rogue-node"])).toBe(false)
   })
 
+  test("a non-voting learner cannot change the active voter quorum", () => {
+    const activeVoters = ["owner", "laptop", "phone"]
+    // The learner is in the visible device roster but is deliberately not in activeVoters.
+    expect(quorumSize(activeVoters.length)).toBe(2)
+    expect(hasQuorum(activeVoters, ["owner", "worker"])).toBe(false)
+    expect(hasQuorum(activeVoters, ["owner", "laptop", "worker"])).toBe(true)
+  })
+
   test("rejects an empty or duplicated voter configuration", () => {
     expect(() => quorumSize(0)).toThrow(RangeError)
     expect(() => hasQuorum(["desktop", "desktop"], ["desktop"])).toThrow(RangeError)
