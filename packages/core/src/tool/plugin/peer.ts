@@ -99,6 +99,14 @@ export const Plugin = {
   effect: Effect.fn("PeerTool.Plugin")(function* (ctx: Context) {
     const peers = yield* Peer.Service
     const permission = yield* Permission.Service
+    const kv = yield* KV.Service
+    const sessions = yield* Session.Service
+
+    const meshState = Effect.fnUntraced(function* () {
+      const value = yield* kv.get(MESH_STATE_KEY)
+      if (value === undefined) return undefined
+      return Option.getOrUndefined(Schema.decodeUnknownOption(MeshToolState)(value))
+    })
 
     const linkOf = Effect.fnUntraced(function* (room: string | undefined) {
       if (!room) return yield* new ToolFailure({ message: "Pass room, the room ID from list" })
@@ -108,6 +116,24 @@ export const Plugin = {
     })
 
     const failed = (error: Peer.PeerError) => new ToolFailure({ message: error.message })
+
+    const listMesh = Effect.fnUntraced(function* () {
+      const state = yield* meshState()
+      if (!state) return "This computer has not joined a Mesh. Create or join one from Multiplayer first."
+      const voters = state.voters ?? state.members.map((member) => member.id)
+      const quorum = Math.floor(voters.length / 2) + 1
+      return [
+        `Mesh ${state.clusterID} · ${state.status} · local node ${state.nodeID} · coordinator ${state.leaderID ?? "not elected"}`,
+        `Voter quorum: ${quorum}/${voters.length}. Workers can run tasks but cannot vote or increase quorum.`,
+        ...state.members.map((member) => {
+          const role = voters.includes(member.id) ? "Voter" : "Worker"
+          const local = member.id === state.nodeID ? " · this computer" : ""
+          const directory = member.directory ? ` · project: ${member.directory}` : " · project path not advertised"
+          return `- ${member.name} · node ${member.id} · ${role} · ${member.url}${directory}${local}`
+        }),
+        "To delegate AI work, call peers with action=mesh-run, node=<name or node ID>, and text=<task>. It runs on that computer with its own configured AI provider and returns the result.",
+      ].join("\\n")
+    })
 
     const list = Effect.fnUntraced(function* () {
       const links = yield* peers.links()
