@@ -20,6 +20,7 @@ export type FoundMesh = {
   readonly name: string
   // Mesh enrollment is accepted only by the owner, so expose its address to the LAN scan.
   readonly ownerURL: string
+  readonly isOwner: boolean
   readonly memberCount: number
 }
 
