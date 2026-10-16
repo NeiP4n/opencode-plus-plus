@@ -303,7 +303,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
                 {t("Coordinator: {leader}", { leader: state.leaderID ?? t("electing") })} · {t("Commit: {index}", { index: state.commitIndex })} · {t("Quorum requires {count} of {total} devices", { count: state.quorum, total: state.members.length })}
               </text>
               <box flexDirection="row" gap={1}>
-                <Button disabled={busy()} variant={leaveArmed() ? "primary" : undefined} onLeave={() => setLeaveArmed(false)} onClick={disconnect}>
+                <Button disabled={busy()} variant={leaveArmed() ? "primary" : undefined} onClick={disconnect}>
                   {leaveArmed() ? t("Click again to leave Mesh") : t("Leave Mesh")}
                 </Button>
               </box>
