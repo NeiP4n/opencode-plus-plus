@@ -232,6 +232,13 @@ it.live("an open room admits guests by its ID without a code; a closed one does 
 
     // anyone on the network may enter an open room, so only a code earns more than member
     yield* call(`/api/room/${room.id}`, { method: "PATCH", headers: host, body: { defaultRole: "cohost" } })
+    // Trusted access must be granted to an individual member, never to every invite-code guest.
+    const rejectedTrustedDefault = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "trusted" },
+    })
+    expect(rejectedTrustedDefault.status).toBe(400)
     const open = yield* call("/api/room/join", { method: "POST", body: { roomID: room.id, name: "Stranger" } })
     expect(open.body.role).toBe("member")
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
