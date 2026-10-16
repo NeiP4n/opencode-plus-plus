@@ -86,7 +86,9 @@ install_bun() {
 
 termux() {
   DISTRO="${OPENCODE_PP_DISTRO:-debian}"
-  URL="${OPENCODE_PP_INSTALL_URL:-https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/$BRANCH/opencode-pp-install.sh}"
+  # Use GitHub's dynamic raw route instead of raw.githubusercontent.com. This avoids serving a
+  # stale CDN copy of the installer when the branch was just updated.
+  URL="${OPENCODE_PP_INSTALL_URL:-https://github.com/NeiP4n/opencode-plus-plus/raw/refs/heads/$BRANCH/opencode-pp-install.sh}"
 
   need proot-distro || {
     echo "Installing proot-distro…"
@@ -100,16 +102,16 @@ termux() {
 
   mkdir -p "$HOME/.cache"
   script="$HOME/.cache/opencode-pp-install.sh"
-  # Cache-bust the raw URL so an already downloaded old installer cannot be reused.
   if [ -f "$0" ] && grep -q 'Opencode++' "$0"; then
     cp "$0" "$script"
   else
+    echo "Downloading current Opencode++ installer…"
     curl -fsSL --retry 3 "$URL?installer=lan-rooms" -o "$script" || fail "could not download installer"
   fi
 
-  # Do not bind $HOME to itself. proot-distro's --shared-home maps Termux HOME to /root,
-  # which avoids the overlap warning and keeps the installer at a normal Linux HOME.
-  # A conservative kernel string and disabled SysV IPC avoid known ptrace/proot crash paths.
+  # Do not bind $HOME to itself. --shared-home maps Termux HOME to /root and avoids the
+  # '--bind ... overlaps with an existing one' warning seen on Android.
+  echo "Launching Debian with shared home (no overlapping --bind)…"
   proot-distro login \
     --shared-home \
     --no-sysvipc \
