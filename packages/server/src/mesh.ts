@@ -443,8 +443,13 @@ const layer = Layer.effect(
       const invite = yield* callRPC(seedURL, input.token, { type: "enroll", node })
       if (!invite.ok || !invite.clusterID || !invite.ownerNodeID || !invite.members)
         return yield* new MeshError({ message: invite.message ?? "The seed did not accept this device", status: 403 })
-      const members = yield* normalizedMembers(invite.members)
-      if (!members.some((member) => member.id === nodeID)) return yield* new MeshError({ message: "The seed response did not include this device", status: 502 })
+      const receivedMembers = yield* normalizedMembers(invite.members)
+      if (!receivedMembers.some((member) => member.id === nodeID)) return yield* new MeshError({ message: "The seed response did not include this device", status: 502 })
+      // The owner's stored URL can be a virtual adapter (e.g. 198.18.x.x). Use the
+      // address that this client actually reached for its local copy of the owner node.
+      const members = receivedMembers.map((member) =>
+        member.id === invite.ownerNodeID ? { ...member, url: seedURL } : member,
+      )
       return yield* locks.withLock("state")(Effect.gen(function* () {
         if (yield* load()) return yield* new MeshError({ message: "A Mesh was created or joined while this device was connecting", status: 409 })
         const state: StoredState = {
@@ -617,19 +622,31 @@ const layer = Layer.effect(
             if (!memberFor(state, input.fromNodeID)) return yield* new MeshError({ message: "This node is not enrolled in the Mesh", status: 403 })
             if (input.type === "prepare") {
               if (state.status === "active") {
-                if (membersHash(state.members) !== membersHash(input.members)) return response({ ok: false, message: "Active Mesh membership is immutable in this version" })
+                const incoming = yield* normalizedMembers(input.members)
+                // A joined peer may keep a locally reachable URL for the owner, while
+                // preparedHash remains the canonical shared voter-set hash.
+                if ((state.preparedHash ?? membersHash(state.members)) !== membersHash(incoming))
+                  return response({ ok: false, message: "Active Mesh membership is immutable in this version" })
                 return response()
               }
               if (input.fromNodeID !== state.ownerNodeID) return response({ ok: false, message: "Only the Mesh owner may prepare the initial voter set" })
-              const members = yield* normalizedMembers(input.members)
-              if (!members.some((member) => member.id === state.nodeID) || !members.some((member) => member.id === state.ownerNodeID)) return yield* new MeshError({ message: "Prepared membership must include this node and the owner", status: 400 })
-              state = { ...state, members, preparedHash: membersHash(members) }
+              const incoming = yield* normalizedMembers(input.members)
+              if (!incoming.some((member) => member.id === state.nodeID) || !incoming.some((member) => member.id === state.ownerNodeID)) return yield* new MeshError({ message: "Prepared membership must include this node and the owner", status: 400 })
+              const reachableOwnerURL = state.members.find((member) => member.id === state.ownerNodeID)?.url
+              const members = incoming.map((member) =>
+                member.id === state.ownerNodeID && reachableOwnerURL ? { ...member, url: reachableOwnerURL } : member,
+              )
+              state = { ...state, members, preparedHash: membersHash(incoming) }
               yield* save(state)
               return response()
             }
             if (input.type === "activate") {
-              const members = yield* normalizedMembers(input.members)
-              if (membersHash(members) !== state.preparedHash) return response({ ok: false, message: "Mesh membership was not prepared on this node" })
+              const incoming = yield* normalizedMembers(input.members)
+              if (membersHash(incoming) !== state.preparedHash) return response({ ok: false, message: "Mesh membership was not prepared on this node" })
+              const reachableOwnerURL = state.members.find((member) => member.id === state.ownerNodeID)?.url
+              const members = incoming.map((member) =>
+                member.id === state.ownerNodeID && reachableOwnerURL ? { ...member, url: reachableOwnerURL } : member,
+              )
               state = { ...state, members, status: "active" }
               yield* save(state)
               resetElection(state.clusterID)
