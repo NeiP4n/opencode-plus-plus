@@ -42,6 +42,7 @@ export interface Interface {
   readonly status: () => Effect.Effect<RoomMesh.Snapshot, MeshError>
   readonly create: (input: RoomMesh.CreateInput) => Effect.Effect<{ data: RoomMesh.Snapshot; token: string }, MeshError>
   readonly join: (input: RoomMesh.JoinInput) => Effect.Effect<RoomMesh.Snapshot, MeshError>
+  readonly leave: () => Effect.Effect<RoomMesh.Snapshot, MeshError>
   readonly activate: () => Effect.Effect<RoomMesh.Snapshot, MeshError>
   readonly append: (input: RoomMesh.AppendInput) => Effect.Effect<RoomMesh.Entry, MeshError>
   readonly feed: (after?: number) => Effect.Effect<RoomMesh.Feed, MeshError>
@@ -462,6 +463,24 @@ const layer = Layer.effect(
       }))
     })
 
+    // Forget the local Mesh enrollment so the user can join a different room.
+    // Membership changes are not yet replicated; peers keep their fixed voter set.
+    const leave = Effect.fn("ServerMesh.leave")(function* () {
+      return yield* locks.withLock("state")(Effect.gen(function* () {
+        const state = yield* load()
+        if (state) {
+          yield* kv.remove(STATE_KEY)
+          electionDeadline.delete(state.clusterID)
+          for (const member of state.members) {
+            nextIndex.delete(member.id)
+            matchIndex.delete(member.id)
+            acknowledgedAt.delete(member.id)
+          }
+        }
+        return yield* snapshot()
+      }))
+    })
+
     const activate = Effect.fn("ServerMesh.activate")(function* () {
       const prepared = yield* locks.withLock("state")(Effect.gen(function* () {
         const state = yield* requireState()
@@ -570,6 +589,7 @@ const layer = Layer.effect(
       status: () => load().pipe(Effect.flatMap((state) => snapshot(state))),
       create,
       join,
+      leave,
       activate,
       append,
       feed,
