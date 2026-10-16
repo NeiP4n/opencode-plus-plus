@@ -4,9 +4,11 @@
 #   curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.sh | sh
 #
 # Missing git, curl or unzip come from the system package manager (it may ask
-# for your sudo password), Bun from bun.sh. The newest release is checked out
-# into ~/.local/share/opencode-pp and the `opencode-pp` command goes to
-# ~/.local/bin, which is added to your shell's PATH. A regular opencode keeps
+# for your sudo password). Bun is downloaded as a release archive so the
+# installer works correctly when this script is piped through `sh`, including
+# inside Termux/proot-distro. The newest release is checked out into
+# ~/.local/share/opencode-pp and the `opencode-pp` command goes to
+# ~/.local/bin, which is added to the shell's PATH. A regular opencode keeps
 # the `opencode` command. Running this again updates.
 set -eu
 
@@ -55,7 +57,7 @@ termux() {
     curl -fsSL "$URL" -o "$script" || fail "could not download $URL"
   fi
   proot-distro login "$DISTRO" --bind "$HOME:$HOME" -- env \
-    OPENCODE_PP_REPO="$REPO" OPENCODE_PP_BRANCH="$BRANCH" \
+    OPENCODE_PP_REPO="$REPO" OPENCODE_PP_BRANCH="$BRANCH" OPENCODE_PP_TERMUX=1 \
     ${OPENCODE_PP_DIR:+OPENCODE_PP_DIR="$OPENCODE_PP_DIR"} \
     sh "$script" || fail "installing inside $DISTRO failed."
 
@@ -115,11 +117,88 @@ if [ -n "$missing" ]; then
   packages $missing || fail "could not install$missing. Install them with your package manager, then run this again."
 fi
 
+# Install Bun without `curl | bash`. The old approach ran Bun's completion command from a
+# piped child shell and did not reliably propagate ~/.bun/bin back to this installer. It also
+# made a Bun/proot crash look like a generic installer failure. Downloading the official release
+# archive avoids both problems. On Termux/PRoot, try known stable releases until one passes a
+# real `bun --version` probe; this handles runtime regressions in newer Bun builds gracefully.
+install_bun() {
+  install_dir="${BUN_INSTALL:-$HOME/.bun}"
+  bin_dir="$install_dir/bin"
+  mkdir -p "$bin_dir"
+
+  arch=$(uname -m)
+  case "$arch" in
+    aarch64|arm64) target="linux-aarch64" ;;
+    x86_64|amd64) target="linux-x64" ;;
+    *) fail "unsupported CPU architecture for Bun: $arch" ;;
+  esac
+
+  if [ -n "${OPENCODE_PP_BUN_VERSION:-}" ]; then
+    versions="$OPENCODE_PP_BUN_VERSION"
+  elif [ "${OPENCODE_PP_TERMUX:-0}" = 1 ]; then
+    # 1.4.2 is the stable glibc build we use first in the PRoot environment. Newer releases
+    # can be tried explicitly with OPENCODE_PP_BUN_VERSION if needed.
+    versions="1.4.2 1.4.1 1.3.14"
+  else
+    versions="1.4.3 1.4.2 1.4.1 1.3.14"
+  fi
+
+  for version in $versions; do
+    url="https://github.com/oven-sh/bun/releases/download/bun-v$version/bun-$target.zip"
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/opencode-pp-bun.XXXXXX")"
+    archive="$tmp/bun.zip"
+    extracted="$tmp/extracted"
+
+    echo "Installing Bun $version ($target)…"
+    if ! curl -fsSL --retry 3 -o "$archive" "$url"; then
+      rm -rf "$tmp"
+      continue
+    fi
+    if ! unzip -oq "$archive" -d "$extracted"; then
+      rm -rf "$tmp"
+      continue
+    fi
+
+    candidate="$extracted/bun-$target/bun"
+    if [ ! -x "$candidate" ]; then
+      rm -rf "$tmp"
+      continue
+    fi
+
+    cp "$candidate" "$bin_dir/bun"
+    chmod 755 "$bin_dir/bun"
+    rm -rf "$tmp"
+
+    # Do not let a SIGABRT/SIGSYS from an incompatible Bun build kill the installer.
+    # A successful version probe also proves that the binary is actually executable here.
+    if "$bin_dir/bun" --version >/dev/null 2>&1; then
+      PATH="$bin_dir:$PATH"
+      export PATH
+      return 0
+    fi
+
+    echo "Bun $version cannot run in this environment; trying a compatible release…" >&2
+    rm -f "$bin_dir/bun"
+  done
+
+  fail "could not install a runnable Bun. Try setting OPENCODE_PP_BUN_VERSION to a compatible Bun release."
+}
+
 if ! need bun; then
-  echo "Installing Bun…"
-  curl -fsSL https://bun.sh/install | bash
-  PATH="$HOME/.bun/bin:$PATH"
-  export PATH
+  install_bun
+else
+  # Existing Bun may be outside PATH in a non-interactive shell. If ~/.bun/bin exists, prefer it.
+  case ":$PATH:" in
+    *":$HOME/.bun/bin:"*) ;;
+    *)
+      [ -x "$HOME/.bun/bin/bun" ] && PATH="$HOME/.bun/bin:$PATH" && export PATH
+      ;;
+  esac
+fi
+
+if ! need bun; then
+  fail "Bun is not available after installation"
 fi
 
 if [ -d "$DIR/.git" ]; then
