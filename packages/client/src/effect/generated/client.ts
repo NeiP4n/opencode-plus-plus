@@ -1941,13 +1941,13 @@ const EndpointRoomMeshInvite = (raw: RawClient["server.room"]) => () =>
 
 const EndpointRoomMeshCreate = (raw: RawClient["server.room"]) => (input: RoomMeshCreateInput) =>
   preserveEffect<RoomMeshCreateOutput>()(
-    raw["room.mesh.create"]({ payload: { url: input.url, name: input.name } }).pipe(Effect.mapError(mapClientError)),
+    raw["room.mesh.create"]({ payload: { url: input.url, name: input.name, directory: input.directory } }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointRoomMeshJoin = (raw: RawClient["server.room"]) => (input: RoomMeshJoinInput) =>
   preserveEffect<RoomMeshJoinOutput>()(
     raw["room.mesh.join"]({
-      payload: { seedURL: input.seedURL, token: input.token, url: input.url, name: input.name },
+      payload: { seedURL: input.seedURL, token: input.token, url: input.url, name: input.name, directory: input.directory },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
