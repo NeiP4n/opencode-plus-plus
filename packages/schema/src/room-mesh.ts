@@ -32,6 +32,8 @@ export const Snapshot = Schema.Struct({
   currentTerm: Schema.Number,
   leaderID: Schema.String.pipe(Schema.optional),
   members: Schema.Array(Node),
+  // Learners can exchange work and receive replicated entries but do not vote until promoted.
+  voter: Schema.Boolean,
   logIndex: Schema.Number,
   commitIndex: Schema.Number,
   quorum: Schema.Number,
@@ -83,6 +85,7 @@ export interface RunAI extends Schema.Schema.Type<typeof RunAI> {}
 
 export const RpcRequest = Schema.Union([
   Schema.Struct({ type: Schema.Literal("enroll"), node: Node }),
+  Schema.Struct({ type: Schema.Literal("add-learner"), clusterID: Schema.String, fromNodeID: Schema.String, node: Node }),
   Schema.Struct({ type: Schema.Literal("prepare"), clusterID: Schema.String, fromNodeID: Schema.String, members: Schema.Array(Node) }),
   Schema.Struct({ type: Schema.Literal("activate"), clusterID: Schema.String, fromNodeID: Schema.String, members: Schema.Array(Node) }),
   Schema.Struct({ type: Schema.Literal("request-vote"), clusterID: Schema.String, fromNodeID: Schema.String, term: Schema.Number, lastLogIndex: Schema.Number, lastLogTerm: Schema.Number }),
@@ -100,6 +103,9 @@ export const RpcResponse = Schema.Struct({
   matchIndex: Schema.Number.pipe(Schema.optional),
   clusterID: Schema.String.pipe(Schema.optional),
   ownerNodeID: Schema.String.pipe(Schema.optional),
+  leaderID: Schema.String.pipe(Schema.optional),
+  status: Status.pipe(Schema.optional),
+  voters: Schema.Array(Schema.String).pipe(Schema.optional),
   members: Schema.Array(Node).pipe(Schema.optional),
   entry: Entry.pipe(Schema.optional),
   commitIndex: Schema.Number.pipe(Schema.optional),
