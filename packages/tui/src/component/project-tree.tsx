@@ -18,7 +18,7 @@ import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { roomListChanged, roomListRevision, sameRoom, useJoinedRooms, type JoinedRoom } from "../util/room"
-import { DialogConnect, DialogHost, nextRole, ROLE_LABEL } from "./dialog-rooms"
+import { DialogConnect, DialogHost, DialogMesh, nextRole, ROLE_LABEL } from "./dialog-rooms"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
@@ -36,8 +36,8 @@ import { useT } from "../util/i18n"
 // directory under it, grouped by category. "#" sets a session's category; the
 // chip after it is the access the orchestrator has to it, and clicking it steps
 // through the levels. Below the projects, Multiplayer lists the sessions this
-// computer hosts as rooms and the rooms it joined on other hosts. The Notes tab
-// swaps the tree for the notes of one project.
+// computer hosts as rooms and the rooms it joined on other hosts. Mesh is another
+// multiplayer mode opened from this section. The Notes tab swaps the tree for notes.
 
 const ACCESS_ORDER: readonly OrchestraAccess[] = ["hidden", "read", "write", "full"]
 
@@ -236,7 +236,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
-  const openRooms = (window: typeof DialogHost) => {
+  const openRooms = (window: typeof DialogHost | typeof DialogConnect | typeof DialogMesh) => {
     dialog.replace(() => window({ onClose: () => dialog.clear() }), undefined, { size: "large" })
     dialog.setCentered(true)
   }
@@ -445,7 +445,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                 <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
               </Show>
             </box>
-            {/* A narrow panel has no room beside the heading, so Host and Connect go under it. */}
+            {/* A narrow panel has no room beside the heading, so multiplayer modes go under it. */}
             <Show when={narrow()}>
               <box flexDirection="row" paddingLeft={3} paddingRight={1}>
                 <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
@@ -561,7 +561,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             <Show when={(rooms.latest ?? []).length === 0 && joined.joined.length === 0}>
               <box paddingLeft={4} paddingRight={1}>
                 <text fg={theme.text.muted} wrapMode="word">
-                  {t("No rooms yet. Host a session or connect to someone else's.")}
+                  {t("No rooms yet. Host, connect, or start a Mesh.")}
                 </text>
               </box>
             </Show>
@@ -575,7 +575,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
 function MultiplayerActions(props: {
   hover: () => string | undefined
   setHover: (id: string | undefined) => void
-  onOpen: (window: typeof DialogHost) => void
+  onOpen: (window: typeof DialogHost | typeof DialogConnect | typeof DialogMesh) => void
 }) {
   const theme = useTheme()
   const t = useT()
@@ -584,6 +584,7 @@ function MultiplayerActions(props: {
       each={[
         { id: "multiplayer:host", label: t("+ Host"), window: DialogHost },
         { id: "multiplayer:connect", label: t("+ Connect"), window: DialogConnect },
+        { id: "multiplayer:mesh", label: t("+ Mesh"), window: DialogMesh },
       ]}
     >
       {(action) => (
