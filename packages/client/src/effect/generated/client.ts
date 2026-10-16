@@ -1961,10 +1961,67 @@ const EndpointRoomMeshFeed = (raw: RawClient["server.room"]) => (input: RoomMesh
     raw["room.mesh.feed"]({ query: { after: input.after } }).pipe(Effect.mapError(mapClientError)),
   )
 
-const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshRpcInput) =>
-  preserveEffect<RoomMeshRpcOutput>()(
-    raw["room.mesh.rpc"]({ payload: input }).pipe(Effect.mapError(mapClientError)),
-  )
+const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshRpcInput) => {
+  const request = (() => {
+    switch (input.type) {
+      case "enroll":
+        return raw["room.mesh.rpc"]({ payload: { type: "enroll", node: input.node } })
+      case "prepare":
+        return raw["room.mesh.rpc"]({
+          payload: {
+            type: "prepare",
+            clusterID: input.clusterID,
+            fromNodeID: input.fromNodeID,
+            members: input.members,
+          },
+        })
+      case "activate":
+        return raw["room.mesh.rpc"]({
+          payload: {
+            type: "activate",
+            clusterID: input.clusterID,
+            fromNodeID: input.fromNodeID,
+            members: input.members,
+          },
+        })
+      case "request-vote":
+        return raw["room.mesh.rpc"]({
+          payload: {
+            type: "request-vote",
+            clusterID: input.clusterID,
+            fromNodeID: input.fromNodeID,
+            term: input.term,
+            lastLogIndex: input.lastLogIndex,
+            lastLogTerm: input.lastLogTerm,
+          },
+        })
+      case "append-entries":
+        return raw["room.mesh.rpc"]({
+          payload: {
+            type: "append-entries",
+            clusterID: input.clusterID,
+            fromNodeID: input.fromNodeID,
+            term: input.term,
+            leaderID: input.leaderID,
+            prevLogIndex: input.prevLogIndex,
+            prevLogTerm: input.prevLogTerm,
+            entries: input.entries,
+            leaderCommit: input.leaderCommit,
+          },
+        })
+      case "propose":
+        return raw["room.mesh.rpc"]({
+          payload: {
+            type: "propose",
+            clusterID: input.clusterID,
+            fromNodeID: input.fromNodeID,
+            entry: input.entry,
+          },
+        })
+    }
+  })()
+  return preserveEffect<RoomMeshRpcOutput>()(request.pipe(Effect.mapError(mapClientError)))
+}
 
 const EndpointRoomGuestGet = (raw: RawClient["server.room"]) => (input: RoomGuestGetInput) =>
   preserveEffect<RoomGuestGetOutput>()(
