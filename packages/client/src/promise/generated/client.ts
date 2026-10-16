@@ -2681,7 +2681,7 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: "/api/room/mesh",
-              body: { url: input["url"], name: input["name"] },
+              body: { url: input["url"], name: input["name"], directory: input["directory"] },
               successStatus: 200,
               declaredStatuses: [400, 401, 403, 503],
               empty: false,
@@ -2693,7 +2693,7 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: "/api/room/mesh/join",
-              body: { seedURL: input["seedURL"], token: input["token"], url: input["url"], name: input["name"] },
+              body: { seedURL: input["seedURL"], token: input["token"], url: input["url"], name: input["name"], directory: input["directory"] },
               successStatus: 200,
               declaredStatuses: [400, 401, 403, 503],
               empty: false,
