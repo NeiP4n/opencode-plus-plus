@@ -449,195 +449,195 @@ export function DialogHost(props: { onClose?: () => void }) {
       <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
         <Header title={t("Multiplayer")} onClose={props.onClose} />
         <MultiplayerModeSelector value="host" onChange={setMode} />
-      <Show when={server.error}>
-        {(error) => (
-          <text fg={theme.text.feedback.error.base} wrapMode="word">
-            {t("Could not read this server's addresses: {error}", { error: errorMessage(error()) })}
-          </text>
-        )}
-      </Show>
-      <Show
-        when={addresses().length > 0}
-        fallback={
-          <Show when={server.state === "ready"}>
-            <Show
-              when={client.openToNetwork}
-              fallback={
-                <text fg={theme.text.feedback.warning.base} wrapMode="word">
-                  {t(
-                    "This server only listens on this machine, so other devices cannot connect yet. Run `{command} service set hostname 0.0.0.0` and `{command} service restart`.",
-                    { command: process.env.OPENCODE_COMMAND || "opencode" },
-                  )}
-                </text>
-              }
-            >
-              {(open) => (
-                <box>
+        <Show when={server.error}>
+          {(error) => (
+            <text fg={theme.text.feedback.error.base} wrapMode="word">
+              {t("Could not read this server's addresses: {error}", { error: errorMessage(error()) })}
+            </text>
+          )}
+        </Show>
+        <Show
+          when={addresses().length > 0}
+          fallback={
+            <Show when={server.state === "ready"}>
+              <Show
+                when={client.openToNetwork}
+                fallback={
                   <text fg={theme.text.feedback.warning.base} wrapMode="word">
                     {t(
-                      "This server only listens on this machine, so other devices cannot connect yet. Opening it to the network restarts the service once; running sessions are interrupted.",
+                      "This server only listens on this machine, so other devices cannot connect yet. Run `{command} service set hostname 0.0.0.0` and `{command} service restart`.",
+                      { command: process.env.OPENCODE_COMMAND || "opencode" },
                     )}
                   </text>
-                  <box flexDirection="row">
-                    <Button variant="primary" disabled={busy()} onClick={() => openToNetwork(open())}>
-                      {t("Open to the network")}
-                    </Button>
+                }
+              >
+                {(open) => (
+                  <box>
+                    <text fg={theme.text.feedback.warning.base} wrapMode="word">
+                      {t(
+                        "This server only listens on this machine, so other devices cannot connect yet. Opening it to the network restarts the service once; running sessions are interrupted.",
+                      )}
+                    </text>
+                    <box flexDirection="row">
+                      <Button variant="primary" disabled={busy()} onClick={() => openToNetwork(open())}>
+                        {t("Open to the network")}
+                      </Button>
+                    </box>
                   </box>
-                </box>
-              )}
-            </Show>
-          </Show>
-        }
-      >
-        <Labeled label={t("Address")}>
-          <box>
-            <For each={addresses()}>
-              {(address) => (
-                <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
-                  {address}
-                </text>
-              )}
-            </For>
-          </box>
-        </Labeled>
-        <Show when={preferred().length === 0}>
-          <text fg={theme.text.feedback.warning.base} wrapMode="word">
-            {t("Only virtual adapters (Docker, WSL, VPN) were found; other devices may not reach these addresses.")}
-          </text>
-        </Show>
-        <FirewallHelp ports={[...new Set(addresses().map((address) => Number(address.split(":").at(-1))))]} />
-      </Show>
-      <Show
-        when={sessionID()}
-        fallback={<text fg={theme.text.muted}>{t("Open a session to host it as a room.")}</text>}
-      >
-        <Show when={!shared()}>
-          <box flexDirection="row" gap={1}>
-            <Button variant="primary" disabled={busy()} onClick={() => share(false)}>
-              {t("Host this session")}
-            </Button>
-            <Show when={project()}>
-              {(item) => (
-                <Button disabled={busy()} onClick={() => share(true)}>
-                  {t("Host project {name}", { name: item().name })}
-                </Button>
-              )}
-            </Show>
-          </box>
-        </Show>
-      </Show>
-      <For each={hosted()}>
-        {(room) => (
-          <box>
-            <Labeled label={t("Room")}>
-              <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
-                {room.name}
-                <span
-                  style={{ fg: theme.text.muted }}
-                >{` · ${room.directory ? t("whole project") : t("one session")}`}</span>
-              </text>
-            </Labeled>
-            <Show
-              when={!room.open && codes()[room.id]}
-              fallback={
-                <Labeled label={t("Join code")}>
-                  <text fg={theme.text.muted}>{room.open ? t("not needed") : t("none yet")}</text>
-                </Labeled>
-              }
-            >
-              {(issued) => (
-                <Labeled label={t("Join code")}>
-                  <text fg={theme.text.base}>
-                    <span style={{ bold: true }}>{issued().code}</span>
-                    <Show
-                      when={issued().until > now()}
-                      fallback={<span style={{ fg: theme.text.feedback.warning.base }}>{"  " + t("expired")}</span>}
-                    >
-                      <span style={{ fg: theme.text.muted }}>
-                        {"  " + t("expires in {time}", { time: countdown(issued().until - now()) })}
-                      </span>
-                    </Show>
-                  </text>
-                </Labeled>
-              )}
-            </Show>
-            <Setting
-              label={t("Entry")}
-              help={t("Whether guests need the join code or may join straight from the room list.")}
-            >
-              <Button
-                disabled={busy()}
-                onClick={() => void run(() => client.api.room.update({ roomID: room.id, open: !room.open }))}
-              >
-                {room.open ? t("Without a code") : t("With a code")}
-              </Button>
-            </Setting>
-            <Setting label={t("New guests")} help={t(ROLE_HELP)}>
-              <Button
-                disabled={busy()}
-                onClick={() =>
-                  void run(() => client.api.room.update({ roomID: room.id, defaultRole: nextRole(joinRole(room)) }))
-                }
-              >
-                {t(ROLE_LABEL[joinRole(room)])}
-              </Button>
-            </Setting>
-            <Setting label={t("People")} help={t("Who joined, their roles; remove or ban a guest.")}>
-              <Button
-                onClick={() => {
-                  dialog.replace(
-                    () => <DialogPeople roomID={room.id} name={room.name} onClose={() => dialog.clear()} />,
-                    undefined,
-                    { size: "large" },
-                  )
-                  dialog.setCentered(true)
-                }}
-              >
-                {t("Open")}
-              </Button>
-            </Setting>
-            <Setting
-              label={t("AI outreach")}
-              help={t(
-                "Where this session's AI may post on its own: rooms you linked, or any room it finds, asking you before each send.",
-              )}
-            >
-              <Button
-                disabled={busy()}
-                onClick={() =>
-                  void run(() =>
-                    client.api.room.update({ roomID: room.id, ai: room.ai === "linked" ? "discovered" : "linked" }),
-                  )
-                }
-              >
-                {room.ai === "linked" ? t("Linked rooms only") : t("Any room it finds")}
-              </Button>
-            </Setting>
-            <box flexDirection="row" gap={1} paddingTop={1}>
-              <Show when={!room.open}>
-                <Button variant="primary" disabled={busy()} onClick={() => void run(() => issue(room.id))}>
-                  {codes()[room.id] ? t("New join code") : t("Get join code")}
-                </Button>
+                )}
               </Show>
-              <Button disabled={busy()} onLeave={() => setArmed()} onClick={() => close(room)}>
-                {armed() === room.id ? t("Click again to stop hosting") : t("Stop hosting")}
-              </Button>
-            </box>
-            <Show when={room.open || codes()[room.id]}>
-              <text fg={theme.text.muted} wrapMode="word">
-                {room.open
-                  ? t("On the other device open Connect and pick this room, or enter the address.")
-                  : t("On the other device open Connect, pick this room or enter the address, then the join code.")}
-              </text>
             </Show>
-          </box>
-        )}
-      </For>
-      <Show when={rooms.error}>
-        <text fg={theme.text.feedback.error.base}>{errorMessage(rooms.error)}</text>
-      </Show>
-    </box>
-  </Show>
+          }
+        >
+          <Labeled label={t("Address")}>
+            <box>
+              <For each={addresses()}>
+                {(address) => (
+                  <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
+                    {address}
+                  </text>
+                )}
+              </For>
+            </box>
+          </Labeled>
+          <Show when={preferred().length === 0}>
+            <text fg={theme.text.feedback.warning.base} wrapMode="word">
+              {t("Only virtual adapters (Docker, WSL, VPN) were found; other devices may not reach these addresses.")}
+            </text>
+          </Show>
+          <FirewallHelp ports={[...new Set(addresses().map((address) => Number(address.split(":").at(-1))))]} />
+        </Show>
+        <Show
+          when={sessionID()}
+          fallback={<text fg={theme.text.muted}>{t("Open a session to host it as a room.")}</text>}
+        >
+          <Show when={!shared()}>
+            <box flexDirection="row" gap={1}>
+              <Button variant="primary" disabled={busy()} onClick={() => share(false)}>
+                {t("Host this session")}
+              </Button>
+              <Show when={project()}>
+                {(item) => (
+                  <Button disabled={busy()} onClick={() => share(true)}>
+                    {t("Host project {name}", { name: item().name })}
+                  </Button>
+                )}
+              </Show>
+            </box>
+          </Show>
+        </Show>
+        <For each={hosted()}>
+          {(room) => (
+            <box>
+              <Labeled label={t("Room")}>
+                <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+                  {room.name}
+                  <span
+                    style={{ fg: theme.text.muted }}
+                  >{` · ${room.directory ? t("whole project") : t("one session")}`}</span>
+                </text>
+              </Labeled>
+              <Show
+                when={!room.open && codes()[room.id]}
+                fallback={
+                  <Labeled label={t("Join code")}>
+                    <text fg={theme.text.muted}>{room.open ? t("not needed") : t("none yet")}</text>
+                  </Labeled>
+                }
+              >
+                {(issued) => (
+                  <Labeled label={t("Join code")}>
+                    <text fg={theme.text.base}>
+                      <span style={{ bold: true }}>{issued().code}</span>
+                      <Show
+                        when={issued().until > now()}
+                        fallback={<span style={{ fg: theme.text.feedback.warning.base }}>{"  " + t("expired")}</span>}
+                      >
+                        <span style={{ fg: theme.text.muted }}>
+                          {"  " + t("expires in {time}", { time: countdown(issued().until - now()) })}
+                        </span>
+                      </Show>
+                    </text>
+                  </Labeled>
+                )}
+              </Show>
+              <Setting
+                label={t("Entry")}
+                help={t("Whether guests need the join code or may join straight from the room list.")}
+              >
+                <Button
+                  disabled={busy()}
+                  onClick={() => void run(() => client.api.room.update({ roomID: room.id, open: !room.open }))}
+                >
+                  {room.open ? t("Without a code") : t("With a code")}
+                </Button>
+              </Setting>
+              <Setting label={t("New guests")} help={t(ROLE_HELP)}>
+                <Button
+                  disabled={busy()}
+                  onClick={() =>
+                    void run(() => client.api.room.update({ roomID: room.id, defaultRole: nextRole(joinRole(room)) }))
+                  }
+                >
+                  {t(ROLE_LABEL[joinRole(room)])}
+                </Button>
+              </Setting>
+              <Setting label={t("People")} help={t("Who joined, their roles; remove or ban a guest.")}>
+                <Button
+                  onClick={() => {
+                    dialog.replace(
+                      () => <DialogPeople roomID={room.id} name={room.name} onClose={() => dialog.clear()} />,
+                      undefined,
+                      { size: "large" },
+                    )
+                    dialog.setCentered(true)
+                  }}
+                >
+                  {t("Open")}
+                </Button>
+              </Setting>
+              <Setting
+                label={t("AI outreach")}
+                help={t(
+                  "Where this session's AI may post on its own: rooms you linked, or any room it finds, asking you before each send.",
+                )}
+              >
+                <Button
+                  disabled={busy()}
+                  onClick={() =>
+                    void run(() =>
+                      client.api.room.update({ roomID: room.id, ai: room.ai === "linked" ? "discovered" : "linked" }),
+                    )
+                  }
+                >
+                  {room.ai === "linked" ? t("Linked rooms only") : t("Any room it finds")}
+                </Button>
+              </Setting>
+              <box flexDirection="row" gap={1} paddingTop={1}>
+                <Show when={!room.open}>
+                  <Button variant="primary" disabled={busy()} onClick={() => void run(() => issue(room.id))}>
+                    {codes()[room.id] ? t("New join code") : t("Get join code")}
+                  </Button>
+                </Show>
+                <Button disabled={busy()} onLeave={() => setArmed()} onClick={() => close(room)}>
+                  {armed() === room.id ? t("Click again to stop hosting") : t("Stop hosting")}
+                </Button>
+              </box>
+              <Show when={room.open || codes()[room.id]}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {room.open
+                    ? t("On the other device open Connect and pick this room, or enter the address.")
+                    : t("On the other device open Connect, pick this room or enter the address, then the join code.")}
+                </text>
+              </Show>
+            </box>
+          )}
+        </For>
+        <Show when={rooms.error}>
+          <text fg={theme.text.feedback.error.base}>{errorMessage(rooms.error)}</text>
+        </Show>
+      </box>
+    </Show>
   )
 }
 
