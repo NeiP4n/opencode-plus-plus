@@ -8076,6 +8076,7 @@ export type RoomMeshCreateInput = { url: string; name?: string | undefined }
 export type RoomMeshCreateOutput = { data: RoomMeshSnapshot; token: string }
 export type RoomMeshJoinInput = { seedURL: string; token: string; url: string; name?: string | undefined }
 export type RoomMeshJoinOutput = RoomMeshSnapshot
+export type RoomMeshLeaveOutput = RoomMeshSnapshot
 export type RoomMeshActivateOutput = RoomMeshSnapshot
 export type RoomMeshAppendInput = { id?: string | undefined; kind: "message" | "task"; payload: JsonValue }
 export type RoomMeshAppendOutput = RoomMeshEntry
