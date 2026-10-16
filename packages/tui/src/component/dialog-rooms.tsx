@@ -1,6 +1,6 @@
 import { TextAttributes, type InputRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
-import { createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import type { RoomInfo, RoomJoinCode, RoomMemberView, RoomMeshEntry, RoomMeshSnapshot } from "@opencode/client/promise"
 import { hostname } from "node:os"
 import { randomUUID } from "node:crypto"
@@ -21,28 +21,25 @@ import { roomListChanged, sameRoom, useDeviceKey, useJoinedRooms, type JoinedRoo
 import { Button } from "./devtools-registry"
 import { HoverAction } from "./hover-action"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
-import { DISCOVERY_PORTS, readServer, scanRooms, type FoundRoom } from "@opencode/client/room-discovery"
+import { DISCOVERY_PORTS, readServer, scanRooms, type FoundMesh, type FoundRoom } from "@opencode/client/room-discovery"
 
 
-type MultiplayerMode = "host" | "connect" | "mesh"
+type MultiplayerMode = "host" | "mesh"
 
 function MultiplayerModeSelector(props: {
   value: MultiplayerMode
   onChange: (value: MultiplayerMode) => void
-  leftMode?: "host" | "connect"
 }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
-  const leftMode = () => props.leftMode ?? "host"
-  const leftLabel = () => t(leftMode() === "host" ? "Host" : "Connect")
   return (
     <box flexDirection="row" gap={1}>
-      <HoverAction onClick={() => props.onChange(leftMode())} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
+      <HoverAction onClick={() => props.onChange("host")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
         <text
-          fg={props.value === leftMode() ? theme.text.action.primary.selected : theme.text.action.primary.base}
-          attributes={props.value === leftMode() ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
+          fg={props.value === "host" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+          attributes={props.value === "host" ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
         >
-          {leftLabel()}
+          {t("Host")}
         </text>
       </HoverAction>
       <HoverAction onClick={() => props.onChange("mesh")} paddingLeft={1} paddingRight={1} paddingTop={0} paddingBottom={0}>
@@ -705,8 +702,72 @@ export function DialogConnect(props: { onClose?: () => void }) {
   const [armed, setArmed] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const [joinError, setJoinError] = createSignal<string>()
-  const [mode, setMode] = createSignal<"connect" | "mesh">("connect")
-  const fields: { address?: InputRenderable; code?: InputRenderable; name?: InputRenderable } = {}
+  const [localServer] = createResource(() => client.api.server.info())
+  const [selectedMesh, setSelectedMesh] = createSignal<(FoundMesh & { seedURL: string; host: string })>()
+  const fields: {
+    address?: InputRenderable
+    code?: InputRenderable
+    name?: InputRenderable
+    meshToken?: InputRenderable
+    meshURL?: InputRenderable
+  } = {}
+
+  const discoveredMeshes = createMemo(() => {
+    const unique = new Map<string, FoundMesh & { seedURL: string; host: string }>()
+    for (const server of found() ?? []) {
+      if (!server.mesh) continue
+      const mesh = {
+        ...server.mesh,
+        seedURL: server.mesh.ownerURL || server.url,
+        host: server.host,
+      }
+      const existing = unique.get(mesh.clusterID)
+      // Prefer a discovery record that points directly at the Mesh owner.
+      if (!existing || server.url === mesh.ownerURL) unique.set(mesh.clusterID, mesh)
+    }
+    return [...unique.values()]
+  })
+
+  const ownMeshAddress = () => {
+    const urls = localServer.state === "ready" ? localServer().urls : []
+    const candidates = urls
+      .map((url) => new URL(url))
+      .filter((url) => !/^(localhost|127\\.|0\\.0\\.0\\.0|\\[::1\\])$/.test(url.hostname))
+      .filter((url) => !/^(198\\.1[89]\\.|169\\.254\\.)/.test(url.hostname))
+    const privateLAN = candidates.find((url) =>
+      /^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.)/.test(url.hostname),
+    )
+    return (privateLAN ?? candidates[0])?.origin ?? ""
+  }
+
+  const chooseMesh = (mesh: FoundMesh & { seedURL: string; host: string }) => {
+    setSelectedMesh(mesh)
+    setJoinError()
+    setTimeout(() => {
+      if (fields.meshURL && !fields.meshURL.isDestroyed && !fields.meshURL.value) fields.meshURL.value = ownMeshAddress()
+      if (fields.meshToken && !fields.meshToken.isDestroyed) fields.meshToken.focus()
+    }, 1)
+  }
+
+  const joinMesh = () => {
+    const mesh = selectedMesh()
+    const token = fields.meshToken?.value.trim() ?? ""
+    const url = fields.meshURL?.value.trim() || ownMeshAddress()
+    if (!mesh) return setJoinError(t("Select a Mesh room from the network list first."))
+    if (!token) return setJoinError(t("Paste the invitation token from the Mesh creator."))
+    if (!url) return setJoinError(t("Enter this device's reachable address, including its port."))
+    setBusy(true)
+    setJoinError()
+    void client.api.room.mesh
+      .join({ seedURL: mesh.seedURL, token, url, name: hostname() })
+      .then(() => {
+        setSelectedMesh(undefined)
+        dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
+        dialog.setCentered(true)
+      })
+      .catch((error: unknown) => setJoinError(errorMessage(error)))
+      .finally(() => setBusy(false))
+  }
 
   const enter = (url: string, request: { code?: string; roomID?: string }) => {
     setBusy(true)
@@ -745,6 +806,10 @@ export function DialogConnect(props: { onClose?: () => void }) {
         const rooms = server.rooms
         setFound((previous) => [...(previous ?? []).filter((item) => item.url !== url), server])
         const unlocked = rooms.filter((room) => room.open)
+        if (rooms.length === 0 && server.mesh) {
+          chooseMesh({ ...server.mesh, seedURL: server.mesh.ownerURL || server.url, host: server.host })
+          return setJoinError(t("Mesh found. Paste its invitation token in the Mesh connection panel below."))
+        }
         if (rooms.length === 0) return setJoinError(t("No rooms at this address"))
         if (unlocked.length === 1 && rooms.length === 1) return enter(url, { roomID: unlocked[0].id })
         if (unlocked.length === 0 && rooms.length === 1)
@@ -809,16 +874,20 @@ export function DialogConnect(props: { onClose?: () => void }) {
     })
   }
 
-  const field = (key: "address" | "code" | "name", label: string, placeholder: string) => (
+  const field = (
+    key: "address" | "code" | "name" | "meshToken" | "meshURL",
+    label: string,
+    placeholder: string,
+  ) => (
     <Labeled label={label}>
       <input
-        width={36}
+        width={key === "meshToken" ? 54 : 36}
         cursorStyle={config.cursor}
         ref={(element: InputRenderable) => {
           fields[key] = element
         }}
         onMouseDown={() => fields[key]?.focus()}
-        onSubmit={join}
+        onSubmit={() => (key === "meshToken" || key === "meshURL" ? joinMesh() : join())}
         placeholder={placeholder}
         placeholderColor={theme.text.muted}
         textColor={theme.text.formfield.base}
@@ -832,10 +901,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
 
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-      <Header title={t("Multiplayer")} onClose={props.onClose} />
-      <MultiplayerModeSelector value={mode()} onChange={(value) => setMode(value === "mesh" ? "mesh" : "connect")} leftMode="connect" />
-      <Show when={mode() === "connect"}>
-      {/* Small terminals cut the window off; scrolling keeps the address fields reachable. */}
+      <Header title={t("Connect")} onClose={props.onClose} />
       <scrollbox
         maxHeight={Math.max(8, dimensions().height - 8)}
         contentOptions={{ minHeight: 0, gap: 1 }}
@@ -871,7 +937,6 @@ export function DialogConnect(props: { onClose?: () => void }) {
             {t("Search again")}
           </Button>
         </box>
-        {/* Every server that answered, with its rooms; one sharing none shows so the operator knows it was reached. */}
         <For each={found() ?? []}>
           {(server) => (
             <box>
@@ -883,6 +948,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
                   <box flexDirection="row" gap={1} paddingLeft={2}>
                     <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
                       {room.name ?? t("Room, needs a code")}
+                      <span style={{ fg: theme.text.muted }}>{` · ${t("Host")}`}</span>
                     </text>
                     <box flexGrow={1} />
                     <Button variant="primary" disabled={busy()} onClick={() => pick(room)}>
@@ -891,7 +957,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
                   </box>
                 )}
               </For>
-              <Show when={server.rooms.length === 0}>
+              <Show when={server.rooms.length === 0 && !server.mesh}>
                 <box paddingLeft={2}>
                   <text fg={theme.text.muted} wrapMode="word">
                     {t("No rooms hosted yet: on that computer open a session and press + Host.")}
@@ -901,6 +967,50 @@ export function DialogConnect(props: { onClose?: () => void }) {
             </box>
           )}
         </For>
+
+        <Show when={discoveredMeshes().length > 0}>
+          <Section title={t("Mesh rooms found")} />
+          <For each={discoveredMeshes()}>
+            {(mesh) => (
+              <box flexDirection="row" gap={1} paddingLeft={2}>
+                <box flexGrow={1} minWidth={0}>
+                  <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+                    {mesh.name}
+                    <span style={{ fg: theme.text.action.primary.base }}>{` · ${t("Mesh")}`}</span>
+                  </text>
+                  <text fg={theme.text.muted} wrapMode="none" truncate>
+                    {`${mesh.memberCount} ${t("devices")} · ${mesh.status} · ${mesh.host}`}
+                  </text>
+                </box>
+                <Button variant="primary" disabled={busy()} onClick={() => chooseMesh(mesh)}>
+                  {t("Connect")}
+                </Button>
+              </box>
+            )}
+          </For>
+        </Show>
+
+        <Show when={selectedMesh()}>
+          {(mesh) => (
+            <box gap={1}>
+              <Section title={t("Connect to Mesh: {name}", { name: mesh().name })} />
+              <text fg={theme.text.muted} wrapMode="word">
+                {t("Found on {host}. Enter the invitation token from the Mesh creator.", { host: mesh().host })}
+              </text>
+              {field("meshToken", t("Invitation token"), t("Paste the token shown by the creator"))}
+              {field("meshURL", t("This device's address"), ownMeshAddress() || t("e.g. http://192.168.1.12:4096"))}
+              <box flexDirection="row" gap={1}>
+                <Button variant="primary" disabled={busy()} onClick={joinMesh}>
+                  {t("Join Mesh")}
+                </Button>
+                <Button disabled={busy()} onClick={() => setSelectedMesh(undefined)}>
+                  {t("Cancel")}
+                </Button>
+              </box>
+            </box>
+          )}
+        </Show>
+
         <Show when={!found.loading && !found()?.length}>
           <text fg={theme.text.muted} wrapMode="word">
             {t(
@@ -918,6 +1028,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
             <box flexDirection="row" gap={1}>
               <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
                 {room.name}
+                <span style={{ fg: theme.text.muted }}>{` · ${t("Host")}`}</span>
               </text>
               <text fg={theme.text.muted}>{`${new URL(room.url).host} · ${t("as {name}", { name: room.guest })}`}</text>
               <box flexGrow={1} />
@@ -931,10 +1042,6 @@ export function DialogConnect(props: { onClose?: () => void }) {
           )}
         </For>
       </scrollbox>
-      </Show>
-      <Show when={mode() === "mesh"}>
-        <DialogMesh onClose={props.onClose} hideHeader />
-      </Show>
     </box>
   )
 }
