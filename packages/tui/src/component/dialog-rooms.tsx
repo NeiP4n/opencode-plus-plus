@@ -742,6 +742,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
   const [armed, setArmed] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const [joinError, setJoinError] = createSignal<string>()
+  const [meshJoinError, setMeshJoinError] = createSignal<string>()
   const [localServer] = createResource(() => client.api.server.info())
   const [selectedMesh, setSelectedMesh] = createSignal<(FoundMesh & { seedURL: string; host: string })>()
   const fields: {
@@ -789,7 +790,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
     if (previous?.clusterID !== mesh.clusterID && fields.meshToken && !fields.meshToken.isDestroyed)
       fields.meshToken.value = ""
     setSelectedMesh(mesh)
-    setJoinError()
+    setMeshJoinError()
     setTimeout(() => {
       if (fields.meshURL && !fields.meshURL.isDestroyed && !fields.meshURL.value) fields.meshURL.value = ownMeshAddress()
       if (fields.meshToken && !fields.meshToken.isDestroyed) fields.meshToken.focus()
@@ -802,11 +803,11 @@ export function DialogConnect(props: { onClose?: () => void }) {
     // paste inserted spaces or line breaks.
     const token = fields.meshToken?.value.replace(/\s+/g, "") ?? ""
     const url = fields.meshURL?.value.trim() || ownMeshAddress()
-    if (!mesh) return setJoinError(t("Select a Mesh room from the network list first."))
-    if (!token) return setJoinError(t("Paste the invitation token from the Mesh creator."))
-    if (!url) return setJoinError(t("Enter this device's reachable address, including its port."))
+    if (!mesh) return setMeshJoinError(t("Select a Mesh room from the network list first."))
+    if (!token) return setMeshJoinError(t("Paste the invitation token from the Mesh creator."))
+    if (!url) return setMeshJoinError(t("Enter this device's reachable address, including its port."))
     setBusy(true)
-    setJoinError()
+    setMeshJoinError()
     void client.api.room.mesh
       .join({ seedURL: mesh.seedURL, token, url, name: hostname() })
       .then(() => {
@@ -820,7 +821,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
           message.includes("Mesh credential is invalid") ||
           message.includes("Mesh invitation token does not match this room")
         ) {
-          setJoinError(
+          setMeshJoinError(
             t("The invitation token was rejected by {address} for Mesh {id}. Re-copy the current token from that room's owner and retry.", {
               address: mesh.seedURL,
               id: mesh.clusterID,
@@ -828,7 +829,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
           )
           return
         }
-        setJoinError(message)
+        setMeshJoinError(message)
       })
       .finally(() => setBusy(false))
   }
@@ -1068,6 +1069,13 @@ export function DialogConnect(props: { onClose?: () => void }) {
               </text>
               {field("meshToken", t("Invitation token"), t("Paste the token shown by the creator"))}
               {field("meshURL", t("This device's address"), ownMeshAddress() || t("e.g. http://192.168.1.12:4096"))}
+              <Show when={meshJoinError()}>
+                {(message) => (
+                  <text fg={theme.text.feedback.error.base} wrapMode="word">
+                    {message()}
+                  </text>
+                )}
+              </Show>
               <box flexDirection="row" gap={1}>
                 <Button variant="primary" disabled={busy()} onClick={joinMesh}>
                   {t("Join Mesh")}
