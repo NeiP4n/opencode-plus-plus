@@ -759,7 +759,9 @@ export function DialogConnect(props: { onClose?: () => void }) {
       if (!server.mesh || server.own) continue
       const mesh = {
         ...server.mesh,
-        seedURL: server.mesh.isOwner ? server.url : server.mesh.ownerURL || server.url,
+        // Use the reachable endpoint that actually advertised this room. The stored
+        // ownerURL may be a stale/container-only address on older installations.
+        seedURL: server.url,
         host: server.host,
       }
       const existing = unique.get(mesh.clusterID)
@@ -869,7 +871,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
         setFound((previous) => [...(previous ?? []).filter((item) => item.url !== url), server])
         const unlocked = rooms.filter((room) => room.open)
         if (rooms.length === 0 && server.mesh) {
-          chooseMesh({ ...server.mesh, seedURL: server.mesh.isOwner ? server.url : server.mesh.ownerURL || server.url, host: server.host })
+          chooseMesh({ ...server.mesh, seedURL: server.url, host: server.host })
           return setJoinError(t("Mesh found. Paste its invitation token in the Mesh connection panel below."))
         }
         if (rooms.length === 0) return setJoinError(t("No rooms at this address"))
