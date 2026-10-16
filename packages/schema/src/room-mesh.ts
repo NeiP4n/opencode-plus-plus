@@ -87,6 +87,7 @@ export interface RunAI extends Schema.Schema.Type<typeof RunAI> {}
 export const RpcRequest = Schema.Union([
   Schema.Struct({ type: Schema.Literal("enroll"), node: Node }),
   Schema.Struct({ type: Schema.Literal("add-learner"), clusterID: Schema.String, fromNodeID: Schema.String, node: Node }),
+  Schema.Struct({ type: Schema.Literal("remove-learner"), clusterID: Schema.String, fromNodeID: Schema.String, nodeID: Schema.String }),
   Schema.Struct({ type: Schema.Literal("prepare"), clusterID: Schema.String, fromNodeID: Schema.String, members: Schema.Array(Node) }),
   Schema.Struct({ type: Schema.Literal("activate"), clusterID: Schema.String, fromNodeID: Schema.String, members: Schema.Array(Node) }),
   Schema.Struct({ type: Schema.Literal("request-vote"), clusterID: Schema.String, fromNodeID: Schema.String, term: Schema.Number, lastLogIndex: Schema.Number, lastLogTerm: Schema.Number }),
