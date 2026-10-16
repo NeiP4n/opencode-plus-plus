@@ -54,7 +54,7 @@ For a seven-device room: any single device may go offline without losing committ
 
 ## Current implementation status on `lan-rooms`
 
-The CLI/TUI entry point is `/mesh` (also available as **Open Mesh room** in the command palette). The current panel supports creating a room, joining with an invitation token, activating the initial membership, viewing coordinator/quorum status, and appending shared messages or task notes.
+The CLI/TUI entry point is **+ Host** under Multiplayer. The window has **Host** and **Mesh** mode tabs; choose **Mesh** to enter the Mesh room workflow. The current panel supports creating a room, joining with an invitation token, activating the initial membership, viewing coordinator/quorum status, and appending shared messages or task notes.
 
 ### Manual smoke test
 
@@ -68,8 +68,8 @@ The CLI/TUI entry point is `/mesh` (also available as **Open Mesh room** in the 
    opencode --hostname 0.0.0.0 --port 4096
    ```
    Allow the selected TCP port through the device firewall only on trusted LAN/VPN networks.
-2. On the first device, open `/mesh`, enter its reachable address (for example, `http://192.168.1.10:4096`), and choose **Create Mesh**. Share the invitation token only with devices you trust.
-3. On every other device, open `/mesh`; enter the first device's address as the seed, paste the invitation token, enter that device's own reachable address, and choose **Join Mesh**.
+2. On the first device, open **+ Host**, select the **Mesh** tab, enter its reachable address (for example, `http://192.168.1.10:4096`), and choose **Create Mesh**. Share the invitation token only with devices you trust.
+3. On every other device, open **+ Host**, select **Mesh**, enter the first device's address as the seed, paste the invitation token, enter that device's own reachable address, and choose **Join Mesh**.
 4. When every expected device appears on the creator, choose **Activate Mesh**. All enrolled peers must be reachable for initial activation.
 5. Confirm the status says **Quorum healthy**. Send a message and verify that it appears on the other peers. A minority partition should not be treated as writable.
 
