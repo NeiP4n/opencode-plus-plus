@@ -5,6 +5,7 @@ import type { RpcRegistration } from "@opencode/plugin/effect/rpc"
 import type { Session } from "@opencode/schema/session"
 import { Tool } from "@opencode/schema/tool"
 import { Deferred, Effect, Schema, Stream } from "effect"
+import { LocalBrowser } from "./local/index.js"
 import { Browser } from "./rpc.js"
 import { BrowserTunnel } from "./tunnel.js"
 
@@ -22,10 +23,14 @@ export const make = Effect.fn("BrowserConnection.make")(function* (
   ctx: Pick<Context, "agent" | "rpc" | "session" | "location" | "event">,
 ) {
   const browsers = new Map<Session.ID, Attachment>()
-  // Appended after config, so every agent hides the browser until an attachment allows it.
-  yield* ctx.agent.transform((editor) =>
-    editor.list().forEach((agent) => agent.permissions.push({ action: "browser", resource: "*", effect: "deny" })),
-  )
+  // Without a desktop, Sessions drive a Chromium this server reaches over CDP. OPENCODE_BROWSER_LOCAL=0 restores
+  // desktop-only behavior.
+  const local = process.env.OPENCODE_BROWSER_LOCAL === "0" ? undefined : LocalBrowser.make(LocalBrowser.options())
+  // Appended after config, so every agent hides a desktop-only browser until an attachment allows it.
+  if (!local)
+    yield* ctx.agent.transform((editor) =>
+      editor.list().forEach((agent) => agent.permissions.push({ action: "browser", resource: "*", effect: "deny" })),
+    )
   // Each attachment adds and removes its own allow, so a replaced attachment keeps the new one's.
   const grant = (sessionID: Session.ID) =>
     Effect.acquireRelease(
@@ -62,6 +67,7 @@ export const make = Effect.fn("BrowserConnection.make")(function* (
     })
   yield* Effect.addFinalizer(() => {
     active = false
+    local?.dispose()
     return Effect.forEach(browsers.keys(), (id) => close(id), { discard: true })
   })
   const tunnels = (input: {
@@ -158,13 +164,18 @@ export const make = Effect.fn("BrowserConnection.make")(function* (
     .pipe(Effect.orDie)
   yield* ctx.event.subscribe().pipe(
     Stream.filter((event) => event.type === "session.deleted" || event.type === "session.moved"),
-    Stream.runForEach((event) => close(event.data.sessionID)),
+    Stream.runForEach((event) =>
+      close(event.data.sessionID).pipe(
+        Effect.andThen(local ? Effect.promise(() => local.release(event.data.sessionID).catch(() => undefined)) : Effect.void),
+      ),
+    ),
     Effect.forkScoped({ startImmediately: true }),
   )
 
   return {
     target: Effect.fn("BrowserConnection.target")(function* (sessionID: Session.ID, action: Browser.Action) {
       const browser = browsers.get(sessionID)
+      if (!browser && local) return yield* localTarget(local, sessionID, action)
       if (!browser)
         return yield* new Tool.Error({
           message:
@@ -250,3 +261,59 @@ const request = Effect.fn("BrowserConnection.request")(function* (
     Effect.ensuring(Effect.sync(() => browser.pending.delete(requestID))),
   )
 })
+
+const localTarget = Effect.fn("BrowserConnection.localTarget")(function* (
+  local: LocalBrowser.Manager,
+  sessionID: Session.ID,
+  action: Browser.Action,
+) {
+  const tab = "tabID" in action ? local.state(sessionID).tabs.find((tab) => tab.id === action.tabID) : undefined
+  if ("tabID" in action && !tab)
+    return yield* new Tool.Error({
+      message:
+        "[browser.tab_unavailable] This tab is closed or does not belong to this session. Call browser.tabs.list({}) and use an exact returned tabID. If no tabs exist, use browser.tabs.open({}). Never substitute a request ID, file ID, or element ref for tabID.",
+    })
+  const run = (files: readonly Browser.File[], inspection: Pick<Browser.Command, "inspect" | "target">) =>
+    Effect.tryPromise({
+      try: (signal) =>
+        local.execute(
+          sessionID,
+          { action, ...(tab ? { generation: tab.generation } : {}), files, ...inspection },
+          signal,
+        ),
+      catch: (error) => localFailure(action, error),
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: "60 seconds",
+        orElse: () =>
+          new Tool.Error({
+            message: `[browser.timeout] browser.${action.type} did not finish within 60 seconds; its outcome is unknown. Call browser.tabs.list({}) and inspect the tab before deciding to repeat a mutating action.`,
+          }),
+      }),
+    )
+  return {
+    tab,
+    inspect: () =>
+      run([], { inspect: true }).pipe(
+        Effect.flatMap((result) => Schema.decodeUnknownEffect(Browser.Target)(result.value)),
+        Effect.mapError((error) =>
+          error instanceof Tool.Error
+            ? error
+            : new Tool.Error({ message: "Browser returned invalid target metadata; no action was authorized.", error }),
+        ),
+      ),
+    request: (files: readonly Browser.File[], target?: Browser.Target) => run(files, { target }),
+  }
+})
+
+function localFailure(action: Browser.Action, error: unknown) {
+  const detail = (error instanceof Error ? error.message : String(error)).slice(0, 1_700)
+  const navigation = ["tabs.open", "navigate", "back", "forward", "reload"].includes(action.type)
+  const network = navigation ? detail.match(/\bERR_[A-Z_]+\b/)?.[0] : undefined
+  const connection = /No Chromium|connect to the browser|connection (?:is )?closed|Cannot connect/i.test(detail)
+  const code = connection ? "disconnected" : network ? "navigation_failed" : "operation_failed"
+  return new Tool.Error({
+    message: `[browser.${code}] browser.${action.type} failed. ${detail}`.slice(0, 2_048),
+    error,
+  })
+}
