@@ -132,7 +132,6 @@ export function clampSessionSidebarWidth(width: number, total: number) {
 // retain its readable minimum. Otherwise the sidebar remains available via its toggle.
 export const SESSION_TABS_COMPACT_LAYOUT_WIDTH = 34
 export const SESSION_SIDEBAR_COMPACT_WIDTH = 38
-const SESSION_SIDEBAR_DOCK_GUTTER = 8
 const COMPACT_LAYOUT_AUTO_FROM = 110
 const COMPACT_LAYOUT_AUTO_BELOW = 170
 
@@ -151,9 +150,11 @@ export function compactLayout(mode: LayoutMode | undefined, total: number) {
   return total >= COMPACT_LAYOUT_AUTO_FROM && total < COMPACT_LAYOUT_AUTO_BELOW
 }
 
-export function sessionSidebarDocks(available: number, compact: boolean) {
-  if (compact) return available >= SESSION_SIDEBAR_COMPACT_WIDTH + SESSION_CONTENT_PREFERRED_WIDTH
-  return available >= SESSION_SIDEBAR_WIDTH + SESSION_CONTENT_MIN_WIDTH + SESSION_SIDEBAR_DOCK_GUTTER
+export function sessionSidebarDocks(available: number, _compact: boolean) {
+  // A docked sidebar can shrink to SESSION_PANEL_MIN_WIDTH while preserving
+  // SESSION_CHAT_MIN_WIDTH for the conversation. The preferred-width threshold
+  // unexpectedly turned a usable side panel into an absolute overlay.
+  return available >= SESSION_PANEL_MIN_WIDTH + SESSION_CHAT_MIN_WIDTH
 }
 
 // Home's right project dashboard is optional at narrow widths: reserve enough space

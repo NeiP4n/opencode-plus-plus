@@ -11,25 +11,28 @@ import "../../component/title-shimmer"
 import { getScrollAcceleration } from "../../util/scroll"
 import { useCompactLayout } from "../../ui/compact-layout"
 
-export function Sidebar(props: { sessionID: string; onHide?: () => void }) {
+export function Sidebar(props: { sessionID: string; onHide?: () => void; width?: number; borderLeft?: boolean }) {
   const data = useData()
   const theme = useTheme()
   const config = useConfig().data
   const session = createMemo(() => data.session.get(props.sessionID))
   const scrollAcceleration = createMemo(() => getScrollAcceleration(config))
   const layout = useCompactLayout()
+  const width = () => props.width ?? layout.sidebarWidth()
 
   return (
     <Show when={session()}>
       <box
         backgroundColor={theme.background.raised.base}
-        width={layout.sidebarWidth()}
+        width={width()}
         height="100%"
         paddingTop={1}
         paddingBottom={1}
         paddingLeft={layout.compact() ? 1 : 2}
         paddingRight={layout.compact() ? 1 : 2}
         position="relative"
+        border={props.borderLeft ? ["left"] : undefined}
+        borderColor={theme.border.base}
       >
         <box flexDirection="row" alignItems="center" flexShrink={0} paddingRight={1} paddingBottom={1} gap={1}>
           <box flexGrow={1} minWidth={0}>

@@ -51,14 +51,15 @@ test("a compact rail is allowed only when the terminal cannot fit both readable 
   expect(sessionTabsFitVertically(68, SESSION_TABS_COMPACT_WIDTH)).toBe(false)
 })
 
-test("the session sidebar docks beside a readable chat at laptop widths", () => {
-  // After the left project tree is taken out, a ~100-column content area must still
-  // show the right sidebar rather than stretching the transcript across the window.
+test("the session sidebar docks without covering chat as soon as both minimum widths fit", () => {
+  // The right pane can shrink to 28 columns while keeping at least 56 for chat.
   expect(sessionSidebarDocks(94, false)).toBe(true)
-  expect(sessionSidebarDocks(93, false)).toBe(false)
-  expect(sessionSidebarDocks(98, false)).toBe(true)
+  expect(sessionSidebarDocks(93, false)).toBe(true)
+  expect(sessionSidebarDocks(84, false)).toBe(true)
+  expect(sessionSidebarDocks(83, false)).toBe(false)
   expect(sessionSidebarDocks(102, true)).toBe(true)
-  expect(sessionSidebarDocks(101, true)).toBe(false)
+  expect(sessionSidebarDocks(84, true)).toBe(true)
+  expect(sessionSidebarDocks(83, true)).toBe(false)
 })
 
 test("home project panel respects width bounds and preserves usable prompt space", () => {
