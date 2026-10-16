@@ -24,6 +24,7 @@ const StoredState = Schema.Struct({
   secret: Schema.String,
   ownerNodeID: Schema.String,
   members: Schema.Array(RoomMesh.Node),
+  voters: Schema.Array(Schema.String).pipe(Schema.optional),
   currentTerm: Schema.Number,
   votedFor: Schema.String.pipe(Schema.optional),
   leaderID: Schema.String.pipe(Schema.optional),
@@ -40,6 +41,7 @@ export class MeshError extends Schema.TaggedError<MeshError>()("ServerMesh.Error
 
 export interface Interface {
   readonly status: () => Effect.Effect<RoomMesh.Snapshot, MeshError>
+  readonly invite: () => Effect.Effect<{ token: string }, MeshError>
   readonly create: (input: RoomMesh.CreateInput) => Effect.Effect<{ data: RoomMesh.Snapshot; token: string }, MeshError>
   readonly join: (input: RoomMesh.JoinInput) => Effect.Effect<RoomMesh.Snapshot, MeshError>
   readonly leave: () => Effect.Effect<RoomMesh.Snapshot, MeshError>
@@ -147,6 +149,9 @@ const layer = Layer.effect(
       ...(input.matchIndex !== undefined ? { matchIndex: input.matchIndex } : {}),
       ...(input.clusterID !== undefined ? { clusterID: input.clusterID } : {}),
       ...(input.ownerNodeID !== undefined ? { ownerNodeID: input.ownerNodeID } : {}),
+      ...(input.leaderID !== undefined ? { leaderID: input.leaderID } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.voters !== undefined ? { voters: input.voters } : {}),
       ...(input.members !== undefined ? { members: input.members } : {}),
       ...(input.entry !== undefined ? { entry: input.entry } : {}),
       ...(input.commitIndex !== undefined ? { commitIndex: input.commitIndex } : {}),
@@ -195,11 +200,14 @@ const layer = Layer.effect(
       )
 
     const memberFor = (state: StoredState, id: string) => state.members.find((member) => member.id === id)
+    // During formation all enrolled peers will vote. Once active, later devices are learners.
+    const voterIDs = (state: StoredState) =>
+      state.status === "forming" ? state.members.map((member) => member.id) : (state.voters ?? state.members.map((member) => member.id))
 
     const snapshot = Effect.fn("ServerMesh.snapshot")(function* (state?: StoredState) {
       const localID = state?.nodeID ?? (yield* localNodeID())
       const members = state?.members ?? []
-      const ids = members.map((member) => member.id)
+      const ids = state ? voterIDs(state) : []
       const required = ids.length ? quorumSize(ids.length) : 0
       const recent = ids.filter((id) => id === localID || Date.now() - (acknowledgedAt.get(id) ?? 0) <= LEASE_MS)
       const writable = state?.status === "active" && state.leaderID === localID && hasQuorum(ids, recent)
@@ -211,6 +219,8 @@ const layer = Layer.effect(
         currentTerm: state?.currentTerm ?? 0,
         ...(state?.leaderID ? { leaderID: state.leaderID } : {}),
         members,
+        voters: ids,
+        voter: state ? ids.includes(localID) : false,
         logIndex: state ? lastIndex(state) : 0,
         commitIndex: state?.commitIndex ?? 0,
         quorum: required,
@@ -249,7 +259,7 @@ const layer = Layer.effect(
       const peers = state.members.filter((member) => member.id !== state.nodeID)
       const results = yield* Effect.all(
         peers.map((member) => {
-          const next = Math.max(1, Math.min(nextIndex.get(member.id) ?? Math.max(1, lastIndex(state)), lastIndex(state) + 1))
+          const next = Math.max(1, Math.min(nextIndex.get(member.id) ?? 1, lastIndex(state) + 1))
           const previousIndex = next - 1
           const entries = state.log.filter((entry) => entry.index >= next)
           const request: RoomMesh.RpcRequest = {
@@ -301,7 +311,7 @@ const layer = Layer.effect(
       const commitIndex = advanceCommitIndex({
         currentTerm: state.currentTerm,
         currentCommitIndex: state.commitIndex,
-        voters: state.members.map((member) => member.id),
+        voters: voterIDs(state),
         replicatedIndex,
         log: state.log,
       })
@@ -351,7 +361,7 @@ const layer = Layer.effect(
     })
 
     const vote = Effect.fn("ServerMesh.vote")(function* (state: StoredState, input: Extract<RoomMesh.RpcRequest, { type: "request-vote" }>) {
-      if (state.status !== "active" || !memberFor(state, input.fromNodeID))
+      if (state.status !== "active" || !voterIDs(state).includes(state.nodeID) || !voterIDs(state).includes(input.fromNodeID))
         return response({ ok: false, currentTerm: state.currentTerm, message: "Unknown Mesh voter" })
       const decision = requestVote({
         state: { currentTerm: state.currentTerm, votedFor: state.votedFor },
@@ -375,7 +385,7 @@ const layer = Layer.effect(
     })
 
     const appendEntries = Effect.fn("ServerMesh.appendEntries")(function* (state: StoredState, input: Extract<RoomMesh.RpcRequest, { type: "append-entries" }>) {
-      if (!memberFor(state, input.fromNodeID) || input.leaderID !== input.fromNodeID)
+      if (!voterIDs(state).includes(input.fromNodeID) || input.leaderID !== input.fromNodeID)
         return response({ ok: false, currentTerm: state.currentTerm, success: false, matchIndex: lastIndex(state) })
       if (input.term < state.currentTerm)
         return response({ currentTerm: state.currentTerm, success: false, matchIndex: lastIndex(state) })
@@ -548,6 +558,7 @@ const layer = Layer.effect(
       yield* locks.withLock("state")(Effect.gen(function* () {
         let state = yield* load()
         if (!state || state.status !== "active") return
+        if (!voterIDs(state).includes(state.nodeID)) return
         const deadline = electionDeadline.get(state.clusterID)
         if (state.leaderID === state.nodeID) {
           yield* replicate(state)
@@ -577,13 +588,13 @@ const layer = Layer.effect(
           return
         }
         const granted = [state.nodeID, ...requests.flatMap((result) => result.reply?.granted && result.reply.currentTerm === term ? [result.member.id] : [])]
-        if (!hasQuorum(state.members.map((member) => member.id), granted)) return
+        if (!hasQuorum(voterIDs(state), granted)) return
         state = { ...state, leaderID: state.nodeID }
         yield* save(state)
         const now = Date.now()
         matchIndex.set(state.nodeID, lastIndex(state))
         acknowledgedAt.set(state.nodeID, now)
-        state.members.filter((member) => member.id !== state.nodeID).forEach((member) => nextIndex.set(member.id, lastIndex(state) + 1))
+        state.members.filter((member) => member.id !== state.nodeID).forEach((member) => nextIndex.set(member.id, voterIDs(state).includes(member.id) ? lastIndex(state) + 1 : 1))
         yield* replicate(state)
       }))
     })
