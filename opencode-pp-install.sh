@@ -53,6 +53,23 @@ install_bun() {
     versions="1.4.2 1.4.1 1.4.0"
   fi
 
+  # In Termux, networking must stay on the native bionic side. glibc-runner can
+  # execute the downloaded Bun, but must not be used to run Termux's curl.
+  downloader="curl"
+  if [ "${OPENCODE_PP_TERMUX:-0}" = 1 ]; then
+    command -v curl >/dev/null 2>&1 || fail "Termux curl is not available"
+    # A partially upgraded Termux can have a curl/libcurl/OpenSSL ABI mismatch.
+    # Refresh the native packages before the first download and fail with a useful
+    # diagnostic instead of falling through to the glibc runtime.
+    if ! curl --version >/dev/null 2>&1; then
+      echo "Repairing Termux curl/libcurl/OpenSSL packages…" >&2
+      pkg update -y || fail "could not update Termux package lists"
+      pkg upgrade -y || fail "could not synchronize Termux packages"
+      pkg reinstall -y libcurl openssl curl || fail "could not repair Termux curl/libcurl/OpenSSL"
+      curl --version >/dev/null 2>&1 || fail "Termux curl is still broken after package repair"
+    fi
+  fi
+
   for version in $versions; do
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/opencode-pp-bun.XXXXXX")"
     archive="$tmp/bun.zip"
@@ -60,7 +77,7 @@ install_bun() {
     url="https://github.com/oven-sh/bun/releases/download/bun-v$version/bun-$target.zip"
     echo "Installing Bun $version ($target)…"
 
-    if ! curl -fsSL --retry 3 -o "$archive" "$url" || ! unzip -oq "$archive" -d "$extract"; then
+    if ! "$downloader" -fsSL --retry 3 -o "$archive" "$url" || ! unzip -oq "$archive" -d "$extract"; then
       rm -rf "$tmp"
       continue
     fi
@@ -100,6 +117,18 @@ termux() {
   pkg install -y glibc-repo || fail "could not install glibc-repo"
   pkg update -y || fail "could not update Termux package lists"
   pkg install -y glibc glibc-runner git curl unzip || fail "could not install Termux glibc runtime"
+
+  # The native Termux side can be left half-upgraded (for example after a mirror
+  # switch). Repair the bionic curl/libcurl/OpenSSL ABI before we use curl at all.
+  # This fixes errors such as:
+  #   CANNOT LINK EXECUTABLE "curl": cannot locate symbol "SSL_set_quic_tls_early_data_enabled"
+  # and keeps curl outside glibc-runner where it belongs.
+  if ! curl --version >/dev/null 2>&1; then
+    echo "Repairing Termux curl/libcurl/OpenSSL packages…"
+    pkg upgrade -y || fail "could not synchronize Termux packages"
+    pkg reinstall -y libcurl openssl curl || fail "could not repair Termux curl/libcurl/OpenSSL"
+    curl --version >/dev/null 2>&1 || fail "Termux curl is still broken after package repair"
+  fi
 
   need grun || fail "glibc-runner installed but 'grun' is not available"
 
