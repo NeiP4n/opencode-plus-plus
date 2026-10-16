@@ -436,19 +436,10 @@ export function DialogHost(props: { onClose?: () => void }) {
   }
 
   return (
-    <Show
-      when={mode() === "host"}
-      fallback={
-        <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-          <Header title={t("Multiplayer")} onClose={props.onClose} />
-          <MultiplayerModeSelector value="mesh" onChange={setMode} />
-          <DialogMesh onClose={props.onClose} hideHeader />
-        </box>
-      }
-    >
-      <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
-        <Header title={t("Multiplayer")} onClose={props.onClose} />
-        <MultiplayerModeSelector value="host" onChange={setMode} />
+    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+      <Header title={t("Multiplayer")} onClose={props.onClose} />
+      <MultiplayerModeSelector value={mode()} onChange={setMode} />
+      <Show when={mode() === "host"}>
         <Show when={server.error}>
           {(error) => (
             <text fg={theme.text.feedback.error.base} wrapMode="word">
@@ -636,8 +627,11 @@ export function DialogHost(props: { onClose?: () => void }) {
         <Show when={rooms.error}>
           <text fg={theme.text.feedback.error.base}>{errorMessage(rooms.error)}</text>
         </Show>
-      </box>
-    </Show>
+      </Show>
+      <Show when={mode() === "mesh"}>
+        <DialogMesh onClose={props.onClose} hideHeader />
+      </Show>
+    </box>
   )
 }
 
