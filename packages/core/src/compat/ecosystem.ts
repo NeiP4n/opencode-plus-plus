@@ -91,12 +91,14 @@ export function empty<T = string>(): ByID<readonly T[]> {
 export function settings(entries: readonly Entry[]): ConfigCompatibility.Info {
   let ecosystems: Partial<Record<ID, boolean>> = {}
   let order: readonly ID[] | undefined
+  let enabled: boolean | undefined
   for (const entry of entries) {
     if (entry.type !== "document" || !entry.info.compatibility) continue
     ecosystems = { ...ecosystems, ...entry.info.compatibility.ecosystems }
     order = entry.info.compatibility.order ?? order
+    enabled = entry.info.compatibility.enabled ?? enabled
   }
-  return { ecosystems, ...(order ? { order } : {}) }
+  return { ecosystems, ...(order ? { order } : {}), ...(enabled === undefined ? {} : { enabled }) }
 }
 
 /** Full merge priority, highest first: the configured order, then the remaining ecosystems in default order. */
@@ -109,5 +111,6 @@ export function order(configured: readonly ID[] = []): readonly ID[] {
  * so every ecosystem found in a project merges by default.
  */
 export function enabled(id: ID, configured: ConfigCompatibility.Info, project?: Partial<Record<ID, boolean>>): boolean {
-  return project?.[id] ?? configured.ecosystems?.[id] ?? true
+  // The master switch only changes the default: an explicit choice for the ecosystem still wins.
+  return project?.[id] ?? configured.ecosystems?.[id] ?? configured.enabled !== false
 }

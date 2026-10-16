@@ -61,6 +61,7 @@ import { PermissionProvider } from "./context/permission"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
+import { DialogCompat } from "./component/dialog-compat"
 import { DialogStatus } from "./component/dialog-status"
 import { DialogConfig } from "./component/dialog-config"
 import { RegistryPanel } from "./component/devtools-registry"
@@ -172,6 +173,7 @@ const appBindingCommands = [
   "model.cycle_favorite_reverse",
   "agent.list",
   "mcp.list",
+  "compat.list",
   "agent.cycle",
   "agent.cycle.reverse",
   "variant.cycle",
@@ -596,6 +598,28 @@ function App() {
   // Toast once when an MCP server enters a failed or needs-auth state so the user knows to act,
   // without having to open the status panel. Tracking the last alerted status avoids re-toasting
   // the same problem on every refresh while still re-alerting if the state changes.
+  // A project carrying another agent tool's hooks or MCP servers gets them only after the user trusts it;
+  // say so once per project root instead of leaving it to `/compat`.
+  const compatAlerted = new Set<string>()
+  createEffect(() => {
+    const directory = (location.ref ?? data.location.default()).directory
+    void client.api.config.compatibility
+      .get({ location: { directory } })
+      .then((report) => {
+        if (compatAlerted.has(report.root)) return
+        const waiting = report.ecosystems.find((item) => item.enabled && !item.trusted && (item.awaitingTrust ?? 0) > 0)
+        if (!waiting) return
+        compatAlerted.add(report.root)
+        toast.show({
+          variant: "warning",
+          title: t("Project has {name} settings that need trust", { name: waiting.label }),
+          message: t("Hooks, MCP servers and allow rules stay off until you trust them."),
+          action: { label: t("Review"), run: () => keymap.dispatch("compat.list") },
+        })
+      })
+      .catch(() => undefined)
+  })
+
   const mcpAlerted: Record<string, string> = {}
   createEffect(() => {
     for (const server of data.location.mcp.server.list() ?? []) {
@@ -1060,6 +1084,15 @@ function App() {
         slash: { name: "mcps" },
         run: () => {
           dialog.replace(() => <DialogMcp />)
+        },
+      },
+      {
+        name: "compat.list",
+        title: "Other agent tools",
+        category: "Agent",
+        slash: { name: "compat" },
+        run: () => {
+          dialog.replace(() => <DialogCompat />)
         },
       },
       {

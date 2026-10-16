@@ -12,6 +12,13 @@ describe("Ecosystem", () => {
     expect(Ecosystem.enabled("codex", { ecosystems: { codex: false } })).toBe(false)
   })
 
+  test("the master switch turns every ecosystem off by default, explicit choices still win", () => {
+    expect(Ecosystem.ids.some((id) => Ecosystem.enabled(id, { enabled: false }))).toBe(false)
+    expect(Ecosystem.enabled("claude", { enabled: false, ecosystems: { claude: true } })).toBe(true)
+    expect(Ecosystem.enabled("codex", { enabled: false }, { codex: true })).toBe(true)
+    expect(Ecosystem.settings([document({ compatibility: { enabled: false } })]).enabled).toBe(false)
+  })
+
   test("the per-project choice outranks config", () => {
     expect(Ecosystem.enabled("codex", { ecosystems: { codex: false } }, { codex: true })).toBe(true)
     expect(Ecosystem.enabled("claude", { ecosystems: { claude: true } }, { claude: false })).toBe(false)
