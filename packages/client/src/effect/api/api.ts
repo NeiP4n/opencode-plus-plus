@@ -3991,6 +3991,7 @@ export interface RoomApi<E = never> {
     readonly status: RoomMeshStatusOperation<E>
     readonly create: RoomMeshCreateOperation<E>
     readonly join: RoomMeshJoinOperation<E>
+    readonly leave: RoomMeshLeaveOperation<E>
     readonly activate: RoomMeshActivateOperation<E>
     readonly append: RoomMeshAppendOperation<E>
     readonly feed: RoomMeshFeedOperation<E>
@@ -4049,6 +4050,8 @@ export type RoomMeshCreateOperation<E = never> = (input: RoomMeshCreateInput) =>
 export type RoomMeshJoinInput = RoomMesh.JoinInput
 export type RoomMeshJoinOutput = RoomMesh.Snapshot
 export type RoomMeshJoinOperation<E = never> = (input: RoomMeshJoinInput) => Effect.Effect<RoomMeshJoinOutput, E>
+export type RoomMeshLeaveOutput = RoomMesh.Snapshot
+export type RoomMeshLeaveOperation<E = never> = () => Effect.Effect<RoomMeshLeaveOutput, E>
 export type RoomMeshActivateOutput = RoomMesh.Snapshot
 export type RoomMeshActivateOperation<E = never> = () => Effect.Effect<RoomMeshActivateOutput, E>
 export type RoomMeshAppendInput = RoomMesh.AppendInput
