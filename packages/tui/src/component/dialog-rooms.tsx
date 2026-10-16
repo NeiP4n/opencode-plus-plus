@@ -835,7 +835,7 @@ export function DialogConnect(props: { onClose?: () => void }) {
     return parsed.origin
   }
 
-  const order = ["address", "code", "name"] as const
+  const order = ["address", "code", "name", "meshToken", "meshURL"] as const
   const cycle = (delta: number) => {
     const index = order.findIndex((key) => fields[key]?.focused)
     fields[order[(index + delta + order.length) % order.length]]?.focus()
