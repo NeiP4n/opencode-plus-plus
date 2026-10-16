@@ -2616,6 +2616,15 @@ export type RoomCodeOperation<E = never> = (input: RoomCodeInput) => Effect.Effe
 export type RoomPublicOutput = {
   readonly host: string
   readonly rooms: ReadonlyArray<{ readonly id: Room.ID; readonly name?: string | undefined; readonly open: boolean }>
+  readonly mesh?:
+    | {
+        readonly clusterID: string
+        readonly status: "forming" | "active"
+        readonly name: string
+        readonly ownerURL: string
+        readonly memberCount: number
+      }
+    | undefined
 }
 export type RoomPublicOperation<E = never> = () => Effect.Effect<RoomPublicOutput, E>
 
