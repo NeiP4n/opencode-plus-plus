@@ -1,7 +1,8 @@
 #!/bin/sh
 # Install Opencode++ for Linux, macOS and Android/Termux.
-# Termux uses a glibc Debian container because OpenTUI's native Linux library
-# cannot run directly on Android's bionic userspace.
+# Termux uses the official Termux glibc runtime instead of proot-distro. This avoids
+# Android ptrace/seccomp crashes in proot while still providing the glibc ABI required
+# by Bun and OpenTUI.
 set -eu
 
 REPO="${OPENCODE_PP_REPO:-https://github.com/NeiP4n/opencode-plus-plus.git}"
@@ -73,7 +74,12 @@ install_bun() {
     chmod 755 "$bin_dir/bun"
     rm -rf "$tmp"
 
-    if "$bin_dir/bun" --version >/dev/null 2>&1; then
+    # Android uses bionic, so a glibc Bun must be tested through glibc-runner.
+    if [ "${OPENCODE_PP_TERMUX:-0}" = 1 ]; then
+      if grun "$bin_dir/bun" --version >/dev/null 2>&1; then
+        return 0
+      fi
+    elif "$bin_dir/bun" --version >/dev/null 2>&1; then
       PATH="$bin_dir:$PATH"
       export PATH
       return 0
@@ -85,56 +91,104 @@ install_bun() {
 }
 
 termux() {
-  DISTRO="${OPENCODE_PP_DISTRO:-debian}"
-  # Use GitHub's dynamic raw route instead of raw.githubusercontent.com. This avoids serving a
-  # stale CDN copy of the installer when the branch was just updated.
-  URL="${OPENCODE_PP_INSTALL_URL:-https://github.com/NeiP4n/opencode-plus-plus/raw/refs/heads/$BRANCH/opencode-pp-install.sh}"
+  # Do NOT use proot-distro here. The exact crash reported on the phone is PRoot's
+  # tracee/seccomp assertion (IS_IN_SYSENTER), so changing bind mappings cannot fix it.
+  # Termux has an official glibc repository and glibc-runner specifically for running
+  # glibc Linux binaries without PRoot.
+  echo "Configuring Termux glibc runtime…"
+  pkg update -y >/dev/null 2>&1 || true
+  pkg install -y glibc-repo || fail "could not install glibc-repo"
+  pkg update -y || fail "could not update Termux package lists"
+  pkg install -y glibc glibc-runner git curl unzip || fail "could not install Termux glibc runtime"
 
-  need proot-distro || {
-    echo "Installing proot-distro…"
-    pkg install -y proot-distro || fail "could not install proot-distro"
+  need grun || fail "glibc-runner installed but 'grun' is not available"
+
+  # Mark this before installing Bun so install_bun validates the Linux binary with grun.
+  export OPENCODE_PP_TERMUX=1
+
+  # Use a user-local bin directory. It is also where the final opencode-pp wrapper is placed.
+  mkdir -p "$BIN"
+  case ":$PATH:" in
+    *":$BIN:"*) ;;
+    *) PATH="$BIN:$PATH"; export PATH ;;
+  esac
+
+  # Download/install Bun as a Linux glibc binary. Keep the real binary as `buno` and expose
+  # a small `bun` wrapper that always enters the glibc environment through grun.
+  if ! need bun; then
+    install_bun
+  fi
+  [ -x "$HOME/.bun/bin/bun" ] || fail "Bun was not installed"
+  mv -f "$HOME/.bun/bin/bun" "$HOME/.bun/bin/buno"
+  cat >"$BIN/bun" <<'WRAPPER'
+#!/bin/sh
+exec grun "$HOME/.bun/bin/buno" "$@"
+WRAPPER
+  chmod +x "$BIN/bun"
+
+  # Make sure the wrapper itself is functional before doing the repository install.
+  bun --version || fail "Bun cannot start through glibc-runner"
+
+  if [ -d "$DIR/.git" ]; then
+    echo "Updating $DIR…"
+    git -C "$DIR" fetch --force --prune origin '+refs/tags/release/*:refs/tags/release/*'
+  else
+    echo "Downloading Opencode++ into $DIR…"
+    git clone --filter=blob:none "$REPO" "$DIR"
+  fi
+
+  TAG=$(git -C "$DIR" tag -l 'release/*' --sort=-v:refname | head -n 1)
+  if [ -n "$TAG" ]; then
+    TARGET="$TAG"
+    VERSION="${TAG#release/}"
+  else
+    echo "No release yet; installing branch $BRANCH."
+    git -C "$DIR" fetch --quiet --force origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || fail "could not fetch branch $BRANCH"
+    TARGET="origin/$BRANCH"
+    VERSION="$BRANCH (no release yet)"
+  fi
+
+  LOCAL_CHANGES=$(git -C "$DIR" status --porcelain) || fail "could not inspect local changes"
+  STASHED=0
+  if [ -n "$LOCAL_CHANGES" ]; then
+    echo "Preserving local changes before updating…"
+    git -C "$DIR" stash push --include-untracked --message "opencode-pp installer update" || fail "could not save local changes"
+    STASHED=1
+  fi
+
+  restore() {
+    [ "$STASHED" -eq 1 ] || return 0
+    echo "Restoring local changes…"
+    if git -C "$DIR" stash pop; then
+      STASHED=0
+    else
+      echo "WARNING: changes conflicted; saved copy remains in Git stash." >&2
+      git -C "$DIR" reset --hard --quiet || true
+      git -C "$DIR" stash list >&2
+      STASHED=0
+    fi
   }
 
-  if ! proot-distro login "$DISTRO" -- true >/dev/null 2>&1; then
-    echo "Installing $DISTRO for Opencode++…"
-    proot-distro install "$DISTRO" || fail "could not install $DISTRO"
+  if ! git -C "$DIR" checkout --quiet --detach "$TARGET"; then
+    restore
+    fail "git checkout failed"
   fi
+  restore
 
-  mkdir -p "$HOME/.cache"
-  script="$HOME/.cache/opencode-pp-install.sh"
-  if [ -f "$0" ] && grep -q 'Opencode++' "$0"; then
-    cp "$0" "$script"
-  else
-    echo "Downloading current Opencode++ installer…"
-    curl -fsSL --retry 3 "$URL?installer=lan-rooms" -o "$script" || fail "could not download installer"
-  fi
+  echo "Installing dependencies with glibc Bun…"
+  (cd "$DIR" && bun install --frozen-lockfile --filter ./packages/cli)
 
-  # Do not bind $HOME to itself. --shared-home maps Termux HOME to /root and avoids the
-  # '--bind ... overlaps with an existing one' warning seen on Android.
-  echo "Launching Debian with shared home (no overlapping --bind)…"
-  proot-distro login \
-    --shared-home \
-    --no-sysvipc \
-    --kernel 5.10.0 \
-    "$DISTRO" -- \
-    env OPENCODE_PP_REPO="$REPO" OPENCODE_PP_BRANCH="$BRANCH" OPENCODE_PP_TERMUX=1 \
-    sh /root/.cache/opencode-pp-install.sh \
-    || fail "installing inside $DISTRO failed"
-
-  cat >"$PREFIX/bin/opencode-pp" <<WRAPPER
-#!$PREFIX/bin/sh
-# Opencode++ for Termux, installed by opencode-pp-install.sh.
-set -- --shared-home --no-sysvipc --kernel 5.10.0 -- env OPENCODE_PP_MOBILE=1 TERM="\${TERM:-xterm-256color}" COLORTERM="\${COLORTERM:-truecolor}" LANG="\${LANG:-C.UTF-8}" /root/.local/bin/opencode-pp "\$@"
-case "\$PWD" in
-  "\$HOME"|"\$HOME"/*) rel="\${PWD#\$HOME}"; set -- --work-dir "/root\$rel" "\$@" ;;
-esac
-exec proot-distro login $DISTRO "\$@"
+  mkdir -p "$BIN"
+  cat >"$BIN/opencode-pp" <<WRAPPER
+#!/bin/sh
+# Opencode++ $VERSION, installed by opencode-pp-install.sh.
+OPENCODE_COMMAND=opencode-pp exec "$(dirname "$0")/bun" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
 WRAPPER
-  chmod +x "$PREFIX/bin/opencode-pp"
+  chmod +x "$BIN/opencode-pp"
 
   echo
-  echo "Opencode++ is installed in Termux. Run: opencode-pp"
-  [ -d "$HOME/storage" ] || echo "For phone storage run once: termux-setup-storage"
+  echo "Opencode++ $VERSION is installed in Termux using glibc-runner (no proot)."
+  echo "Run: opencode-pp"
   exit 0
 }
 
