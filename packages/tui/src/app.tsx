@@ -76,7 +76,7 @@ import { ProjectTree } from "./component/project-tree"
 import { HomeProjectPanel } from "./component/home-project-panel"
 import { RoomChat } from "./component/room-chat"
 import { basicSymbolsNeeded, replaceMissingGlyphs } from "./ui/console-glyphs"
-import { DialogConnect, DialogHost, DialogMesh } from "./component/dialog-rooms"
+import { DialogConnect, DialogHost } from "./component/dialog-rooms"
 import { sameRoom, useJoinedRooms } from "./util/room"
 import { linkRoom } from "./util/room-guest"
 import { useT } from "./util/i18n"
@@ -1167,16 +1167,6 @@ function App() {
         title: "Connect to a room",
         run: () => {
           dialog.replace(() => <DialogConnect onClose={() => dialog.clear()} />, undefined, { size: "large" })
-          dialog.setCentered(true)
-        },
-        category: "Multiplayer",
-      },
-      {
-        name: "room.mesh",
-        title: "Open Mesh room",
-        slash: { name: "mesh" },
-        run: () => {
-          dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
           dialog.setCentered(true)
         },
         category: "Multiplayer",
