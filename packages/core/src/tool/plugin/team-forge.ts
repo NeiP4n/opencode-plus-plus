@@ -68,6 +68,10 @@ export const Plugin = {
   effect: Effect.fn("TeamForgeTool.Plugin")(function* (ctx: Context) {
     const orchestra = yield* Orchestra.Service
     const bus = yield* Bus.Service
+    // Entering /forge-teams grants this session ongoing registry-management access.
+    // The automatic creation loop may finish or be interrupted, but the operator
+    // should still be able to edit/delete teams in follow-up messages in this session.
+    const enabled = new Set<SessionID>()
     const forging = new Map<SessionID, Forge>()
 
     const list = Effect.fnUntraced(function* () {
@@ -347,6 +351,7 @@ export const Plugin = {
           const [first, ...rest] = input.prompt.text.trim().split(/\s+/)
           const count = first && /^\d+$/.test(first) ? Number(first) : undefined
           const focus = (count === undefined ? input.prompt.text : rest.join(" ")).trim()
+          enabled.add(input.sessionID)
           forging.set(input.sessionID, { remaining: count, focus })
           return ctx.session
             .prompt({
@@ -392,10 +397,11 @@ export const Plugin = {
         Effect.forkScoped({ startImmediately: true }),
       )
 
-    // Only a forging session sees the tool, so no other session can rewrite the registry.
+    // Only sessions that explicitly entered /forge-teams see the registry-management tool.
+    // Do not gate on the active generation loop: a completed/paused forge must remain editable.
     const hook = (event: SessionHooks["context"]) =>
       Effect.sync(() => {
-        if (event.tools[name] && !forging.has(event.sessionID)) delete event.tools[name]
+        if (event.tools[name] && !enabled.has(event.sessionID)) delete event.tools[name]
       })
     yield* ctx.session.hook("context", hook)
     yield* ctx.session.hook("compaction", hook)
