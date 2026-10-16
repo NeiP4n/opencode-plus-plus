@@ -586,15 +586,15 @@ const layer = Layer.effect(
             return yield* new MeshError({ message: "Activate the Mesh after all devices have joined", status: 409 })
           if (state.leaderID === state.nodeID) {
             const entry = yield* appendLeader(state, event, state.nodeID)
-            return { entry }
+            return { kind: "local" as const, entry }
           }
           const leader = state.leaderID ? memberFor(state, state.leaderID) : undefined
           if (!leader)
             return yield* new MeshError({ message: "The Mesh is electing a coordinator; retry shortly", status: 503 })
-          return { leader, state }
+          return { kind: "remote" as const, leader, state }
         }),
       )
-      if (!("leader" in routed)) return routed.entry
+      if (routed.kind === "local") return routed.entry
       const reply = yield* callRPC(routed.leader.url, routed.state.secret, {
         type: "propose",
         clusterID: routed.state.clusterID,

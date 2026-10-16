@@ -840,7 +840,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
     HttpApiEndpoint.get("room.mesh.feed", "/api/room/mesh/feed", {
       query: { after: Schema.NumberFromString.pipe(Schema.optional) },
       success: RoomMesh.Feed,
-      error: [UnauthorizedError, InvalidRequestError, ServiceUnavailableError],
+      error: [UnauthorizedError, ForbiddenError, InvalidRequestError, ServiceUnavailableError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.mesh.feed",
