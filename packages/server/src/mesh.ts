@@ -59,6 +59,7 @@ const layer = Layer.effect(
     const kv = yield* KV.Service
     const sessions = yield* Session.Service
     const locks = KeyedMutex.makeUnsafe<string>()
+    const enrollmentLocks = KeyedMutex.makeUnsafe<string>()
     const electionDeadline = new Map<string, number>()
     const nextIndex = new Map<string, number>()
     const matchIndex = new Map<string, number>()
@@ -564,6 +565,113 @@ const layer = Layer.effect(
       return { data: state.log.filter((entry) => entry.index > after && entry.index <= state.commitIndex), commitIndex: state.commitIndex }
     })
 
+    // Enrollment is split into a locked planning/persist phase, an unlocked
+    // network fan-out, and a locked commit phase. Never hold the local state lock
+    // while waiting for another peer: the elected leader may be sending us heartbeats.
+    const enrollPeer = Effect.fn("ServerMesh.enrollPeer")(function* (token: string, input: RoomMesh.Node) {
+      return yield* enrollmentLocks.withLock("membership")(Effect.gen(function* () {
+        const plan = yield* locks.withLock("state")(Effect.gen(function* () {
+          const current = yield* requireState()
+          if (!secretMatches(token, current.secret))
+            return yield* new MeshError({ message: "Mesh credential is invalid", status: 401 })
+          if (current.nodeID !== current.ownerNodeID || current.status === "unconfigured")
+            return yield* new MeshError({ message: "Only the Mesh owner can enroll devices", status: 409 })
+          const url = yield* normalizedURL(input.url)
+          const node = { ...input, url, name: input.name.trim() || input.id }
+          const sameID = current.members.find((member) => member.id === node.id)
+          if (sameID && sameID.url !== node.url)
+            return yield* new MeshError({ message: "That node ID is already enrolled at another address", status: 409 })
+          if (!sameID && (current.members.length >= MAX_MEMBERS || current.members.some((member) => member.url === node.url)))
+            return yield* new MeshError({ message: "Mesh already contains this address or has reached its 32-device limit", status: 409 })
+
+          if (current.status === "forming") {
+            const members = sameID ? current.members : [...current.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
+            const next = members.length === current.members.length ? current : { ...current, members, preparedHash: undefined }
+            if (next !== current) yield* save(next)
+            return {
+              kind: "ready" as const,
+              reply: response({
+                clusterID: next.clusterID,
+                ownerNodeID: next.ownerNodeID,
+                status: next.status,
+                currentTerm: next.currentTerm,
+                leaderID: next.leaderID,
+                voters: members.map((member) => member.id),
+                members,
+              }),
+            }
+          }
+
+          const voters = voterIDs(current)
+          if (!voters.includes(current.nodeID))
+            return yield* new MeshError({ message: "Only an existing voter may invite a Mesh learner", status: 403 })
+          return {
+            kind: "active" as const,
+            clusterID: current.clusterID,
+            secret: current.secret,
+            nodeID: current.nodeID,
+            node,
+            members: current.members,
+            voters,
+          }
+        }))
+        if (plan.kind === "ready") return plan.reply
+
+        const request: RoomMesh.RpcRequest = {
+          type: "add-learner",
+          clusterID: plan.clusterID,
+          fromNodeID: plan.nodeID,
+          node: plan.node,
+        }
+        const peers = plan.members.filter((member) => member.id !== plan.nodeID)
+        const results = yield* Effect.all(
+          peers.map((member) =>
+            callRPC(member.url, plan.secret, request).pipe(
+              Effect.match({
+                onFailure: () => ({ member, ok: false }),
+                onSuccess: (reply) => ({ member, ok: reply.ok }),
+              }),
+            ),
+          ),
+          { concurrency: "unbounded" },
+        )
+        if (results.some((result) => !result.ok))
+          return yield* new MeshError({
+            message: "Could not confirm the new worker on every current Mesh device. Keep the invitation token and retry when all existing devices are online.",
+            status: 503,
+          })
+
+        return yield* locks.withLock("state")(Effect.gen(function* () {
+          const current = yield* requireState()
+          if (
+            current.clusterID !== plan.clusterID ||
+            current.secret !== plan.secret ||
+            current.nodeID !== current.ownerNodeID ||
+            current.status !== "active"
+          )
+            return yield* new MeshError({ message: "The Mesh changed while the device was being invited; retry from the current owner", status: 409 })
+          const sameID = current.members.find((member) => member.id === plan.node.id)
+          const members = sameID ? current.members : [...current.members, plan.node].toSorted((a, b) => a.id.localeCompare(b.id))
+          const next: StoredState = { ...current, members, voters: voterIDs(current) }
+          yield* save(next)
+          if (next.leaderID === next.nodeID && !sameID) {
+            nextIndex.set(plan.node.id, 1)
+            matchIndex.delete(plan.node.id)
+            acknowledgedAt.delete(plan.node.id)
+          }
+          return response({
+            clusterID: next.clusterID,
+            ownerNodeID: next.ownerNodeID,
+            status: next.status,
+            currentTerm: next.currentTerm,
+            leaderID: next.leaderID,
+            voters: voterIDs(next),
+            members: next.members,
+          })
+        }))
+      }))
+    })
+
     const tick = Effect.fn("ServerMesh.tick")(function* () {
       yield* locks.withLock("state")(Effect.gen(function* () {
         let state = yield* load()
@@ -621,85 +729,12 @@ const layer = Layer.effect(
       append,
       feed,
       rpc: (input, token) =>
-        locks.withLock("state")(
-          Effect.gen(function* () {
-            let state = yield* requireState()
-            if (!secretMatches(token, state.secret)) return yield* new MeshError({ message: "Mesh credential is invalid", status: 401 })
-            if (input.type === "enroll") {
-              if (state.nodeID !== state.ownerNodeID || state.status === "unconfigured")
-                return yield* new MeshError({ message: "Only the Mesh owner can enroll devices", status: 409 })
-              const url = yield* normalizedURL(input.node.url)
-              const node = { ...input.node, url, name: input.node.name.trim() || input.node.id }
-              const sameID = state.members.find((member) => member.id === node.id)
-              if (sameID && sameID.url !== node.url)
-                return yield* new MeshError({ message: "That node ID is already enrolled at another address", status: 409 })
-              if (!sameID && (state.members.length >= MAX_MEMBERS || state.members.some((member) => member.url === node.url)))
-                return yield* new MeshError({ message: "Mesh already contains this address or has reached its 32-device limit", status: 409 })
-
-              if (state.status === "forming") {
-                const members = sameID ? state.members : [...state.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
-                if (members.length !== state.members.length) {
-                  state = { ...state, members, preparedHash: undefined }
-                  yield* save(state)
-                }
-                return response({
-                  clusterID: state.clusterID,
-                  ownerNodeID: state.ownerNodeID,
-                  status: state.status,
-                  currentTerm: state.currentTerm,
-                  leaderID: state.leaderID,
-                  voters: members.map((member) => member.id),
-                  members,
-                })
-              }
-
-              // Active membership is not changed as a voter configuration. A new
-              // device joins as a learner: all active peers must acknowledge the same
-              // roster update, but the existing voting quorum is preserved.
-              const voters = voterIDs(state)
-              if (!voters.includes(state.nodeID))
-                return yield* new MeshError({ message: "Only an existing voter may invite a Mesh learner", status: 403 })
-              const proposed = sameID ? state.members : [...state.members, node].toSorted((a, b) => a.id.localeCompare(b.id))
-              const request: RoomMesh.RpcRequest = {
-                type: "add-learner",
-                clusterID: state.clusterID,
-                fromNodeID: state.nodeID,
-                node,
-              }
-              const peers = state.members.filter((member) => member.id !== state.nodeID)
-              const results = yield* Effect.all(
-                peers.map((member) =>
-                  callRPC(member.url, state.secret, request).pipe(
-                    Effect.match({
-                      onFailure: () => ({ member, ok: false }),
-                      onSuccess: (reply) => ({ member, ok: reply.ok }),
-                    }),
-                  ),
-                ),
-                { concurrency: "unbounded" },
-              )
-              if (results.some((result) => !result.ok))
-                return yield* new MeshError({
-                  message: "Could not confirm the new worker on every current Mesh device. Keep the invitation token and retry when all existing devices are online.",
-                  status: 503,
-                })
-              state = { ...state, members: proposed, voters }
-              yield* save(state)
-              if (state.leaderID === state.nodeID && !sameID) {
-                nextIndex.set(node.id, 1)
-                matchIndex.delete(node.id)
-                acknowledgedAt.delete(node.id)
-              }
-              return response({
-                clusterID: state.clusterID,
-                ownerNodeID: state.ownerNodeID,
-                status: state.status,
-                currentTerm: state.currentTerm,
-                leaderID: state.leaderID,
-                voters,
-                members: state.members,
-              })
-            }
+        input.type === "enroll"
+          ? enrollPeer(token, input.node)
+          : locks.withLock("state")(
+              Effect.gen(function* () {
+                let state = yield* requireState()
+                if (!secretMatches(token, state.secret)) return yield* new MeshError({ message: "Mesh credential is invalid", status: 401 })
             if (input.clusterID !== state.clusterID)
               return yield* new MeshError({ message: "This RPC belongs to another Mesh room", status: 403 })
             if (!memberFor(state, input.fromNodeID))
