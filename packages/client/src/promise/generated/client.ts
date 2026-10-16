@@ -288,6 +288,7 @@ import type {
   ConfigCompatibilityUpdateInput,
   ConfigCompatibilityUpdateOutput,
   RoomMeshStatusOutput,
+  RoomMeshInviteOutput,
   RoomMeshCreateInput,
   RoomMeshCreateOutput,
   RoomMeshJoinInput,
@@ -2660,6 +2661,17 @@ export function make(options: ClientOptions) {
               path: "/api/room/mesh",
               successStatus: 200,
               declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        invite: (requestOptions?: RequestOptions) =>
+          request<RoomMeshInviteOutput>(
+            {
+              method: "GET",
+              path: "/api/room/mesh/invite",
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
               empty: false,
             },
             requestOptions,
