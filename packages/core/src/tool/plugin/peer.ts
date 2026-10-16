@@ -391,23 +391,41 @@ export const Plugin = {
       Effect.gen(function* () {
         if (!event.tools[name]) return
         const links = yield* peers.links()
-        if (links.length === 0) {
+        const mesh = yield* meshState()
+        if (links.length === 0 && !mesh) {
           delete event.tools[name]
           return
         }
         event.system.push({
           type: "text",
           text: [
-            "# Rooms on other computers",
-            "You can work with the AI in these rooms through the peers tool:",
-            ...links.map((link) => `- ${link.name} · room ${link.roomID} · you are ${link.guest} there`),
+            "# Other computers and Mesh",
+            ...(links.length
+              ? [
+                  "Normal rooms reachable through the peers tool:",
+                  ...links.map((link) => `- ${link.name} · room ${link.roomID} · you are ${link.guest} there`),
+                ]
+              : []),
+            ...(mesh
+              ? [
+                  "Mesh is connected on this computer.",
+                  `Mesh ID: ${mesh.clusterID}; state: ${mesh.status}; local node: ${mesh.nodeID}; coordinator: ${mesh.leaderID ?? "not elected"}.`,
+                  "Use peers action=mesh-list to inspect the roster and project paths. Use peers action=mesh-run with node and text to delegate a task to that computer's local AI. Remote execution requires permission approval and uses credentials configured on the worker.",
+                  ...mesh.members.map((member) =>
+                    `- ${member.name} · ${member.id} · ${(mesh.voters ?? mesh.members.map((item) => item.id)).includes(member.id) ? "voter" : "worker"} · ${member.directory ?? "project path unknown"}`
+                  ),
+                ]
+              : []),
           ].join("\n"),
         })
       }),
     )
     const hide = (event: SessionHooks["context"]) =>
       Effect.gen(function* () {
-        if (event.tools[name] && (yield* peers.links()).length === 0) delete event.tools[name]
+        if (!event.tools[name]) return
+        const links = yield* peers.links()
+        const mesh = yield* meshState()
+        if (links.length === 0 && !mesh) delete event.tools[name]
       })
     yield* ctx.session.hook("compaction", hide)
     yield* ctx.session.hook("generate", hide)
