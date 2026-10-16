@@ -626,6 +626,7 @@ export type RoomMeshFeed = { data: Array<RoomMeshEntry>; commitIndex: number }
 export type RoomMeshRpcRequest =
   | { type: "enroll"; node: RoomMeshNode }
   | { type: "add-learner"; clusterID: string; fromNodeID: string; node: RoomMeshNode }
+  | { type: "remove-learner"; clusterID: string; fromNodeID: string; nodeID: string }
   | { type: "prepare"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
   | { type: "activate"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
   | {
