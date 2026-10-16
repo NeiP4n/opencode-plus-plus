@@ -315,9 +315,25 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           return yield* codes.issueCode(ctx.params.roomID)
         }),
       )
-      .handle("room.public", () =>
-        rooms.list().pipe(
-          Effect.map((list) => ({
+      .handle(
+        "room.public",
+        Effect.fn(function* () {
+          const list = yield* rooms.list()
+          const state = yield* mesh.status()
+          const owner = state.members.find((member) => member.id === state.ownerNodeID)
+          const local = state.members.find((member) => member.id === state.nodeID)
+          const meshInfo =
+            state.status === "unconfigured"
+              ? undefined
+              : {
+                  clusterID: state.clusterID ?? state.nodeID,
+                  status: state.status,
+                  name: local?.name ?? hostname(),
+                  // Joining enrollment is owner-only, so discovery supplies the actual seed.
+                  ownerURL: owner?.url ?? "",
+                  memberCount: state.members.length,
+                }
+          return {
             host: hostname(),
             // A closed room stays in the list, because a device needs to see it exists
             // to ask its host for the code; the name does not, so it is left out. This
@@ -328,8 +344,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               name: room.open === true ? room.name : undefined,
               open: room.open === true,
             })),
-          })),
-        ),
+            mesh: meshInfo,
+          }
+        }),
       )
       .handle(
         "room.join",
