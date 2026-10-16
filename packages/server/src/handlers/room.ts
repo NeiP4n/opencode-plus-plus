@@ -23,6 +23,7 @@ import {
   InvalidRequestError,
   PermissionNotFoundError,
   RoomNotFoundError,
+  ServiceUnavailableError,
   UnauthorizedError,
 } from "@opencode/protocol/errors"
 import { hostname } from "node:os"
@@ -35,6 +36,7 @@ import { Api } from "../api"
 import { ServerAuth } from "../auth"
 import { locationErrors, sessionInfo } from "../location"
 import { ServerRooms } from "../rooms"
+import { ServerMesh } from "../mesh"
 import { missingSession } from "./session-error"
 import { messagePage } from "./message"
 
@@ -128,10 +130,18 @@ function missingRoom(error: Room.NotFoundError) {
   return Effect.fail(new RoomNotFoundError({ roomID: error.roomID, message: `Room not found: ${error.roomID}` }))
 }
 
+function meshError(error: ServerMesh.MeshError) {
+  if (error.status === 401) return new UnauthorizedError({ message: error.message })
+  if (error.status === 403) return new ForbiddenError({ message: error.message })
+  if (error.status >= 500) return new ServiceUnavailableError({ message: error.message, service: "mesh room" })
+  return new InvalidRequestError({ message: error.message })
+}
+
 export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =>
   Effect.gen(function* () {
     const rooms = yield* Room.Service
     const codes = yield* ServerRooms.Service
+    const mesh = yield* ServerMesh.Service
     const sessions = yield* Session.Service
     const instances = yield* Instance.Service
     const auth = yield* ServerAuth.Config
@@ -871,6 +881,62 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .switchAgent({ sessionID: session.id, agent: ctx.payload.agent })
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "room.mesh.status",
+        Effect.fn(function* () {
+          return yield* mesh.status()
+        }),
+      )
+      .handle(
+        "room.mesh.create",
+        Effect.fn(function* (ctx) {
+          return yield* mesh.create(ctx.payload).pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
+        "room.mesh.join",
+        Effect.fn(function* (ctx) {
+          return yield* mesh.join(ctx.payload).pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
+        "room.mesh.activate",
+        Effect.fn(function* () {
+          return yield* mesh.activate().pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
+        "room.mesh.append",
+        Effect.fn(function* (ctx) {
+          return yield* mesh.append(ctx.payload).pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
+        "room.mesh.feed",
+        Effect.fn(function* (ctx) {
+          return yield* mesh.feed(ctx.query.after).pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
+        }),
+      )
+      .handle(
+        "room.mesh.rpc",
+        Effect.fn(function* (ctx) {
+          const request = yield* HttpServerRequest.HttpServerRequest
+          const token = /^Bearer\s+(.+)$/i.exec(request.headers.authorization ?? "")?.[1] ?? ""
+          return yield* mesh.rpc(ctx.payload, token).pipe(
+            Effect.catchTag("ServerMesh.Error", (error) => Effect.fail(meshError(error))),
+          )
         }),
       )
       .handle(

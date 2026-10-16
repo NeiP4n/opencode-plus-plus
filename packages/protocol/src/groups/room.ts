@@ -1,4 +1,5 @@
 import { Room } from "@opencode/schema/room"
+import { RoomMesh } from "@opencode/schema/room-mesh"
 import { Session } from "@opencode/schema/session"
 import { SessionEvent } from "@opencode/schema/session-event"
 import { SessionInbox } from "@opencode/schema/session-inbox"
@@ -36,8 +37,9 @@ import { PublicSessionMessage, SessionMessagesQuery } from "./message.js"
 // handler under that prefix the same exemption, so an unregistered path would
 // reach the server unchecked. A route belongs here once RoomGroup registers it.
 const GUEST_PATHS = [
-  // room.join, room.public
+  // room.join, room.public, and authenticated Mesh peer RPC.
   /^\/api\/room\/(join|public)$/,
+  /^\/api\/room\/mesh\/rpc$/,
   // room.guest.get, room.guest.leave
   /^\/api\/room\/[^/]+\/guest$/,
   // room.guest.session.list, room.guest.session.create
@@ -767,6 +769,94 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         identifier: "room.guest.permission.reply",
         summary: "Answer a room permission request",
         description: "Answer the host model's permission request; allowed only to guests with the helper role.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("room.mesh.status", "/api/room/mesh", {
+      success: RoomMesh.Snapshot,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.status",
+        summary: "Read the local Mesh status",
+        description: "Read this device's view of its replicated Mesh room, elected coordinator and quorum health.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("room.mesh.create", "/api/room/mesh", {
+      payload: RoomMesh.CreateInput,
+      success: Schema.Struct({ data: RoomMesh.Snapshot, token: Schema.String }),
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.create",
+        summary: "Create a Mesh room",
+        description: "Create a forming Mesh and return its enrollment secret for the other devices.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("room.mesh.join", "/api/room/mesh/join", {
+      payload: RoomMesh.JoinInput,
+      success: RoomMesh.Snapshot,
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.join",
+        summary: "Enroll this device in a Mesh",
+        description: "Join a forming Mesh through a reachable seed device and its enrollment secret.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("room.mesh.activate", "/api/room/mesh/activate", {
+      success: RoomMesh.Snapshot,
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.activate",
+        summary: "Activate a Mesh room",
+        description: "Prepare the same voter set on all enrolled devices before starting coordinator elections.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("room.mesh.append", "/api/room/mesh/append", {
+      payload: RoomMesh.AppendInput,
+      success: RoomMesh.Entry,
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.append",
+        summary: "Append a shared Mesh event",
+        description: "Propose a message or task; the event is accepted only after majority commit.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("room.mesh.feed", "/api/room/mesh/feed", {
+      query: { after: Schema.NumberFromString.pipe(Schema.optional) },
+      success: RoomMesh.Feed,
+      error: [UnauthorizedError, InvalidRequestError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.feed",
+        summary: "Read committed Mesh events",
+        description: "Read committed room events from a cursor. Uncommitted entries are not exposed.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("room.mesh.rpc", "/api/room/mesh/rpc", {
+      payload: RoomMesh.RpcRequest,
+      success: RoomMesh.RpcResponse,
+      error: [InvalidRequestError, UnauthorizedError, ForbiddenError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.mesh.rpc",
+        summary: "Exchange authenticated Mesh protocol messages",
+        description: "Internal peer transport for enrollment, elections and log replication. Requires the Mesh bearer secret.",
       }),
     ),
   )
