@@ -324,7 +324,7 @@ export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }
               </box>
               <Show when={!state.voter}>
                 <text fg={theme.text.feedback.warning.base} wrapMode="word">
-                  {t("This device is connected as a worker. It can exchange shared messages and run local work, but it does not vote in coordinator elections and does not increase the quorum.")}
+                  {t("This device is connected as a worker. It receives the shared room log and can send shared messages through the coordinator, but it does not vote or increase the quorum. Remote AI dispatch from this panel is not available yet.")}
                 </text>
               </Show>
               <text fg={theme.text.muted} wrapMode="word">
