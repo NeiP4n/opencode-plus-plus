@@ -346,12 +346,30 @@ export const Plugin = {
     yield* ctx.command.transform((editor) =>
       editor.add({
         name: command,
-        description: "AI agents design and add the best teams, one after another until stopped [count] [focus]",
+        description: "Manage the team registry without auto-generating teams with `manage`, or design and add teams with [count] [focus]",
         execute: (input) => {
           const [first, ...rest] = input.prompt.text.trim().split(/\s+/)
-          const count = first && /^\d+$/.test(first) ? Number(first) : undefined
-          const focus = (count === undefined ? input.prompt.text : rest.join(" ")).trim()
           enabled.add(input.sessionID)
+          if (first?.toLowerCase() === "manage") {
+            // Enable CRUD access without starting the automatic team-generation loop.
+            forging.delete(input.sessionID)
+            return ctx.session
+              .prompt({
+                ...input.prompt,
+                sessionID: input.sessionID,
+                text: [
+                  "You are now in team registry management mode.",
+                  "Do not create or change anything automatically. Wait for the operator's concrete request.",
+                  "Use team_forge list/get_role/get_team to inspect entries, edit_role/edit_team for full replacements, and delete_role/delete_team for removals.",
+                  "For deletion, first list the registry and use the exact ID; ask for clarification if the requested entry is ambiguous.",
+                  "Acknowledge that management mode is ready, then wait.",
+                ].join("\\n"),
+                delivery: input.delivery,
+              })
+              .pipe(Effect.asVoid)
+          }
+          const count = first && /^\\d+$/.test(first) ? Number(first) : undefined
+          const focus = (count === undefined ? input.prompt.text : rest.join(" ")).trim()
           forging.set(input.sessionID, { remaining: count, focus })
           return ctx.session
             .prompt({
