@@ -102,6 +102,18 @@ function version(tag: string) {
   return parseReleaseVersion(value) ? value : undefined
 }
 
+// Refresh the exact remote-tracking ref used by the branch. A plain fetch from a remote
+// follows remote.<name>.fetch; custom/narrow refspecs can omit this branch and leave a stale
+// refs/remotes/<remote>/<branch>, making /update falsely report that the checkout is current.
+async function refreshTracking(root: string, target: string) {
+  const slash = target.indexOf("/")
+  if (slash <= 0) throw new Error(`Unsupported upstream reference: ${target}`)
+  const remote = target.slice(0, slash)
+  const branch = target.slice(slash + 1)
+  const refspec = `+refs/heads/${branch}:refs/remotes/${target}`
+  await `git -C ${root} fetch --quiet ${remote} ${refspec}`.quiet()
+}
+
 export type Branch =
   | { readonly type: "behind"; readonly name: string; readonly behind: number }
   | { readonly type: "current" }
@@ -117,14 +129,16 @@ export async function branch(root = checkout): Promise<Branch | undefined> {
   let target: string
   if (upstream.exitCode === 0) {
     target = upstream.text().trim()
-    await $`git -C ${root} fetch --quiet ${target.split("/")[0]!}`.quiet()
+    await refreshTracking(root, target)
   } else {
     // Some source installs have the right branch checked out but no upstream configured.
     // If origin carries the same branch, use it for update checks without requiring a reinstall.
-    const refspec = `+refs/heads/${name}:refs/remotes/origin/${name}`
-    const fetched = await $`git -C ${root} fetch --quiet origin ${refspec}`.quiet().nothrow()
-    if (fetched.exitCode !== 0) return { type: "no-upstream" }
     target = `origin/${name}`
+    const fetched = await refreshTracking(root, target).then(
+      () => true,
+      () => false,
+    )
+    if (!fetched) return { type: "no-upstream" }
   }
   const comparison = await $`git -C ${root} rev-list --left-right --count ${"HEAD..." + target}`.quiet().nothrow()
   if (comparison.exitCode !== 0) return { type: "no-upstream" }
@@ -172,16 +186,17 @@ export async function follow(root = checkout) {
 // Fast-forwards the branch to its upstream and installs what the new code needs.
 // Uncommitted edits stay; git refuses the merge if the incoming commits touch them.
 export async function pull(root = checkout) {
-  const upstream = await $`git -C ${root} rev-parse --abbrev-ref --symbolic-full-name @{u}`.quiet().nothrow()
+  const upstream = await `git -C ${root} rev-parse --abbrev-ref --symbolic-full-name @{u}`.quiet().nothrow()
   if (upstream.exitCode === 0) {
-    await $`git -C ${root} merge --ff-only @{u}`.quiet()
+    await refreshTracking(root, upstream.text().trim())
+    await `git -C ${root} merge --ff-only @{u}`.quiet()
   } else {
     // Match branch() fallback: update from origin/<current branch> when no upstream is configured.
-    const name = (await $`git -C ${root} symbolic-ref -q --short HEAD`.quiet().nothrow().text()).trim()
+    const name = (await `git -C ${root} symbolic-ref -q --short HEAD`.quiet().nothrow().text()).trim()
     if (!name) throw new Error("Cannot update a detached checkout without a release version")
-    const refspec = `+refs/heads/${name}:refs/remotes/origin/${name}`
-    await $`git -C ${root} fetch --quiet origin ${refspec}`.quiet()
-    await $`git -C ${root} merge --ff-only ${"origin/" + name}`.quiet()
+    const target = `origin/${name}`
+    await refreshTracking(root, target)
+    await `git -C ${root} merge --ff-only ${target}`.quiet()
   }
   await $`${process.execPath} install`.cwd(root).quiet()
 }
