@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { testRender } from "@opentui/solid"
 import { ConfigProvider } from "../../../src/config"
 import { ThemeProvider } from "../../../src/context/theme"
+import { Keymap } from "../../../src/context/keymap"
 import { OutlineRail } from "../../../src/routes/session/outline-view"
 import type { OutlineCategory } from "../../../src/routes/session/outline"
 import type { PartRef } from "../../../src/routes/session/grouping/session"
@@ -37,18 +38,20 @@ test("shows a dash rail that opens into clickable titles on hover", async () => 
     () => (
       <TestTuiContexts>
         <ConfigProvider config={createTuiResolvedConfig({ animations: false })}>
-          <ThemeProvider mode="dark" source={emptyThemeSource}>
-            <box width={60} height={12} position="relative">
-              <OutlineRail
-                categories={categories}
-                active={{ category: "u2" }}
-                height={10}
-                maxWidth={30}
-                right={0}
-                onJump={(ref) => jumps.push(ref)}
-              />
-            </box>
-          </ThemeProvider>
+          <Keymap.Provider>
+            <ThemeProvider mode="dark" source={emptyThemeSource}>
+              <box width={60} height={12} position="relative">
+                <OutlineRail
+                  categories={categories}
+                  active={{ category: "u2" }}
+                  height={10}
+                  maxWidth={30}
+                  right={0}
+                  onJump={(ref) => jumps.push(ref)}
+                />
+              </box>
+            </ThemeProvider>
+          </Keymap.Provider>
         </ConfigProvider>
       </TestTuiContexts>
     ),

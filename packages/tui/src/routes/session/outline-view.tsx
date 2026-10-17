@@ -1,5 +1,6 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useTheme } from "../../context/theme"
+import { Keymap } from "../../context/keymap"
 import { useT } from "../../util/i18n"
 import type { PartRef } from "./grouping/session"
 import type { OutlineCategory } from "./outline"
@@ -14,7 +15,8 @@ type Line = {
 
 /**
  * The chat's table of contents as a thin rail on the right edge of the transcript: one dash
- * per topic and section. Hovering opens the titles; clicking one scrolls the chat there.
+ * per topic and section. Hovering opens the titles and marks the one under the pointer;
+ * Enter, Space or a click scrolls the chat there.
  */
 export function OutlineRail(props: {
   categories: readonly OutlineCategory[]
@@ -82,6 +84,26 @@ export function OutlineRail(props: {
     setOpen(true)
   }
   onCleanup(() => clearTimeout(closing))
+  const jump = (line: Line) => {
+    props.onJump(line.ref)
+    close()
+  }
+  // Takes Enter and Space from the prompt only while a title is marked.
+  Keymap.createLayer(() => ({
+    priority: 20,
+    enabled: () => open() && hovered() !== undefined,
+    commands: [
+      {
+        bind: "return,space",
+        title: "Go to the marked topic",
+        group: "Session",
+        run: () => {
+          const line = lines().find((item) => item.key === hovered())
+          if (line) jump(line)
+        },
+      },
+    ],
+  }))
   const color = (line: Line) => {
     if (hovered() === line.key) return theme.text.action.primary.hovered
     if (isActive(line)) return theme.text.action.primary.base
@@ -128,7 +150,9 @@ export function OutlineRail(props: {
           paddingRight={1}
         >
           <text fg={theme.text.muted} wrapMode="none" truncate flexShrink={0}>
-            {props.status ? `${t("Chat outline")} · ${props.status}` : t("Chat outline")}
+            {[t("Chat outline"), props.status ?? (hovered() ? t("enter or space to go") : "")]
+              .filter(Boolean)
+              .join(" · ")}
           </text>
           <scrollbox
             height={visibleRows()}
@@ -142,15 +166,17 @@ export function OutlineRail(props: {
                   flexDirection="row"
                   height={1}
                   flexShrink={0}
-                  paddingLeft={line.level * 3}
+                  backgroundColor={hovered() === line.key ? theme.background.action.primary.hovered : undefined}
                   onMouseOver={() => setHovered(line.key)}
                   onMouseDown={(event) => {
                     event.stopPropagation()
-                    props.onJump(line.ref)
-                    close()
+                    jump(line)
                   }}
                 >
-                  <text fg={color(line)} wrapMode="none" truncate>
+                  <text fg={theme.text.action.primary.hovered} wrapMode="none" flexShrink={0}>
+                    {hovered() === line.key ? "› " : "  "}
+                  </text>
+                  <text fg={color(line)} wrapMode="none" truncate paddingLeft={line.level * 3}>
                     {line.label}
                   </text>
                 </box>

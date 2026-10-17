@@ -1044,6 +1044,8 @@ const ru: Record<string, string> = {
   // Session outline
   "Chat outline": "Содержание чата",
   "updating…": "обновляется…",
+  "enter or space to go": "enter или пробел — перейти",
+  "Go to the marked topic": "Перейти к отмеченной теме",
   "The model did not return a table of contents": "Модель не вернула содержание",
 }
 
