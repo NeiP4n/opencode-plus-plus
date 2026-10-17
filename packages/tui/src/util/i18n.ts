@@ -371,8 +371,6 @@ const ru: Record<string, string> = {
   "Not started": "Не начато",
   steps: "шагов",
   "DoD service is starting or checking the active project…": "Сервис DoD запускается или проверяет активный проект…",
-  "DoD is disabled for this project: .opencode/dod.yaml is missing.":
-    "DoD для этого проекта выключен: нет файла .opencode/dod.yaml.",
   "DoD response is stale; last response at {time}. Refresh failed: {reason}":
     "Ответ DoD устарел, последний получен в {time}. Обновить не удалось: {reason}",
   "DoD connection error: {reason}": "Ошибка соединения с DoD: {reason}",

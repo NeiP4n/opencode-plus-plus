@@ -115,9 +115,9 @@ export function RoomDodRows(props: {
 
   const statusText = () => {
     const current = status()
-    if (current.type === "ready") return
+    // DoD is optional; a project without one says nothing rather than warning every guest.
+    if (current.type === "ready" || current.type === "disabled") return
     if (current.type === "starting") return t("DoD service is starting or checking the active project…")
-    if (current.type === "disabled") return t("DoD is disabled for this project: .opencode/dod.yaml is missing.")
     if (current.type === "stale")
       return t("DoD response is stale; last response at {time}. Refresh failed: {reason}", {
         time: loadedAt() === undefined ? "unknown" : new Date(loadedAt()!).toLocaleTimeString(),
@@ -209,11 +209,7 @@ export function RoomDodRows(props: {
           <box paddingLeft={6}>
             <text
               fg={
-                status().type === "starting"
-                  ? theme.text.muted
-                  : status().type === "disabled"
-                    ? theme.text.feedback.warning.base
-                    : theme.text.feedback.error.base
+                status().type === "starting" ? theme.text.muted : theme.text.feedback.error.base
               }
               wrapMode="word"
             >

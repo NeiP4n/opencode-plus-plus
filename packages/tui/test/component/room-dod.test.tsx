@@ -103,11 +103,16 @@ test("a state-unknown response is not presented as ready", async () => {
   }
 })
 
-test("a missing board is reported as disabled, not as an empty completed board", async () => {
+test("a project without a DoD shows nothing, not an empty completed board", async () => {
   const setup = await render(() => Promise.resolve({ items: [], status: "disabled" as const }))
   try {
-    const frame = await frameWith(setup, "DoD is disabled")
-    expect(frame).toContain(".opencode/dod.yaml is missing")
+    // The answer settles within a few frames; the starting notice must be gone, not replaced.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await Bun.sleep(10)
+      await setup.renderOnce()
+    }
+    const frame = setup.captureCharFrame()
+    expect(frame).not.toContain("DoD")
     expect(frame).not.toContain("Everything is done.")
   } finally {
     setup.renderer.destroy()
