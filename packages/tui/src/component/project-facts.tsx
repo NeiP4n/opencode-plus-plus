@@ -12,6 +12,7 @@ import { useTheme, useThemes } from "../context/theme"
 import { SplitBorder } from "../ui/border"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
+import { getScrollAcceleration } from "../util/scroll"
 import { Spinner } from "./spinner"
 
 type FactsState = {
@@ -26,14 +27,27 @@ export function useProjectFacts() {
   return useStorage().store<FactsState>("project-facts", { initial: { open: false, projects: {} } })
 }
 
-// The window is a light reminder of what the project is about, so it reads only a few small files and makes one
-// stateless call: no session history and no tools.
-const SOURCES = ["README.md", "AGENTS.md", "package.json"]
+// The window is a light reminder of what the project is about, so it reads short excerpts of the first few
+// describing files that exist plus the top-level file list, and makes one stateless call: no history, no tools.
+const SOURCES = [
+  "README.md",
+  "readme.md",
+  "README",
+  "AGENTS.md",
+  "CLAUDE.md",
+  ".opencode/plan.md",
+  "package.json",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+]
 const SOURCE_LIMIT = 1_500
+const SOURCE_COUNT = 3
+const LISTING_LIMIT = 60
 
 const instructions = (language: string, sources: string) =>
   [
-    "Below are excerpts of a software project's files. The person working on it wants a short cheat sheet so they keep understanding what the project is about.",
+    "Below are excerpts of a software project's files and its top-level file list. The person working on it wants a short cheat sheet so they keep understanding what the project is about.",
     "Pick only the 4 to 6 facts that matter most: what the project is, its one or two key terms, and a rule that must not be broken. Skip details such as versions, scripts, and file lists unless they are essential.",
     `Write in ${language === "ru" ? "Russian" : "English"}, in plain words a newcomer understands, avoiding jargon.`,
     "Format each fact as one markdown list item of at most 12 words: `- **Term** — explanation`. Put file paths and commands in `backticks` and use *italics* sparingly for emphasis. No headings, no intro, no closing line.",
@@ -89,16 +103,28 @@ function FactsWindow() {
     setLoading(true)
     setError(undefined)
     setEmpty(false)
-    void Promise.all(
-      SOURCES.map((path) =>
+    void Promise.all([
+      ...SOURCES.map((path) =>
         client.api.file
           .read({ path, location: { directory: dir } })
           .then((bytes) => `--- ${path} ---\n${new TextDecoder().decode(bytes).slice(0, SOURCE_LIMIT)}`)
           .catch(() => undefined),
       ),
-    )
-      .then((excerpts) => {
-        const sources = excerpts.filter((excerpt) => excerpt !== undefined)
+      client.api.file
+        .list({ location: { directory: dir } })
+        .then((listing) =>
+          listing.data.length === 0
+            ? undefined
+            : `--- top-level files ---\n${listing.data
+                .slice(0, LISTING_LIMIT)
+                .map((entry) => (entry.type === "directory" ? `${entry.path}/` : entry.path))
+                .join("\n")}`,
+        )
+        .catch(() => undefined),
+    ])
+      .then((found) => {
+        const files = found.slice(0, -1).filter((excerpt) => excerpt !== undefined)
+        const sources = [...files.slice(0, SOURCE_COUNT), found.at(-1)].filter((excerpt) => excerpt !== undefined)
         if (sources.length === 0) {
           setEmpty(true)
           return undefined
@@ -169,7 +195,11 @@ function FactsWindow() {
         paddingRight={2}
         paddingTop={1}
         paddingBottom={1}
-        scrollbarOptions={{ visible: false }}
+        scrollAcceleration={getScrollAcceleration(config)}
+        verticalScrollbarOptions={{
+          visible: true,
+          trackOptions: { backgroundColor: theme.background.base, foregroundColor: theme.scrollbar.base },
+        }}
       >
         <Switch>
           <Match when={loading()}>
@@ -177,7 +207,7 @@ function FactsWindow() {
           </Match>
           <Match when={empty()}>
             <text fg={theme.text.muted} wrapMode="word">
-              {t("No README.md, AGENTS.md or package.json to learn from.")}
+              {t("Nothing in this folder to learn from.")}
             </text>
           </Match>
           <Match when={error()}>
