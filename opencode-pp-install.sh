@@ -405,6 +405,7 @@ install_opencode() {
     # The Android aliases require a lockfile refresh; frozen-lockfile would
     # reject the platform-specific dependency mapping.
     (cd "$DIR" && "$BUN_BIN" install --filter ./packages/cli) || fail "could not install Android-compatible OpenTUI dependencies"
+    (cd "$DIR" && "$BUN_BIN" -e 'const native = await import("@opentui/core-android-arm64"); if (typeof native.default !== "string") throw new Error("Android OpenTUI native asset did not resolve to a library path")') || fail "Android OpenTUI native renderer is missing or could not be resolved"
   else
     echo "Installing dependencies…"
     (cd "$DIR" && "$BUN_BIN" install --frozen-lockfile --filter ./packages/cli)
