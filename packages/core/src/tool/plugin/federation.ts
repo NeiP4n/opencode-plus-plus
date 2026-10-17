@@ -100,6 +100,15 @@ export const Plugin = {
                   source: { type: "tool", messageID: context.messageID, id: context.id },
                 })
 
+              // The group supervisor observes and coordinates; it is not allowed to decide on tickets or mutate member policies.
+              if (
+                groupSupervisor &&
+                !["peers", "policy", "send", "inbox", "outbox", "linked", "groups", "group_status"].includes(input.action)
+              )
+                return yield* new ToolFailure({
+                  message: "The Group Orchestrator may inspect group state and send permission-checked tickets, but only a project's Orchestrator/operator can change policies or decide/reply to incoming tickets.",
+                })
+
               switch (input.action) {
                 case "peers": {
                   const peers = yield* federation.peers(project.id)
