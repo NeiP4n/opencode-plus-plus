@@ -294,7 +294,28 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
         const sameMembers = previous !== undefined &&
           previous.projects.length === projects.length &&
           previous.projects.every((id, index) => id === projects[index])
-        const supervisor = group.supervisor ?? (sameMembers ? previous?.supervisor : undefined)
+        let supervisor = group.supervisor ?? (sameMembers ? previous?.supervisor : undefined)
+        if (supervisor) {
+          const registered = yield* sessions.get(supervisor).pipe(Effect.option)
+          const rawMarker = Option.isSome(registered)
+            ? registered.value.metadata?.["opencode-pp:group-supervisor"]
+            : undefined
+          const marker = rawMarker && typeof rawMarker === "object" && !Array.isArray(rawMarker)
+            ? (rawMarker as Record<string, unknown>)
+            : undefined
+          const valid = Option.isSome(registered) &&
+            registered.value.agent === Orchestra.agent &&
+            marker?.groupName === name &&
+            marker?.leader === projects[0]
+          if (!valid) {
+            if (group.supervisor)
+              return yield* new FederationError({
+                message: "Group supervisor must be an Orchestrator session registered for this group and its first project.",
+              })
+            // Drop a stale stored supervisor if its session was deleted or its group identity changed.
+            supervisor = undefined
+          }
+        }
         yield* kv.set(
           GROUP + name,
           Schema.encodeSync(Group)({ name, projects, ...(supervisor ? { supervisor } : {}) }),
