@@ -1,18 +1,15 @@
 import { execFile, spawn } from "node:child_process"
 import { access, readFile } from "node:fs/promises"
-import { createConnection } from "node:net"
+import * as Warp from "@opencode/core/warp"
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal } from "solid-js"
 import { hoverBackground } from "../../ui/hover"
-import { parseWarpStatus, warpCliUnavailable, warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
+import { warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
 
-type WarpAction = "refresh" | "connect" | "disconnect" | "reconnect" | "reset" | "install" | "proxy" | "disableProxy"
+type WarpAction = "refresh" | "connect" | "disconnect" | "reconnect" | "reset" | "install" | "proxy" | "disableProxy" | "changeIp"
 type SharedBusy = { action: WarpAction | null }
 
-const RESET_DELAY_MS = 900
 const STATUS_REFRESH_MS = 30_000
-const WARP_PROXY_URL = "http://127.0.0.1:40000"
-const WARP_PROXY_BYPASS = ["localhost", "127.0.0.1", "::1"]
 
 function language(context: Plugin.Context) {
   return context.ui.language() === "ru" ? "ru" : "en"
@@ -50,96 +47,45 @@ function messageOf(cause: unknown) {
   return cause instanceof Error ? cause.message : String(cause)
 }
 
-/** Execute fixed warp-cli arguments without a shell, so nothing from the chat is interpreted as a command. */
-function runWarp(args: readonly string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "warp-cli",
-      [...args],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 15_000,
-        maxBuffer: 128 * 1024,
-      },
-      (error, stdout, stderr) => {
-        const output = [String(stdout ?? "").trim(), String(stderr ?? "").trim()].filter(Boolean).join("\n")
-        if (error) {
-          reject(new Error(output || error.message))
-          return
-        }
-        resolve(output)
-      },
-    )
-  })
-}
+const readWarpStatus = Warp.status
 
-async function readWarpStatus(): Promise<WarpStatus> {
-  try {
-    return parseWarpStatus(await runWarp(["status"]))
-  } catch (cause) {
-    const message = messageOf(cause)
-    if (/\bENOENT\b|not recognized as an internal or external command|executable file not found|could not find.*warp-cli/i.test(message)) {
-      return warpCliUnavailable(message)
+/** Core WARP calls report typed errors; surface a readable message in the UI language. */
+function describe(context: Plugin.Context, cause: unknown) {
+  if (cause instanceof Warp.WarpError) {
+    switch (cause.code) {
+      case "cli-missing":
+        return text(context, "Cloudflare WARP CLI was not found. Install WARP first.", "Cloudflare WARP CLI не найден. Сначала установи WARP.")
+      case "not-proxy-mode":
+        return text(
+          context,
+          "WARP is not in Local Proxy mode, so it would affect the whole device. Use \"Route only OpenCode through WARP\" first.",
+          "WARP не в режиме Local Proxy и затронул бы всё устройство. Сначала нажми «Только OpenCode через WARP».",
+        )
+      case "device-in-use":
+        return text(
+          context,
+          "WARP is connected for the whole device. OpenCode will not switch it to Local Proxy because other applications would lose their tunnel. Disconnect WARP and retry.",
+          "WARP подключён для всего устройства. OpenCode не будет переключать его в Local Proxy, иначе остальные программы потеряют туннель. Отключи WARP и повтори.",
+        )
+      case "managed-registration":
+        return text(
+          context,
+          "This WARP client is managed by an organization (Zero Trust); its registration cannot be reset here.",
+          "Этот WARP управляется организацией (Zero Trust); регистрацию отсюда сбросить нельзя.",
+        )
+      default:
+        return cause.message
     }
-    return warpStatusError(message)
   }
-}
-
-async function isLocalProxyMode(): Promise<boolean> {
-  try {
-    return /WarpProxy/i.test(await runWarp(["settings"]))
-  } catch {
-    return false
-  }
-}
-
-async function requireLocalProxyMode(context: Plugin.Context) {
-  if (await isLocalProxyMode()) return
-  throw new Error(text(
-    context,
-    "WARP is not in Local Proxy mode. To avoid routing other applications through WARP, open Preferences > Advanced > Configure Proxy, enable Local Proxy on port 40000, and retry. OpenCode will not connect, disconnect, reconnect, or reset a full-device WARP connection.",
-    "WARP не находится в режиме Local Proxy. Чтобы не перенаправлять трафик остальных программ, открой Preferences > Advanced > Configure Proxy, включи Local Proxy на порту 40000 и повтори попытку. OpenCode не будет подключать, отключать, переподключать или сбрасывать полноустройственный WARP.",
-  ))
-}
-
-function wait(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+  return messageOf(cause)
 }
 
 async function performWarpAction(action: WarpAction, context: Plugin.Context): Promise<WarpStatus> {
   if (action === "refresh") return readWarpStatus()
-  if (action === "connect" || action === "disconnect" || action === "reconnect" || action === "reset") {
-    await requireLocalProxyMode(context)
-  }
-
-  if (action === "connect") {
-    await runWarp(["connect"])
-    return readWarpStatus()
-  }
-
-  if (action === "disconnect") {
-    await runWarp(["disconnect"])
-    return readWarpStatus()
-  }
-
-  const current = await readWarpStatus()
-  if (current.state === "unavailable") throw new Error(current.details)
-
-  if (current.state !== "disconnected") await runWarp(["disconnect"])
-  await wait(RESET_DELAY_MS)
-
-  if (action === "reconnect") {
-    await runWarp(["connect"])
-    return readWarpStatus()
-  }
-
-  // A registration refresh may disrupt organization-managed / Zero Trust WARP.
-  // It is only exposed behind a confirmation dialog in the visual panel.
-  await runWarp(["registration", "delete"])
-  await runWarp(["registration", "new"])
-  await runWarp(["connect"])
-  return readWarpStatus()
+  if (action === "connect") return Warp.connect()
+  if (action === "disconnect") return Warp.disconnect()
+  if (action === "reconnect") return Warp.reconnect()
+  return Warp.resetRegistration()
 }
 
 function setSharedStatus(
@@ -342,36 +288,19 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   return true
 }
 
-function proxyPortOpen(port = 40000): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port })
-    const done = (value: boolean) => {
-      socket.destroy()
-      resolve(value)
-    }
-    socket.setTimeout(800, () => done(false))
-    socket.once("connect", () => done(true))
-    socket.once("error", () => done(false))
-  })
-}
-
 async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean> {
   try {
     const entries = await context.client.config.get()
     const found = entries.findLast((entry) => entry.type === "document" && entry.info.proxy !== undefined)
     if (!found || found.type !== "document") return false
-    return found.info.proxy?.http === WARP_PROXY_URL && found.info.proxy?.https === WARP_PROXY_URL
+    return Warp.isWarpProxy(found.info.proxy)
   } catch {
     return false
   }
 }
 
 async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean) {
-  await context.client.config.update({
-    proxy: enabled
-      ? { http: WARP_PROXY_URL, https: WARP_PROXY_URL, no_proxy: WARP_PROXY_BYPASS }
-      : null,
-  })
+  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig() : null })
 }
 
 async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
@@ -382,43 +311,10 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
       "WARP Local Proxy доступен только в настольном клиенте. На Android/Termux нельзя таким способом направить через WARP только трафик OpenCode.",
     ))
   }
-
-  const help = await runWarp(["--help"]).catch(() => "")
-  try {
-    await runWarp(["mode", "proxy"])
-  } catch {
-    try {
-      await runWarp(["set-mode", "proxy"])
-    } catch {}
-  }
-
-  // A listening port alone is not enough: verify WARP itself reports WarpProxy
-  // before allowing the OpenCode process to use it.
-  if (!(await isLocalProxyMode())) {
-    throw new Error(text(
-      context,
-      "WARP did not confirm Local Proxy mode. Enable it in Preferences > Advanced > Configure Proxy, set port 40000, and retry. OpenCode's proxy settings were not changed.",
-      "WARP не подтвердил режим Local Proxy. Включи его в Preferences > Advanced > Configure Proxy, задай порт 40000 и повтори попытку. Настройки прокси OpenCode не менялись.",
-    ))
-  }
-
-  if (/set-proxy-port/i.test(help)) await runWarp(["set-proxy-port", "40000"]).catch(() => undefined)
-  else if (help.toLowerCase().includes("proxy") && help.toLowerCase().includes("port")) {
-    await runWarp(["proxy", "port", "40000"]).catch(() => undefined)
-  }
-  await runWarp(["connect"])
-
-  await wait(500)
-  if (!(await proxyPortOpen(40000))) {
-    throw new Error(text(
-      context,
-      "The WARP local proxy is not listening on 127.0.0.1:40000. In Cloudflare WARP open Preferences > Advanced > Configure Proxy, enable Local Proxy and set port 40000. Choose HTTP/HTTPS (not SOCKS5), then retry. OpenCode's proxy settings were not changed.",
-      "Локальный прокси WARP не слушает 127.0.0.1:40000. В Cloudflare WARP открой Preferences > Advanced > Configure Proxy, включи Local Proxy и выставь порт 40000. Выбери HTTP/HTTPS (не SOCKS5), затем повтори попытку. Настройки прокси OpenCode не менялись.",
-    ))
-  }
-
+  // Local Proxy mode only: verified by the core before OpenCode's own proxy setting is touched.
+  const next = await Warp.ensureProxy()
   await setOpenCodeProxy(context, true)
-  return readWarpStatus()
+  return next
 }
 
 function ActionButton(props: {
@@ -502,6 +398,7 @@ function WarpPage(props: {
   status: WarpStatus
   busy: SharedBusy
   proxyEnabled: boolean
+  exitIp: string
   run: (action: WarpAction) => void
   onClose: () => void
 }) {
@@ -518,6 +415,7 @@ function WarpPage(props: {
       case "install": return ru() ? "Установка WARP…" : "Installing WARP…"
       case "proxy": return ru() ? "Настройка прокси OpenCode…" : "Configuring OpenCode-only proxy…"
       case "disableProxy": return ru() ? "Отключение прокси OpenCode…" : "Disabling OpenCode proxy…"
+      case "changeIp": return ru() ? "Смена IP…" : "Changing IP…"
       default: return ""
     }
   }
@@ -576,6 +474,11 @@ function WarpPage(props: {
         <text fg={theme().text.muted} wrapMode="word">
           {props.status.details}
         </text>
+        <text fg={theme().text.muted} wrapMode="none">
+          {props.exitIp
+            ? (ru() ? "IP OpenCode: " : "OpenCode IP: ") + props.exitIp
+            : ""}
+        </text>
       </box>
 
       <box flexDirection="row" gap={1} flexWrap="wrap">
@@ -627,6 +530,14 @@ function WarpPage(props: {
         />
         <ActionButton
           context={props.context}
+          id="warp.changeIp"
+          label={ru() ? "Сменить IP" : "Change IP"}
+          run={() => props.run("changeIp")}
+          disabled={pending() || !props.proxyEnabled || props.status.state === "unavailable"}
+          emphasized={props.proxyEnabled}
+        />
+        <ActionButton
+          context={props.context}
           id="warp.reset"
           label={ru() ? "Сбросить регистрацию…" : "Reset registration…"}
           run={() => void reset()}
@@ -658,6 +569,16 @@ export default Plugin.define({
     })
     const [busy, updateBusy] = context.storage.memory<SharedBusy>("busy", { initial: { action: null } })
     const [proxy, updateProxy] = context.storage.memory<{ enabled: boolean }>("proxy", { initial: { enabled: false } })
+    const [exit, updateExit] = context.storage.memory<{ ip: string }>("exit", { initial: { ip: "" } })
+
+    const refreshExitIp = async () => {
+      if (!proxy.enabled) {
+        updateExit((draft) => { draft.ip = "" })
+        return
+      }
+      const seen = await Warp.exitIp((await Warp.mode()).port)
+      updateExit((draft) => { draft.ip = seen ? seen.ip + (seen.warp ? " · WARP" : "") + (seen.loc ? " · " + seen.loc : "") : "" })
+    }
 
     const refreshProxy = async () => {
       const enabled = await readOpenCodeProxyEnabled(context)
@@ -668,6 +589,7 @@ export default Plugin.define({
       if (busy.action !== null) return
       setSharedStatus(updateStatus, await readWarpStatus())
       await refreshProxy()
+      await refreshExitIp()
     }
 
     const perform = async (action: WarpAction) => {
@@ -693,6 +615,15 @@ export default Plugin.define({
           updateProxy((draft) => { draft.enabled = false })
           next = await readWarpStatus()
           actionMessage = text(context, "OpenCode proxy disabled; its previous proxy environment is restored.", "Прокси OpenCode отключён; прежние настройки прокси восстановлены.")
+        } else if (action === "changeIp") {
+          const rotation = await Warp.rotate()
+          next = rotation.status
+          await refreshExitIp()
+          actionMessage = rotation.after
+            ? rotation.changed
+              ? text(context, `New OpenCode IP: ${rotation.after.ip}`, `Новый IP OpenCode: ${rotation.after.ip}`)
+              : text(context, `WARP kept the same address (${rotation.after.ip}). Try again in a minute.`, `WARP вернул тот же адрес (${rotation.after.ip}). Повтори через минуту.`)
+            : text(context, "Reconnected, but the exit IP could not be verified.", "Переподключено, но IP проверить не удалось.")
         } else {
           next = await performWarpAction(action, context)
         }
@@ -703,13 +634,13 @@ export default Plugin.define({
             message: actionMessage ?? (statusLabel(context, next.state) + ": " + next.details.slice(0, 240)),
             variant: infoOnly
               ? "info"
-              : action === "install" || action === "proxy" || action === "disableProxy"
+              : action === "install" || action === "proxy" || action === "disableProxy" || action === "changeIp"
                 ? "success"
                 : next.state === "connected" ? "success" : "info",
           })
         }
       } catch (cause) {
-        const message = messageOf(cause)
+        const message = describe(context, cause)
         setSharedStatus(updateStatus, warpStatusError(message))
         context.ui.toast.show({
           title: text(context, "WARP action failed", "Ошибка WARP"),
@@ -729,6 +660,7 @@ export default Plugin.define({
           status={status}
           busy={busy}
           proxyEnabled={proxy.enabled}
+          exitIp={exit.ip}
           run={(action) => void perform(action)}
           onClose={close}
         />
