@@ -47,12 +47,15 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   const sessionID = createMemo(() => joined()?.session.id)
   // Set by the view inside the data provider; the room log calls it once it has caught up.
   let live: (() => void) | undefined
+  let pollSequence = 0
 
   onMount(() => {
     const poll = () => {
+      const sequence = ++pollSequence
       void remote.room.guest
         .get({ roomID, sessionID: target })
         .then((state) => {
+          if (sequence !== pollSequence) return
           setJoined(state)
           setError()
         })
@@ -64,6 +67,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
       void remote.room.guest
         .messages({ roomID, sessionID: target })
         .then((result) => {
+          if (sequence !== pollSequence) return
           setNote(result.note)
           setRunning(result.running)
         })
