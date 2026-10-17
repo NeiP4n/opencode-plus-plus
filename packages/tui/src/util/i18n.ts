@@ -1041,6 +1041,23 @@ const ru: Record<string, string> = {
   "The free model rejected the request. Pick another model and refresh.":
     "Бесплатная модель отклонила запрос. Выбери другую модель и нажми «обновить».",
   "The model could not answer: {error}": "Модель не смогла ответить: {error}",
+  // Session outline
+  "Chat outline": "Содержание чата",
+  Request: "Запрос",
+  Command: "Команда",
+  Read: "Чтение",
+  Write: "Запись",
+  Patch: "Патч",
+  "Find files": "Поиск файлов",
+  Fetch: "Загрузка",
+  "Web search": "Веб-поиск",
+  Subagent: "Субагент",
+  Code: "Код",
+  Reads: "Чтения",
+  Edits: "Правки",
+  Searches: "Поиски",
+  Fetches: "Загрузки",
+  Subagents: "Субагенты",
 }
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {

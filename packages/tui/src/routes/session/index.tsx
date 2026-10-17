@@ -126,6 +126,9 @@ import { defaultVerbosity, type GroupKind, type SessionEntry } from "./grouping/
 import { SessionGroupView } from "./group-view"
 import { useEntryAnchor } from "./anchor-view"
 import { containsAnchor, createTimelineAnchors } from "./anchors"
+import { buildOutline } from "./outline"
+import { OutlineRail } from "./outline-view"
+import { useT } from "../../util/i18n"
 import { rowsAfter, rowsBefore, rowWeight } from "./mount-budget"
 export { InlineToolRow } from "./message-parts"
 export { toolDisplay } from "./message-parts"
@@ -746,6 +749,39 @@ export function Session(props: {
       alignMessage(messageID, Math.max(0, y - (message?.type === "assistant" ? 1 : 0)))
     })
 
+  const t = useT()
+  const outline = createMemo(() => buildOutline(messagesBeforeRevert(), t))
+  const outlineVisible = createMemo(() => outline().length > 1 && dimensions().width - props.verticalTabsWidth >= 60)
+  const [outlineTop, setOutlineTop] = createSignal<PartRef>()
+  const [outlineHeight, setOutlineHeight] = createSignal(0)
+  const updateOutlinePosition = () => {
+    if (!scroll || scroll.isDestroyed) return
+    setOutlineHeight(scroll.viewport.height)
+    const parts = anchors.list().flatMap((anchor) => (anchor.target.type === "part" ? [anchor] : []))
+    const anchor = parts.findLast((item) => item.node.y <= scroll.viewport.y + 1) ?? parts[0]
+    setOutlineTop(anchor?.target.type === "part" ? anchor.target.ref : undefined)
+  }
+  /** The request and step at the top of the viewport; the latest ones while following the bottom. */
+  const outlineActive = createMemo(() => {
+    const top = awayFromBottom() ? outlineTop() : undefined
+    const category = top ? outline().find((item) => item.messageIDs.includes(top.messageID)) : outline().at(-1)
+    if (!category) return {}
+    const index = top ? category.messageIDs.indexOf(top.messageID) : Infinity
+    const entry = category.entries.findLast((entry) => {
+      const position = category.messageIDs.indexOf(entry.ref.messageID)
+      return position < index || (position === index && entry.ref.partID === top?.partID)
+    })
+    return { category: category.key, entry: entry?.key }
+  })
+  const jumpToPart = (ref: PartRef) =>
+    ensureAllRows(() => {
+      const child = anchors.get({ type: "part", ref }) ?? anchors.forMessage(ref.messageID)
+      if (!child) return
+      const y = scroll.scrollTop + child.node.y - scroll.viewport.y
+      const message = data.session.message.get(route.sessionID, ref.messageID)
+      alignMessage(ref.messageID, Math.max(0, y - (message?.type === "assistant" ? 1 : 0)))
+    })
+
   function toBottom() {
     clearMessageNavigation()
     ensureAllRowsPending = undefined
@@ -938,6 +974,30 @@ export function Session(props: {
             sessionID={route.sessionID}
             onMove={jumpToMessage}
             setPrompt={(value) => promptRef.current?.set(value)}
+          />
+        ))
+      },
+    },
+    {
+      title: "Chat outline",
+      id: "session.outline",
+      group: "Session",
+      slash: { name: "outline" },
+      run: () => {
+        dialog.replace(() => (
+          <DialogSelect
+            title={t("Chat outline")}
+            options={outline().flatMap((category) => [
+              { title: category.title, value: category.ref },
+              ...category.entries.map((entry) => ({
+                title: `${entry.level === 1 ? "  " : "    "}${entry.title}${entry.busy ? " …" : ""}`,
+                value: entry.ref,
+              })),
+            ])}
+            onSelect={(option) => {
+              dialog.clear()
+              jumpToPart(option.value)
+            }}
           />
         ))
       },
@@ -1394,9 +1454,10 @@ export function Session(props: {
                   scroll = r
                   props.scrollRef?.(r)
                   scroll.verticalScrollBar.on("change", updateAwayFromBottom)
+                  scroll.verticalScrollBar.on("change", updateOutlinePosition)
                 }}
                 viewportOptions={{
-                  paddingRight: showScrollbar() ? 1 : 0,
+                  paddingRight: (showScrollbar() ? 1 : 0) + (outlineVisible() ? 3 : 0),
                 }}
                 verticalScrollbarOptions={{
                   paddingLeft: 1,
@@ -1437,6 +1498,16 @@ export function Session(props: {
                   {(height) => <box id={NAVIGATION_SLACK_ID} height={height()} flexShrink={0} />}
                 </Show>
               </scrollbox>
+              <Show when={outlineVisible()}>
+                <OutlineRail
+                  categories={outline()}
+                  active={outlineActive()}
+                  height={outlineHeight() || dimensions().height - 8}
+                  maxWidth={Math.floor((dimensions().width - props.verticalTabsWidth) / 2)}
+                  right={showScrollbar() ? 2 : 0}
+                  onJump={jumpToPart}
+                />
+              </Show>
             </box>
             <box height={1} flexShrink={0} flexDirection="row" justifyContent="flex-end">
               <box flexGrow={1} flexShrink={1} minWidth={0} flexDirection="row">
