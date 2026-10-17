@@ -369,11 +369,12 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
         const normalized = name.trim()
         yield* kv.remove(GROUP + normalized)
         const prefix = ACTIVITY + encodeURIComponent(normalized) + "/"
-        const removeActivity = Effect.fnUntraced(function* (after?: string): Effect.Effect<void> {
-          const result = yield* kv.scan({ prefix, after, limit: 1000 })
-          yield* Effect.forEach(result.entries, (entry) => kv.remove(entry.key), { discard: true })
-          if (result.next) yield* removeActivity(result.next)
-        })
+        const removeActivity = (after?: string): Effect.Effect<void> =>
+          Effect.gen(function* () {
+            const result = yield* kv.scan({ prefix, after, limit: 1000 })
+            yield* Effect.forEach(result.entries, (entry) => kv.remove(entry.key), { discard: true })
+            if (result.next) yield* removeActivity(result.next)
+          })
         yield* removeActivity()
       }),
       linkGroup: Effect.fn("Federation.linkGroup")(function* (name) {
