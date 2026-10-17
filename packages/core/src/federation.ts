@@ -297,12 +297,14 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
       (event) =>
         Effect.gen(function* () {
           const allGroups = yield* groups()
-          if (allGroups.length === 0) return
+          if (!allGroups.some((group) => group.supervisor)) return
           const allProjects = yield* orchestra.projects()
           const owners = yield* orchestra.owners()
           const mainProject = allProjects.find((item) => item.main === event.sessionID)
           const projectID = owners[event.sessionID] ?? mainProject?.id
           if (!projectID) return
+          const interested = allGroups.filter((group) => group.supervisor && group.projects.includes(projectID))
+          if (interested.length === 0) return
           // Worker starts are omitted; main Orchestrator starts and all terminal worker/main outcomes are observed.
           if (event.type === "session.execution.started" && !mainProject) return
           const scope: Activity["scope"] = mainProject ? "orchestrator" : "worker"
@@ -314,7 +316,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
                 : event.type === "session.execution.failed"
                   ? "failed"
                   : "interrupted"
-          yield* notifySupervisorActivity(allGroups, projectID, scope, transition)
+          yield* notifySupervisorActivity(interested, projectID, scope, transition)
         }).pipe(Effect.catchCause((cause) => Effect.logError("federation group monitor failed", { cause }))),
     ).pipe(Effect.forkScoped({ startImmediately: true }))
 
