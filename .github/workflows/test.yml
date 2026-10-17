@@ -98,6 +98,9 @@ jobs:
             turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
             turbo-${{ runner.os }}-
 
+      - name: Test anonymous FREE model catalog
+        run: bun test packages/core/test/models-dev-free-models.test.ts
+
       - name: Run full unit suite
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || github.ref_name == 'lan-rooms' || github.base_ref == 'lan-rooms') }}
         timeout-minutes: 30
