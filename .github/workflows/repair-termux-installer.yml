@@ -103,13 +103,11 @@ void *signal(int signum, void (*handler)(int)) {
           if old not in s:
               raise SystemExit('expected SIGSYS handler block not found')
           s = s.replace(old, new, 1)
-          # Keep the installer from accepting a shim that merely turns pidfd_open
-          # into Bun's "Unknown Error, errno 0". The full spawn probe is retained;
-          # this patch specifically keeps the SIGSYS handler armed after Bun setup.
           p.write_text(s)
           PY
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add opencode-pp-install.sh
-          git commit -m 'fix(termux): keep SIGSYS compatibility handler armed' || exit 0
+          git rm .github/workflows/repair-termux-installer.yml
+          git commit -m 'fix(termux): keep SIGSYS compatibility handler armed'
           git push origin HEAD:lan-rooms
