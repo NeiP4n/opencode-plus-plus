@@ -98,7 +98,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
           { action: "edit", resource: "*", effect: "deny" },
           { action: "shell", resource: "*", effect: "deny" },
           { action: "sessions", resource: "*", effect: "deny" },
-          { action: "federation", resource: "*", effect: "ask" },
+          { action: "federation", resource: "*", effect: "allow" },
         ],
       })
       const sessionID = created.data.id
