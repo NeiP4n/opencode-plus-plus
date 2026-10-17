@@ -180,7 +180,7 @@ function UpdateNotification(props: { width: number }) {
               <FadeInText fg={theme.text.muted} backdrop={backdrop()}>
                 <Show when={!remote}>
                   <span style={{ fg: theme.text.action.primary.selected }}>
-                    {state.type === "installed" ? "/exit" : "/update"}
+                    {state.type === "installed" ? "/exit" : "/upgrade"}
                   </span>
                 </Show>
                 {remote

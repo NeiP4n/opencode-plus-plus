@@ -3,7 +3,7 @@ import { directory, json } from "./fixture/tui-client"
 import { tmpdir } from "./fixture/fixture"
 import { createAppFixture } from "./fixture/app"
 
-test("/update opens the manual update dialog and checks for a newer version", async () => {
+test("/upgrade opens the manual update dialog and checks for a newer version", async () => {
   await using state = await tmpdir()
   let checks = 0
   let installs = 0
@@ -70,10 +70,10 @@ test("/update opens the manual update dialog and checks for a newer version", as
 
   await setup.ready
   await setup.waitForFrame((frame) => frame.includes("Build · first model"))
-  setup.mockInput.typeText("/update")
+  setup.mockInput.typeText("/upgrade")
   // Wait for slash-command autocomplete before Enter; otherwise the key can land on
   // the composer itself while the command list is still being rendered.
-  await setup.waitForFrame((frame) => frame.includes("/update") && frame.includes("Update Opencode++"))
+  await setup.waitForFrame((frame) => frame.includes("/upgrade") && frame.includes("Update Opencode++"))
   setup.mockInput.pressEnter()
 
   await setup.waitForFrame((frame) => frame.includes("Version 9.9.9 is available"))
