@@ -1,6 +1,6 @@
 import { TextAttributes, type TextareaRenderable } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { Predicate } from "effect"
 import type { NoteInfo, PermissionRequest } from "@opencode/client"
 import { useConfig } from "../config"
@@ -122,6 +122,27 @@ function RoomView(props: {
   const remote = roomClient(props.room)
   const [sending, setSending] = createSignal(0)
   const [failure, setFailure] = createSignal<string>()
+  const [awaitingAI, setAwaitingAI] = createSignal(false)
+  let awaitingTimer: ReturnType<typeof setTimeout> | undefined
+  const waitForAI = () => {
+    setAwaitingAI(true)
+    if (awaitingTimer) clearTimeout(awaitingTimer)
+    // The host's running poll is authoritative once it sees execution start. This
+    // timeout only prevents a missed event or a run that never starts sticking forever.
+    awaitingTimer = setTimeout(() => {
+      setAwaitingAI(false)
+      awaitingTimer = undefined
+    }, 15_000)
+  }
+  createEffect(() => {
+    if (!props.running || !awaitingAI()) return
+    if (awaitingTimer) clearTimeout(awaitingTimer)
+    awaitingTimer = undefined
+    setAwaitingAI(false)
+  })
+  onCleanup(() => {
+    if (awaitingTimer) clearTimeout(awaitingTimer)
+  })
   const [reading, setReading] = createSignal(false)
   const [document, setDocument] = createSignal<NoteInfo | null>()
   const { currentSyntax: syntax } = useThemes()
@@ -156,6 +177,7 @@ function RoomView(props: {
     setSending((count) => count + 1)
     // A cohost's "/name arguments" runs a host command rather than prompting the model.
     const command = props.role === "cohost" ? /^\/(\S+)\s*([\s\S]*)$/.exec(text) : null
+    if (!command) waitForAI()
     void (
       command
         ? remote.room.guest.session.command({
@@ -177,6 +199,9 @@ function RoomView(props: {
           .catch(() => undefined)
       })
       .catch((cause: unknown) => {
+        setAwaitingAI(false)
+        if (awaitingTimer) clearTimeout(awaitingTimer)
+        awaitingTimer = undefined
         setFailure(errorMessage(cause))
         if (input && !input.plainText) input.setText(text)
       })
@@ -274,10 +299,10 @@ function RoomView(props: {
             width={dimensions().width - padding() * 2 - (sidebar() ? SIDEBAR_WIDTH : 0)}
           />
         </Show>
-        <Show when={props.running || sending() > 0}>
+        <Show when={props.running || awaitingAI() || sending() > 0}>
           <box flexDirection="row" gap={1} flexShrink={0} marginTop={1}>
             <text fg={theme.text.muted} wrapMode="none">
-              {"◌ " + t(props.running ? "Thinking…" : "Sending…")}
+              {"◌ " + t(props.running || awaitingAI() ? "Thinking…" : "Sending…")}
             </text>
           </box>
         </Show>
