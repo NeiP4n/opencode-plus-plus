@@ -20,6 +20,7 @@ export function readConfig(env: Record<string, string | undefined> = process.env
   const token = env.OPENCODE_GATEWAY_TOKEN?.trim()
   const upstreamKey = env.OPENCODE_GATEWAY_UPSTREAM_KEY?.trim()
   if (!token) throw new Error("OPENCODE_GATEWAY_TOKEN is required. Generate a long random secret before starting the gateway.")
+  if (token.length < 32) throw new Error("OPENCODE_GATEWAY_TOKEN must be at least 32 characters long.")
   if (!upstreamKey) throw new Error("OPENCODE_GATEWAY_UPSTREAM_KEY is required; the upstream credential must stay on this host.")
 
   const upstreamURL = env.OPENCODE_GATEWAY_UPSTREAM_URL?.trim() ||
@@ -27,6 +28,10 @@ export function readConfig(env: Record<string, string | undefined> = process.env
   const parsedURL = new URL(upstreamURL)
   if (parsedURL.protocol !== "https:" && parsedURL.protocol !== "http:") {
     throw new Error("OPENCODE_GATEWAY_UPSTREAM_URL must use HTTP or HTTPS.")
+  }
+  const upstreamHost = parsedURL.hostname.replace(/^\[|\]$/g, "").toLowerCase()
+  if (parsedURL.protocol === "http:" && !["localhost", "127.0.0.1", "::1"].includes(upstreamHost)) {
+    throw new Error("Non-loopback upstream URLs must use HTTPS so the upstream API key is not sent in clear text.")
   }
 
   const port = Number(env.OPENCODE_GATEWAY_PORT ?? "8789")
@@ -39,7 +44,7 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     throw new Error("OPENCODE_GATEWAY_TIMEOUT_MS must be between 1000 and 600000.")
   }
 
-  const model = env.OPENCODE_GATEWAY_MODEL?.trim() || "space-bunny-free"
+  const model = env.OPENCODE_GATEWAY_MODEL?.trim() || "glm-4.7-free"
   const fallbackModels = [...new Set(
     (env.OPENCODE_GATEWAY_FALLBACK_MODELS ?? "")
       .split(",")
@@ -314,6 +319,7 @@ async function upstreamRequest(
 
 function streamAsAnthropic(source: ReadableStream<Uint8Array>, model: string): ReadableStream<Uint8Array> {
   let cancelled = false
+  let activeReader: ReadableStreamDefaultReader<Uint8Array> | undefined
   return new ReadableStream<Uint8Array>({
     start(controller) {
       const encoder = new TextEncoder()
@@ -395,6 +401,7 @@ function streamAsAnthropic(source: ReadableStream<Uint8Array>, model: string): R
 
       void (async () => {
         const reader = source.getReader()
+        activeReader = reader
         const decoder = new TextDecoder()
         let buffer = ""
         try {
@@ -450,6 +457,7 @@ function streamAsAnthropic(source: ReadableStream<Uint8Array>, model: string): R
           try {
             reader.releaseLock()
           } catch {}
+          activeReader = undefined
           if (!cancelled) {
             try {
               controller.close()
@@ -460,9 +468,41 @@ function streamAsAnthropic(source: ReadableStream<Uint8Array>, model: string): R
     },
     cancel(reason) {
       cancelled = true
-      void source.cancel(reason).catch(() => {})
+      void activeReader?.cancel(reason).catch(() => {})
     },
   })
+}
+
+class BodyTooLargeError extends Error {}
+
+async function readBoundedBody(request: Request): Promise<string> {
+  if (!request.body) return ""
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (true) {
+      const item = await reader.read()
+      if (item.done) break
+      size += item.value.byteLength
+      if (size > MAX_BODY_BYTES) {
+        await reader.cancel("request body exceeds gateway limit")
+        throw new BodyTooLargeError()
+      }
+      chunks.push(item.value)
+    }
+  } finally {
+    try {
+      reader.releaseLock()
+    } catch {}
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 async function messages(request: Request, config: GatewayConfig) {
@@ -471,10 +511,10 @@ async function messages(request: Request, config: GatewayConfig) {
 
   let input: JsonObject
   try {
-    const text = await request.text()
-    if (Buffer.byteLength(text) > MAX_BODY_BYTES) return anthropicError(413, "Request body is too large.")
+    const text = await readBoundedBody(request)
     input = JSON.parse(text)
-  } catch {
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return anthropicError(413, "Request body is too large.")
     return anthropicError(400, "Request body must be valid JSON.")
   }
   if (!input || !Array.isArray(input.messages) || input.messages.length === 0) {
@@ -551,14 +591,7 @@ export async function handleRequest(request: Request, config: GatewayConfig): Pr
   return anthropicError(404, "Endpoint not found.")
 }
 
-if (import.meta.main) {
-  let config: GatewayConfig
-  try {
-    config = readConfig()
-  } catch (error) {
-    console.error("[room-gateway] " + (error instanceof Error ? error.message : String(error)))
-    process.exit(1)
-  }
+export async function runGateway(config: GatewayConfig): Promise<void> {
   const server = Bun.serve({
     hostname: config.host,
     port: config.port,
@@ -567,4 +600,16 @@ if (import.meta.main) {
   console.log("[room-gateway] listening on http://" + server.hostname + ":" + server.port)
   console.log("[room-gateway] upstream: " + new URL(config.upstreamURL).origin +
     "; model: " + config.model + "; fallbacks: " + config.fallbackModels.length)
+
+  await new Promise<void>((resolve) => {
+    const shutdown = () => {
+      server.stop(true)
+      process.off("SIGINT", shutdown)
+      process.off("SIGTERM", shutdown)
+      console.log("[room-gateway] stopped")
+      resolve()
+    }
+    process.once("SIGINT", shutdown)
+    process.once("SIGTERM", shutdown)
+  })
 }

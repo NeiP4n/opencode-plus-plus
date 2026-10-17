@@ -577,6 +577,19 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
         ),
       },
     }),
+    Spec.make("gateway", {
+      description: "Run an Anthropic-compatible AI gateway for trusted LAN clients",
+      params: {
+        host: Flag.string("host").pipe(
+          Flag.withDescription("Bind address (defaults to 127.0.0.1; use 0.0.0.0 only on a trusted LAN)"),
+          Flag.optional,
+        ),
+        port: Flag.integer("port").pipe(
+          Flag.withDescription("Listen port (defaults to 8789)"),
+          Flag.optional,
+        ),
+      },
+    }),
     Spec.make("serve", {
       description: "Start the v2 API and web server",
       params: {

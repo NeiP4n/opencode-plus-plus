@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { modelCandidates, toAnthropicResponse, toOpenAIRequest } from "../src/index"
+import { handleRequest, modelCandidates, readConfig, toAnthropicResponse, toOpenAIRequest, type GatewayConfig } from "../src/gateway"
 
 describe("room gateway protocol conversion", () => {
   test("converts Anthropic system, text and tools to OpenAI chat format", () => {
@@ -78,5 +78,51 @@ describe("room gateway protocol conversion", () => {
     const config = { model: "primary", fallbackModels: ["backup-a", "backup-b"] }
     expect(modelCandidates("backup-a", config)).toEqual(["backup-a", "primary", "backup-b"])
     expect(modelCandidates("not-configured", config)).toEqual(["primary", "backup-a", "backup-b"])
+  })
+})
+
+
+describe("gateway HTTP guards", () => {
+  const config: GatewayConfig = {
+    host: "127.0.0.1",
+    port: 8789,
+    token: "test-gateway-secret",
+    upstreamURL: "https://example.invalid/v1/chat/completions",
+    upstreamKey: "private-upstream-key",
+    model: "primary",
+    fallbackModels: ["backup"],
+    timeoutMs: 10000,
+  }
+
+  test("requires a gateway token for model discovery", async () => {
+    const response = await handleRequest(new Request("http://127.0.0.1/v1/models"), config)
+    expect(response.status).toBe(401)
+    expect((await response.json()).error.type).toBe("authentication_error")
+  })
+
+  test("lists only configured models after authentication", async () => {
+    const response = await handleRequest(new Request("http://127.0.0.1/v1/models", {
+      headers: { authorization: "Bearer test-gateway-secret" },
+    }), config)
+    expect(response.status).toBe(200)
+    expect((await response.json()).data.map((model: { id: string }) => model.id)).toEqual(["primary", "backup"])
+  })
+
+  test("rejects missing or weak secrets, invalid ports, and cleartext remote upstreams", () => {
+    expect(() => readConfig({})).toThrow("OPENCODE_GATEWAY_TOKEN is required")
+    expect(() => readConfig({
+      OPENCODE_GATEWAY_TOKEN: "short",
+      OPENCODE_GATEWAY_UPSTREAM_KEY: "upstream",
+    })).toThrow("at least 32 characters")
+    expect(() => readConfig({
+      OPENCODE_GATEWAY_TOKEN: "t".repeat(32),
+      OPENCODE_GATEWAY_UPSTREAM_KEY: "upstream",
+      OPENCODE_GATEWAY_PORT: "70000",
+    })).toThrow("OPENCODE_GATEWAY_PORT")
+    expect(() => readConfig({
+      OPENCODE_GATEWAY_TOKEN: "t".repeat(32),
+      OPENCODE_GATEWAY_UPSTREAM_KEY: "upstream",
+      OPENCODE_GATEWAY_UPSTREAM_URL: "http://192.168.1.10:1234/v1/chat/completions",
+    })).toThrow("must use HTTPS")
   })
 })
