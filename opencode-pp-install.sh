@@ -1,11 +1,13 @@
 #!/bin/sh
 # Termux installer wrapper for OpenCode++.
-# The Android OpenTUI setup lives in the pinned installer commit below.
+# Revision marker helps diagnose stale raw.githubusercontent.com responses.
+INSTALLER_WRAPPER_REV="termux-seccomp-fix-2026-10-17-b"
+echo "opencode-pp: installer revision $INSTALLER_WRAPPER_REV"
 set -eu
 
 BASE_URL="https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/c01cdcc0414feeed0aed3da6d00bab897df7a18f/opencode-pp-install.sh"
-TMP="${TMPDIR:-${PREFIX:-/tmp}}/opencode-pp-installer.$$.sh"
-trap 'rm -f "$TMP" "$PREFIX/tmp/opencode-pp-sigsys-compat.c" 2>/dev/null || true' EXIT
+TMP="${TMPDIR:-${PREFIX:-/tmp}}/opencode-pp-installer.$.sh"
+trap 'rm -f "$TMP" "${PREFIX:-/tmp}/tmp/opencode-pp-sigsys-compat.c" 2>/dev/null || true' EXIT
 
 command -v curl >/dev/null 2>&1 || { echo 'opencode-pp: curl is required' >&2; exit 1; }
 mkdir -p "$(dirname "$TMP")"
@@ -14,16 +16,18 @@ curl -fsSL --retry 3 "$BASE_URL" -o "$TMP"
 # The pinned installer already detects Android seccomp, installs the native
 # OpenTUI package and creates the launcher. On affected devices its first
 # compatibility probe can return Bun's "Unknown Error, pidfd_open" even after
-# SIGSYS is converted to ENOSYS. Do not let that probe abort the installation;
-# we replace its preload library with the stronger handler below afterwards.
-# The first shim in the pinned installer advances the PC when handling SIGSYS.
-# On affected Android builds the seccomp signal context already points past svc;
-# advancing it again corrupts the return path and makes pidfd_open report errno=0.
-sed -i 's/uc->uc_mcontext.pc += 4;/\/\* Android SIGSYS context already points past svc; do not advance PC. \*\//' "$TMP"
-# The preliminary check can still report pidfd_open even though the final shim
-# below intercepts signal setup and provides the correct fallback. Let the
-# installer finish; a second probe below decides whether the shim actually works.
-sed -i 's|fail "Bun subprocess still fails with the Android seccomp shim; refusing to install a launcher known to crash"|echo "WARNING: preliminary seccomp probe still fails; applying final shim and rechecking"|' "$TMP"
+# SIGSYS is converted to ENOSYS. Replace its preliminary handler and relax only
+# that probe's fatal line; the final shim below must still pass a spawn test.
+# On affected Android builds the SIGSYS context already points past svc, so
+# advancing the PC again can corrupt the return path and leave errno as zero.
+sed -i 's/uc->uc_mcontext.pc += 4;/\/\* Android SIGSYS context already points past svc; do not advance PC. \*//' "$TMP"
+if grep -q 'Bun subprocess still fails with the Android seccomp shim' "$TMP"; then
+  sed -i '/fail .*Bun subprocess still fails with the Android seccomp shim.*refusing to install a launcher known to crash/c\
+        echo "WARNING: preliminary seccomp probe still fails; applying final shim and rechecking"' "$TMP"
+else
+  echo "opencode-pp: downloaded installer did not contain the expected seccomp preflight; refusing an unknown installer version" >&2
+  exit 1
+fi
 
 sh "$TMP"
 
