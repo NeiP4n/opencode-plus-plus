@@ -529,14 +529,22 @@ export const layer = (options?: Options) =>
 
               let catalogChanged = false
               if (shouldRefreshModelsDev) {
-                const text = yield* fetchApi()
-                const digest = bodyDigest(text)
-                // models.dev rarely changes between polls; skip its cache write
-                // when the raw catalog is byte-identical.
-                if (force || stored?.digest !== digest) {
-                  yield* decodeCatalog(text)
-                  yield* writeCache(text, digest)
-                  catalogChanged = true
+                // Model discovery is best-effort: a models.dev outage must not stop
+                // the independent anonymous Kilo catalog from refreshing.
+                const text = yield* fetchApi().pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Failed to refresh models.dev catalog", { cause }).pipe(Effect.as(undefined)),
+                  ),
+                )
+                if (text !== undefined) {
+                  const digest = bodyDigest(text)
+                  // models.dev rarely changes between polls; skip its cache write
+                  // when the raw catalog is byte-identical.
+                  if (force || stored?.digest !== digest) {
+                    yield* decodeCatalog(text)
+                    yield* writeCache(text, digest)
+                    catalogChanged = true
+                  }
                 }
               }
 
