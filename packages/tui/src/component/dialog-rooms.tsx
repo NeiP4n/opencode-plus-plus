@@ -70,7 +70,6 @@ function MultiplayerModeSelector(props: {
 // room, every enrolled device participates in the replicated log and elections.
 export function DialogMesh(props: { onClose?: () => void; hideHeader?: boolean }) {
   const client = useClient()
-  const dialog = useDialog()
   const theme = useTheme().surface("dialog")
   const dimensions = useTerminalDimensions()
   const t = useT()
@@ -1190,7 +1189,7 @@ export function nextRole(role: Exclude<RoomRole, "trusted">) {
   return ROLES[(ROLES.indexOf(role) + 1) % ROLES.length]
 }
 
-function nextMemberRole(role: RoomRole) {
+export function nextMemberRole(role: RoomRole) {
   return MEMBER_ROLES[(MEMBER_ROLES.indexOf(role) + 1) % MEMBER_ROLES.length]
 }
 

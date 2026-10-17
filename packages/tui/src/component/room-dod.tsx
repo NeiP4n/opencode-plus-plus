@@ -42,12 +42,18 @@ export function RoomDodRows(props: {
   feed: (after: number, wait: number) => Promise<RoomFeed>
   hover: () => string | undefined
   setHover: (id: string | undefined) => void
+  // Columns before the arrow: the left panel nests the DoD under its room, a sidebar does not.
+  indent?: number
+  open?: boolean
+  // Said quietly when the project has no DoD; without it such a project shows nothing.
+  disabledNote?: string
 }) {
   const theme = useTheme()
   const toast = useToast()
   const t = useT()
   const [items, setItems] = createSignal<readonly RoomDodItem[]>([])
-  const [open, setOpen] = createSignal(false)
+  const [open, setOpen] = createSignal(props.open ?? false)
+  const indent = () => props.indent ?? 4
   const [armed, setArmed] = createSignal<string>()
   const [events, setEvents] = createSignal<readonly RoomEvent[]>([])
   const [status, setStatus] = createSignal<PanelState>({ type: "starting" })
@@ -115,8 +121,9 @@ export function RoomDodRows(props: {
 
   const statusText = () => {
     const current = status()
-    // DoD is optional; a project without one says nothing rather than warning every guest.
-    if (current.type === "ready" || current.type === "disabled") return
+    // DoD is optional; a project without one is not a problem to warn every guest about.
+    if (current.type === "disabled") return props.disabledNote
+    if (current.type === "ready") return
     if (current.type === "starting") return t("DoD service is starting or checking the active project…")
     if (current.type === "stale")
       return t("DoD response is stale; last response at {time}. Refresh failed: {reason}", {
@@ -206,10 +213,12 @@ export function RoomDodRows(props: {
     <>
       <Show when={statusText()}>
         {(message) => (
-          <box paddingLeft={6}>
+          <box paddingLeft={indent() + 1}>
             <text
               fg={
-                status().type === "starting" ? theme.text.muted : theme.text.feedback.error.base
+                status().type === "starting" || status().type === "disabled"
+                  ? theme.text.muted
+                  : theme.text.feedback.error.base
               }
               wrapMode="word"
             >
@@ -221,7 +230,7 @@ export function RoomDodRows(props: {
       <Show when={showBoard()}>
         <Row id={`${props.id}:dod`} hover={props.hover} setHover={props.setHover} onClick={() => setOpen(!open())}>
           <text flexShrink={0} fg={theme.text.muted}>
-            {open() ? "    ▾ " : "    ▸ "}
+            {`${" ".repeat(indent())}${open() ? "▾" : "▸"} `}
           </text>
           <box flexGrow={1} minWidth={0}>
             <text fg={theme.text.base} wrapMode="none" truncate>
@@ -257,7 +266,7 @@ export function RoomDodRows(props: {
               const mine = () => item.mine === true
               const free = () => !item.owner || item.stale === true
               return (
-                <box flexDirection="row" paddingLeft={7} paddingRight={1}>
+                <box flexDirection="row" paddingLeft={indent() + 3} paddingRight={1}>
                   <text flexShrink={0} fg={color(item.state)}>
                     {`${MARK[item.state] ?? "·"} `}
                   </text>
@@ -335,18 +344,18 @@ export function RoomDodRows(props: {
             }}
           </For>
           <Show when={items().length > 0 && remaining().length === 0}>
-            <box paddingLeft={7} paddingRight={1}>
+            <box paddingLeft={indent() + 3} paddingRight={1}>
               <text fg={theme.text.feedback.success.base}>{t("Everything is done.")}</text>
             </box>
           </Show>
           <Show when={items().length === 0}>
-            <box paddingLeft={7} paddingRight={1}>
+            <box paddingLeft={indent() + 3} paddingRight={1}>
               <text fg={theme.text.muted}>{t("The DoD file exists but contains no tasks.")}</text>
             </box>
           </Show>
           <For each={events()}>
             {(event) => (
-              <box paddingLeft={7} paddingRight={1}>
+              <box paddingLeft={indent() + 3} paddingRight={1}>
                 <text fg={theme.text.muted} wrapMode="none" truncate>
                   {`${new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} `}
                   <span style={{ fg: theme.text.base }}>{event.who === "host" ? t("host") : event.who}</span>

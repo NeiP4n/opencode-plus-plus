@@ -1549,7 +1549,9 @@ export function Session(props: {
 // data layer encloses it. It neither prompts nor edits; those stay with the host.
 export function SessionTranscript(props: { sessionID: string; width: number }) {
   const data = useData()
+  const theme = useTheme()
   const config = useConfig().data
+  const scrollbar = () => config.session?.scrollbar ?? false
   const dimensions = useTerminalDimensions()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
   const messages = () => data.session.message.list(props.sessionID)
@@ -1589,7 +1591,17 @@ export function SessionTranscript(props: { sessionID: string; width: number }) {
         pendingDelivery: () => undefined,
       }}
     >
+      {/* Spaced and scrolled like the session view, so a shared session reads the same. */}
       <scrollbox
+        viewportOptions={{ paddingRight: scrollbar() ? 1 : 0 }}
+        verticalScrollbarOptions={{
+          paddingLeft: 1,
+          visible: scrollbar(),
+          trackOptions: {
+            backgroundColor: theme.decrease(theme.background.raised.base),
+            foregroundColor: theme.border.base,
+          },
+        }}
         stickyScroll
         stickyStart="bottom"
         flexGrow={1}
@@ -1602,7 +1614,6 @@ export function SessionTranscript(props: { sessionID: string; width: number }) {
               row={row}
               message={(messageID) => data.session.message.get(props.sessionID, messageID)}
               boundaryID={boundaries()[index()]}
-              compact
             />
           )}
         </For>
@@ -1615,7 +1626,6 @@ type SessionRowViewProps = {
   row: SessionRow
   message: (messageID: string) => SessionMessageInfo | undefined
   boundaryID?: string
-  compact?: boolean
 }
 
 function SessionRowView(props: SessionRowViewProps) {
@@ -1625,7 +1635,7 @@ function SessionRowView(props: SessionRowViewProps) {
     node: target,
   })
   return (
-    <box ref={setTarget} id={sessionRowID(props.row, props.boundaryID)} marginTop={props.compact ? 0 : 1} flexShrink={0}>
+    <box ref={setTarget} id={sessionRowID(props.row, props.boundaryID)} marginTop={1} flexShrink={0}>
       <Switch>
         <Match when={props.row.type === "group" ? props.row : undefined}>
           {(row) => (

@@ -18,7 +18,7 @@ import { useDialog } from "../ui/dialog"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { roomListChanged, roomListRevision, sameRoom, useJoinedRooms, type JoinedRoom } from "../util/room"
-import { DialogConnect, DialogHost, DialogMesh, nextRole, ROLE_LABEL } from "./dialog-rooms"
+import { DialogConnect, DialogHost, DialogMesh, nextMemberRole, ROLE_LABEL } from "./dialog-rooms"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
@@ -488,7 +488,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   <text fg={theme.text.muted} wrapMode="none" truncate>
                     {meshStatus()!.status === "active"
                       ? meshStatus()!.leaderID
-                        ? t("active · coordinator {id}", { id: meshStatus()!.leaderID })
+                        ? t("active · coordinator {id}", { id: meshStatus()!.leaderID ?? "" })
                         : t("active · electing coordinator")
                       : t("waiting for members")}
                   </text>
@@ -885,7 +885,7 @@ function RoomPeople(props: {
     act(action)
   }
   const cycle = (room: RoomInfo, member: RoomMemberView) => {
-    const role = nextRole(member.role)
+    const role = nextMemberRole(member.role)
     setMembers((all) => ({
       ...all,
       [room.id]: (all[room.id] ?? []).map((item) => (item.id === member.id ? { ...item, role } : item)),

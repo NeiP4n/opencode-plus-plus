@@ -12,11 +12,19 @@ import { DialogSelect } from "../ui/dialog-select"
 import { useToast } from "../ui/toast"
 import { useTheme, useThemes } from "../context/theme"
 import { SessionTranscript } from "../routes/session"
-import { SplitBorder } from "../ui/border"
+import { EmptyBorder, SplitBorder } from "../ui/border"
+import { createColors, createFrames } from "../ui/spinner"
+import { tint } from "../theme/color"
+import { useLocal } from "../context/local"
+import { Locale } from "../util/locale"
+import { Spinner } from "./spinner"
+import { PromptMetadataRow } from "./prompt/metadata"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
 import type { JoinedRoom } from "../util/room"
 import { guestApi, ignoreGuestUnavailable, roomClient } from "../util/room-guest"
+import { HoverAction } from "./hover-action"
+import { RoomDodRows } from "./room-dod"
 
 // The host polls this often for who is connected; the guest also learns of role changes and removal.
 const POLL_MS = 2000
@@ -34,6 +42,8 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
     if (current.type !== "room") return
     route.navigate(current.returnTo ? { type: "session", sessionID: current.returnTo } : { type: "home" })
   }
+  // Read before the room's providers wrap the view: inside them the data layer is the host's.
+  const home = useData()
   const remote = roomClient(props.room)
   const roomID = props.room.roomID
   const target = props.sessionID
@@ -97,6 +107,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
               sessionID={id}
               role={joined()?.role ?? "viewer"}
               guest={joined()?.guest}
+              home={home}
               host={new URL(props.room.url).host}
               error={error() ? errorMessage(error()) : undefined}
               note={note()}
@@ -122,6 +133,8 @@ function RoomView(props: {
   sessionID: string
   role: keyof typeof ROLE
   guest?: { id: string; name: string }
+  // This computer's own data layer, for the sidebar's Client side; useData here reads the host.
+  home: ReturnType<typeof useData>
   host: string
   error?: string
   note?: { name: string; title: string }
@@ -263,42 +276,46 @@ function RoomView(props: {
   const padding = () => (dimensions().width < 44 ? 1 : 2)
   const writes = () => props.role !== "viewer"
 
+  // The prompt takes the host agent's color, as a session's prompt takes its own agent's.
+  const local = useLocal()
+  const session = () => data.session.get(props.sessionID)
+  const accentColor = createMemo(() => {
+    const agent = session()?.agent
+    return agent ? local.agent.color(agent) : theme.border.base
+  })
+  const accent = createMemo(() => tint(theme.border.base, accentColor(), 1))
+  // Named as a session's prompt names them: the host's model list has the model's name, and this
+  // computer's provider list the provider's; a model or provider unknown here keeps its ID.
+  const [hostModels, setHostModels] = createSignal<readonly { name: string; providerID: string; modelID: string }[]>([])
+  onMount(() => void remote.room.guest.model.list({ roomID: props.room.roomID }).then(setHostModels).catch(() => undefined))
+  const modelLabel = () => {
+    const model = session()?.model
+    if (!model) return ""
+    return hostModels().find((item) => item.providerID === model.providerID && item.modelID === model.id)?.name ?? model.id
+  }
+  const providerLabel = () => {
+    const providerID = session()?.model?.providerID
+    if (!providerID) return ""
+    return props.home.location.provider.list()?.find((item) => item.id === providerID)?.name ?? providerID
+  }
+  const promptBg = createMemo(() => theme.decrease(theme.background.raised.base))
+  const spinner = createMemo(() => {
+    const options = { color: accentColor(), style: "blocks" as const, inactiveFactor: 0.6, minAlpha: 0.3 }
+    return { frames: createFrames(options), color: createColors(options) }
+  })
+  const busy = () => props.running || awaitingAI() || sending() > 0
+  // Once the reply streams in, its own rows show the work; a host without live events never streams.
+  const thinking = () => {
+    if (!props.running && !awaitingAI()) return false
+    const last = data.session.message.list(props.sessionID).at(-1)
+    return !(last?.type === "assistant" && last.time.completed === undefined)
+  }
+
   const sidebar = () => dimensions().width >= SIDEBAR_FROM
 
   return (
     <box flexDirection="row" flexGrow={1} minHeight={0}>
       <box flexGrow={1} minWidth={0} minHeight={0} paddingLeft={padding()} paddingRight={padding()} paddingBottom={1}>
-        <box flexDirection="row" gap={1} paddingTop={1} flexShrink={0}>
-          <text fg={theme.text.base} wrapMode="none" truncate flexShrink={1}>
-            <span style={{ fg: theme.text.action.secondary.base, bold: true }}>{`⇄ ${t("Multiplayer")}`}</span>
-            <span style={{ bold: true }}>{` · ${props.room.name}`}</span>
-            <span style={{ fg: theme.text.muted }}>{` · ${t("host {host}", { host: props.host })}`}</span>
-          </text>
-          <box flexGrow={1} />
-          <text
-            fg={theme.text.action.secondary.base}
-            flexShrink={0}
-            selectable={false}
-            onMouseUp={props.onMinimize}
-          >
-            {t("↓ Minimize")}
-          </text>
-          <text fg={theme.text.formfield.base} flexShrink={0}>{`[${t(ROLE[props.role])}]`}</text>
-        </box>
-        <Show when={props.note}>
-          {(bound) => (
-            <box flexDirection="row" gap={2} flexShrink={0}>
-              <text fg={theme.text.base} wrapMode="none" truncate>
-                {`✎ ${t("Note: {title}", { title: bound().title })}`}
-                <span style={{ fg: theme.text.muted }}>{` · ${t("the host's AI writes your requests into it")}`}</span>
-              </text>
-              <box flexGrow={1} />
-              <text fg={theme.text.action.primary.base} flexShrink={0} onMouseUp={toggleNote}>
-                {reading() ? t("Back to chat") : t("Read note")}
-              </text>
-            </box>
-          )}
-        </Show>
         <Show
           when={!reading()}
           fallback={
@@ -333,11 +350,10 @@ function RoomView(props: {
             />
           </Show>
         </Show>
-        <Show when={props.running || awaitingAI() || sending() > 0}>
-          <box flexDirection="row" gap={1} flexShrink={0} marginTop={1}>
-            <text fg={theme.text.muted} wrapMode="none">
-              {"◌ " + t(props.running || awaitingAI() ? "Thinking…" : "Sending…")}
-            </text>
+        {/* Drawn like the transcript's own reasoning row until the host's reply starts streaming in. */}
+        <Show when={!reading() && thinking()}>
+          <box marginTop={1} paddingLeft={3} flexShrink={0} flexDirection="row">
+            <Spinner color={theme.text.feedback.warning.base}>Thinking</Spinner>
           </box>
         </Show>
         <Show when={(props.role === "helper" || props.role === "cohost") && permissions().length > 0}>
@@ -372,24 +388,49 @@ function RoomView(props: {
         </Show>
         <Show when={failure() ?? props.error}>
           {(message) => (
-            <text fg={theme.text.feedback.error.base} wrapMode="word" flexShrink={0}>
+            <text fg={theme.text.feedback.error.base} wrapMode="word" flexShrink={0} marginTop={1}>
               {message()}
             </text>
           )}
         </Show>
+        {/* The room's line, where a session shows its note and room chips above the prompt. */}
+        <box height={1} flexShrink={0} flexDirection="row" gap={2} marginTop={1}>
+          <text fg={theme.text.base} wrapMode="none" truncate flexShrink={1}>
+            <span style={{ fg: theme.text.action.secondary.base }}>{`⇄ ${props.room.name}`}</span>
+            <span style={{ fg: theme.text.muted }}>{` · ${t("host {host}", { host: props.host })}`}</span>
+            <span style={{ fg: theme.text.muted }}>{` · ${t(ROLE[props.role])}`}</span>
+          </text>
+          <box flexGrow={1} />
+          <Show when={props.note}>
+            {(bound) => (
+              <text
+                fg={theme.text.action.primary.base}
+                wrapMode="none"
+                truncate
+                flexShrink={1}
+                selectable={false}
+                onMouseUp={toggleNote}
+              >
+                {reading() ? t("Back to chat") : `✎ ${bound().title}`}
+              </text>
+            )}
+          </Show>
+          <text fg={theme.text.action.secondary.base} flexShrink={0} selectable={false} onMouseUp={props.onMinimize}>
+            {t("↓ Minimize")}
+          </text>
+        </box>
         <box
           flexShrink={0}
-          marginTop={1}
           border={["left"]}
-          borderColor={theme.border.base}
+          borderColor={accent()}
           customBorderChars={{ ...SplitBorder.customBorderChars, bottomLeft: "╹" }}
         >
           <box
-            paddingLeft={2}
-            paddingRight={2}
+            paddingLeft={padding()}
+            paddingRight={padding()}
             paddingTop={1}
-            paddingBottom={1}
-            backgroundColor={theme.decrease(theme.background.raised.base)}
+            flexGrow={1}
+            backgroundColor={promptBg()}
           >
             <Show
               when={writes()}
@@ -399,8 +440,9 @@ function RoomView(props: {
                 ref={(element: TextareaRenderable) => {
                   input = element
                 }}
+                width="100%"
                 minHeight={1}
-                maxHeight={6}
+                maxHeight={Math.max(6, Math.floor(dimensions().height / 3))}
                 cursorStyle={config.cursor}
                 placeholder={
                   sending() > 0
@@ -410,40 +452,122 @@ function RoomView(props: {
                       : t("Message the room, enter to send")
                 }
                 placeholderColor={theme.text.muted}
-                textColor={theme.text.formfield.base}
-                focusedTextColor={theme.text.formfield.focused}
-                cursorColor={theme.text.formfield.focused}
+                textColor={theme.text.base}
+                focusedTextColor={theme.text.base}
+                cursorColor={theme.text.base}
+                focusedBackgroundColor="transparent"
                 keyBindings={[{ name: "return", action: "submit" }]}
                 onSubmit={send}
               />
             </Show>
+            <box flexDirection="row" flexShrink={0} paddingTop={1}>
+              <PromptMetadataRow
+                mode="normal"
+                agent={session()?.agent ? Locale.titlecase(session()!.agent!) : undefined}
+                auto={false}
+                model={modelLabel()}
+                provider={providerLabel()}
+                variant={session()?.model?.variant === "default" ? undefined : session()?.model?.variant}
+                muted={false}
+                highlight={accentColor()}
+                agentAlpha={1}
+                modelAlpha={1}
+                variantAlpha={1}
+              />
+            </box>
           </box>
+        </box>
+        <box height={1} border={["left"]} borderColor={accent()} customBorderChars={{ ...EmptyBorder, vertical: "╹" }}>
+          <box
+            height={1}
+            border={["bottom"]}
+            borderColor={promptBg()}
+            customBorderChars={{ ...EmptyBorder, horizontal: "▀" }}
+          />
+        </box>
+        {/* The prompt's footer: the same working spinner a session shows while its model runs. */}
+        <box height={1} flexShrink={0} flexDirection="row" gap={1}>
+          <Show
+            when={busy()}
+            fallback={
+              <text fg={theme.text.muted} wrapMode="none" truncate>
+                {session()?.location.directory ?? ""}
+              </text>
+            }
+          >
+            <box marginLeft={1}>
+              <Show when={config.animations ?? true} fallback={<text fg={theme.text.muted}>[⋯]</text>}>
+                <spinner color={spinner().color} frames={spinner().frames} interval={40} />
+              </Show>
+            </box>
+            <text fg={theme.text.muted} wrapMode="none" truncate>
+              {sending() > 0 && !props.running ? t("Sending…") : t("the host's model is working")}
+            </text>
+          </Show>
         </box>
       </box>
       <Show when={sidebar()}>
-        <RoomSidebar room={props.room} sessionID={props.sessionID} role={props.role} host={props.host} />
+        <RoomSidebar
+          room={props.room}
+          sessionID={props.sessionID}
+          role={props.role}
+          host={props.host}
+          guest={props.guest?.name}
+          home={props.home}
+        />
       </Show>
     </box>
   )
 }
 
-const SIDEBAR_WIDTH = 38
+const SIDEBAR_WIDTH = 42
 // Below this the transcript needs the room more than the details do.
 const SIDEBAR_FROM = 110
+// The host's MCP servers connect and fail on their own; the list is read again this often.
+const MCP_POLL_MS = 10_000
 
-// The right panel of a joined room: what the session is and runs on, what it has cost
-// the host, and for a cohost the model and agent pickers the host has in its own sidebar.
-function RoomSidebar(props: { room: JoinedRoom; sessionID: string; role: keyof typeof ROLE; host: string }) {
+type McpRow = { name: string; status: "connected" | "pending" | "disabled" | "failed" | "needs_auth" }
+
+// The right panel of a joined room. Server is the host's side: the session, its model and
+// agent (a cohost picks them here), its cost, the room's DoD queue and the MCP servers the
+// host's model can use. Client is this computer's side: its own MCP servers, which its own AI
+// uses when it works with the room. The two sets differ, so they are not mixed in one list.
+function RoomSidebar(props: {
+  room: JoinedRoom
+  sessionID: string
+  role: keyof typeof ROLE
+  host: string
+  guest?: string
+  home: ReturnType<typeof useData>
+}) {
   const theme = useTheme()
   const data = useData()
   const dialog = useDialog()
   const toast = useToast()
   const t = useT()
   const remote = roomClient(props.room)
+  const [tab, setTab] = createSignal<"server" | "client">("server")
+  const [hover, setHover] = createSignal<string>()
   onMount(() => void data.session.sync(props.sessionID).catch(ignoreGuestUnavailable))
   const session = () => data.session.get(props.sessionID)
   const cohost = () => props.role === "cohost"
   const fail = (error: unknown) => toast.show({ message: errorMessage(error), variant: "error" })
+
+  // Undefined while the first answer is out; null when the host is too old to share the list.
+  const [hostMcp, setHostMcp] = createSignal<readonly McpRow[] | null>()
+  onMount(() => {
+    const read = () =>
+      void remote.room.guest.mcp
+        .list({ roomID: props.room.roomID })
+        .then(setHostMcp)
+        .catch(() => setHostMcp((current) => current ?? null))
+    read()
+    const timer = setInterval(read, MCP_POLL_MS)
+    onCleanup(() => clearInterval(timer))
+  })
+  onMount(() => void props.home.location.mcp.server.sync().catch(() => undefined))
+  const ownMcp = () =>
+    (props.home.location.mcp.server.list() ?? []).map((item) => ({ name: item.name, status: item.status.status }))
 
   const pickModel = () =>
     void remote.room.guest.model
@@ -507,44 +631,176 @@ function RoomSidebar(props: { room: JoinedRoom; sessionID: string; role: keyof t
     </box>
   )
 
-  return (
-    <box
-      width={SIDEBAR_WIDTH}
-      flexShrink={0}
-      paddingLeft={2}
-      paddingRight={2}
-      paddingTop={1}
-      gap={1}
-      backgroundColor={theme.background.raised.base}
+  const tabButton = (id: "server" | "client", label: string) => (
+    <HoverAction
+      id={`room-sidebar:${id}`}
+      paddingLeft={1}
+      paddingRight={1}
+      onMouseEnter={() => setHover(`tab:${id}`)}
+      onMouseLeave={() => setHover()}
+      onClick={() => setTab(id)}
     >
-      <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
-        {session()?.title || t("Untitled")}
+      <text
+        fg={
+          tab() === id
+            ? theme.text.action.primary.selected
+            : hover() === `tab:${id}`
+              ? theme.text.action.secondary.hovered
+              : theme.text.muted
+        }
+        attributes={tab() === id ? TextAttributes.BOLD | TextAttributes.UNDERLINE : undefined}
+      >
+        {label}
       </text>
-      <box>
-        {line(t("Host"), props.host)}
-        {line(t("Role"), t(ROLE[props.role]))}
+    </HoverAction>
+  )
+
+  return (
+    <box width={SIDEBAR_WIDTH} flexShrink={0} paddingTop={1} paddingBottom={1} backgroundColor={theme.background.raised.base}>
+      <box flexDirection="row" flexShrink={0} paddingLeft={1} paddingRight={1} paddingBottom={1}>
+        {tabButton("server", t("Server"))}
+        <text fg={theme.text.muted}>│</text>
+        {tabButton("client", t("Client"))}
       </box>
-      <box>
-        {line(t("Agent"), session()?.agent ?? "—", cohost() ? pickAgent : undefined)}
-        {line(
-          t("Model"),
-          session()?.model ? `${session()!.model!.providerID}/${session()!.model!.id}` : "—",
-          cohost() ? pickModel : undefined,
-        )}
-      </box>
-      <Show when={session()}>
-        {(info) => (
-          <box>
-            {line(t("Tokens"), `${info().tokens.input + info().tokens.output}`)}
-            {line(t("Cost"), `$${info().cost.toFixed(2)}`)}
+      <scrollbox flexGrow={1} minHeight={0} horizontalScrollbarOptions={{ visible: false }}>
+        <Show
+          when={tab() === "server"}
+          fallback={
+            <box gap={1} paddingLeft={2} paddingRight={2}>
+              <box>
+                {line(t("You"), props.guest ?? "—")}
+                {line(t("Role"), t(ROLE[props.role]))}
+              </box>
+              <McpList title={t("Your MCP")} items={ownMcp()} empty={t("No MCP servers on this computer.")} />
+              <text fg={theme.text.muted} wrapMode="word">
+                {t("Your AI uses these when it works with the room; the host's model uses its own.")}
+              </text>
+            </box>
+          }
+        >
+          <box gap={1} paddingLeft={2} paddingRight={2}>
+            <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="word">
+              {session()?.title || t("Untitled")}
+            </text>
+            <box>
+              {line(t("Host"), props.host)}
+              {line(t("Agent"), session()?.agent ?? "—", cohost() ? pickAgent : undefined)}
+              {line(
+                t("Model"),
+                session()?.model ? `${session()!.model!.providerID}/${session()!.model!.id}` : "—",
+                cohost() ? pickModel : undefined,
+              )}
+            </box>
+            <Show when={session()}>
+              {(info) => (
+                <box>
+                  {line(t("Tokens"), `${info().tokens.input + info().tokens.output}`)}
+                  {line(t("Cost"), `$${info().cost.toFixed(2)}`)}
+                </box>
+              )}
+            </Show>
+            <Show
+              when={hostMcp() !== null}
+              fallback={
+                <box>
+                  <text fg={theme.text.base}>
+                    <b>MCP</b>
+                  </text>
+                  <text fg={theme.text.muted} wrapMode="word">
+                    {t("The host's version does not share its MCP servers yet.")}
+                  </text>
+                </box>
+              }
+            >
+              <McpList title={t("Host MCP")} items={hostMcp() ?? []} empty={t("The host has no MCP servers.")} />
+            </Show>
+            <text fg={theme.text.muted} wrapMode="word">
+              {cohost()
+                ? t("Click the agent or model to change it; /command runs a host command.")
+                : t("The host or a cohost picks the model and agent.")}
+            </text>
           </box>
-        )}
+          {/* The room's work queue, the same rows the Multiplayer panel shows under the room. */}
+          <box marginTop={1}>
+            <RoomDodRows
+              id={`room-sidebar:${props.room.roomID}`}
+              indent={1}
+              open
+              disabledNote={t("DoD: the host has not set one up for this project.")}
+              hover={hover}
+              setHover={setHover}
+              load={() => remote.room.guest.dod.get({ roomID: props.room.roomID })}
+              take={(id) =>
+                remote.room.guest.dod.claim(
+                  id
+                    ? { roomID: props.room.roomID, id, take: true }
+                    : { roomID: props.room.roomID, next: true, take: true },
+                )
+              }
+              submit={(id) => remote.room.guest.dod.submit({ roomID: props.room.roomID, id })}
+              release={(id) => remote.room.guest.dod.claim({ roomID: props.room.roomID, id, take: false })}
+              feed={(after, wait) => remote.room.guest.feed({ roomID: props.room.roomID, after, wait })}
+            />
+          </box>
+        </Show>
+      </scrollbox>
+    </box>
+  )
+}
+
+// One side's MCP servers, drawn like the session sidebar's MCP block.
+function McpList(props: { title: string; items: readonly McpRow[]; empty: string }) {
+  const theme = useTheme()
+  const t = useT()
+  const dot = (status: McpRow["status"]) => {
+    if (status === "connected") return theme.text.feedback.success.base
+    if (status === "failed") return theme.text.feedback.error.base
+    if (status === "needs_auth") return theme.text.feedback.warning.base
+    return theme.text.muted
+  }
+  const label: Record<McpRow["status"], string> = {
+    connected: "Connected",
+    pending: "Connecting",
+    failed: "Error",
+    disabled: "Disabled",
+    needs_auth: "Sign in",
+  }
+  return (
+    <box>
+      <box flexDirection="row" justifyContent="space-between" gap={1}>
+        <text fg={theme.text.base} flexShrink={0}>
+          <b>{props.title}</b>
+        </text>
+        <Show when={props.items.length > 0}>
+          <text fg={theme.text.muted} wrapMode="none">
+            {t("{count}/{total} connected", {
+              count: props.items.filter((item) => item.status === "connected").length,
+              total: props.items.length,
+            })}
+          </text>
+        </Show>
+      </box>
+      <Show when={props.items.length > 0} fallback={<text fg={theme.text.muted}>{props.empty}</text>}>
+        <For each={props.items}>
+          {(item) => (
+            <box flexDirection="row" gap={1} minWidth={0}>
+              <text flexShrink={0} fg={dot(item.status)}>
+                •
+              </text>
+              <text fg={theme.text.base} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>
+                <b>{item.name}</b>
+              </text>
+              <text
+                fg={item.status === "failed" ? theme.text.feedback.error.base : theme.text.muted}
+                wrapMode="none"
+                flexShrink={0}
+              >
+                {t(label[item.status])}
+              </text>
+            </box>
+          )}
+        </For>
       </Show>
-      <text fg={theme.text.muted} wrapMode="word">
-        {cohost()
-          ? t("Click the agent or model to change it; /command runs a host command.")
-          : t("The host or a cohost picks the model and agent.")}
-      </text>
     </box>
   )
 }
