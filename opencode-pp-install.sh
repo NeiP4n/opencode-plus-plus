@@ -20,7 +20,7 @@ curl -fsSL --retry 3 "$BASE_URL" -o "$TMP"
 # that probe's fatal line; the final shim below must still pass a spawn test.
 # On affected Android builds the SIGSYS context already points past svc, so
 # advancing the PC again can corrupt the return path and leave errno as zero.
-sed -i 's/uc->uc_mcontext.pc += 4;/\/\* Android SIGSYS context already points past svc; do not advance PC. \*//' "$TMP"
+sed -i 's|uc->uc_mcontext.pc += 4;|/* Android SIGSYS context already points past svc; do not advance PC. */|' "$TMP"
 if grep -q 'Bun subprocess still fails with the Android seccomp shim' "$TMP"; then
   sed -i '/fail .*Bun subprocess still fails with the Android seccomp shim.*refusing to install a launcher known to crash/c\
         echo "WARNING: preliminary seccomp probe still fails; applying final shim and rechecking"' "$TMP"
