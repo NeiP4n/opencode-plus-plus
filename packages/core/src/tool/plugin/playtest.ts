@@ -1,7 +1,7 @@
 export * as PlaytestTool from "./playtest.js"
 
 import { spawn, type ChildProcess } from "node:child_process"
-import { closeSync, openSync } from "node:fs"
+import { closeSync, existsSync, openSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { ToolFailure } from "@opencode/ai"
@@ -27,6 +27,9 @@ const description = [
   "Input modes, set on launch: message (default) is background and instant, for engines that read window messages (Godot, SDL, GameMaker, Unity's old Input, web and UI apps).",
   "input: real feeds hardware-level input (scan codes, raw mouse) that every game reads, including DirectInput, Raw Input, Unreal and Unity's Input System; it brings the game forward for each call and gives the user's focus and cursor back after. If a game ignores message input, relaunch it with input: real.",
   "Hold keys with key press: down / up around other steps; look moves the camera by dx/dy.",
+  "Fast navigation without images: read lists the text on screen with x/y; click_text clicks a button or menu item by its text; wait_text waits until text appears (a menu, a level name, Game Over).",
+  "skip gets past logos, intros, cutscenes and dialogs by trying click, space, enter and esc until nothing reacts; wait_stable waits until loading or a transition ends.",
+  "screenshot with region [x, y, w, h] zooms into part of the window to read small details.",
 ].join("\n")
 
 const Step = Schema.Struct({
@@ -51,6 +54,11 @@ const Step = Schema.Struct({
     "resize",
     "log",
     "close",
+    "read",
+    "click_text",
+    "wait_text",
+    "skip",
+    "wait_stable",
   ]),
   path: Schema.optionalKey(Schema.String).annotate({ description: "launch: program, .bat/.cmd or file to run" }),
   args: Schema.optionalKey(Schema.Array(Schema.String)).annotate({ description: "launch: arguments" }),
@@ -78,11 +86,19 @@ const Step = Schema.Struct({
   press: Schema.optionalKey(Schema.Literals(["tap", "down", "up"])).annotate({
     description: "key: tap (default), or down to keep holding (walk while looking or clicking) until a later up",
   }),
-  text: Schema.optionalKey(Schema.String).annotate({ description: "type: text sent as characters" }),
-  ms: Schema.optionalKey(Schema.Number).annotate({
-    description: "wait: milliseconds; key: how long to hold; drag: duration; launch/wait_change: timeout",
+  text: Schema.optionalKey(Schema.String).annotate({
+    description: "type: text sent as characters; click_text/wait_text: text to find on screen (case and punctuation ignored)",
   }),
-  count: Schema.optionalKey(Schema.Number).annotate({ description: "frames: how many (default 9, max 64); drag: move steps" }),
+  region: Schema.optionalKey(Schema.Array(Schema.Number)).annotate({
+    description: "screenshot: [x, y, w, h] in screenshot pixels to zoom into; read: only this part",
+  }),
+  ms: Schema.optionalKey(Schema.Number).annotate({
+    description:
+      "wait: milliseconds; key: how long to hold; drag: duration; launch, wait_change, wait_text, wait_stable, skip: timeout",
+  }),
+  count: Schema.optionalKey(Schema.Number).annotate({
+    description: "frames: how many (default 9, max 64); drag: move steps; skip: most screens to skip (default 6)",
+  }),
   interval: Schema.optionalKey(Schema.Number).annotate({ description: "frames: milliseconds between frames (default 100)" }),
   width: Schema.optionalKey(Schema.Number).annotate({
     description: "screenshot: image width (default the window's, at most 1280); resize: client width",
@@ -94,7 +110,8 @@ const Step = Schema.Struct({
   color: Schema.optionalKey(Schema.String).annotate({ description: "pixel: expected #rrggbb; a mismatch fails the run" }),
   tolerance: Schema.optionalKey(Schema.Number).annotate({ description: "pixel: allowed difference per channel (default 16)" }),
   threshold: Schema.optionalKey(Schema.Number).annotate({
-    description: "wait_change: percent of the frame that must change (default 0.5)",
+    description:
+      "wait_change: percent of the frame that must change (default 0.5); wait_stable: change still counted as calm (default 2)",
   }),
 })
 type Step = typeof Step.Type
@@ -114,11 +131,26 @@ const Script = Schema.Union([Schema.Array(Step), Schema.Struct({ steps: Schema.A
 
 const GUIDE = [
   "# Playtesting",
-  "The playtest tool runs a game or app hidden off-screen and drives it with its own virtual mouse and keyboard, so the user keeps their computer.",
-  "If the game does not react to message input, relaunch it with input: real (hardware-level input every game reads).",
-  "Put a whole scenario in one call: launch, wait_change, click, key (hold with ms), screenshot. Use see: false, pixel, diff and wait_change for fast checks and look at images only when needed.",
+  "The playtest tool runs a game or app hidden off-screen and drives it with its own virtual mouse and keyboard, so the user keeps their computer. Use it, not shell scripts, to run and test games and apps.",
+  "Play like a fast human tester:",
+  "- Get to what you are testing quickly: launch, wait_stable (loading), skip (logos, intros, cutscenes, tutorials, dialogs), then click_text on menu items (Play, New Game, Continue, OK). Skip whatever is not under test.",
+  "- Put a whole scenario in one call and check with read, wait_text, pixel, diff and wait_change. Take a screenshot only on a new screen, when a check fails, or to judge visuals; use see: false to keep one on disk.",
+  "- Wait on what you expect (wait_text, wait_change, wait_stable), never on fixed sleeps.",
+  "- Input that changes nothing: the game may ignore message input; relaunch with input: real. A black frame: the game is loading, fullscreen-exclusive (start it windowed) or draws only while visible (hidden: false).",
+  "- Report what you checked, what failed and the saved screenshot paths.",
   `Save a scenario that works as a JSON file and replay it with script; each run's files are in ${DIRECTORY}/<app>/.`,
 ].join("\n")
+
+// Chromium and Electron stop drawing a window they consider covered, which an off-screen window is.
+const CHROMIUM_FLAGS = [
+  "--disable-features=CalculateNativeWinOcclusion",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+  "--disable-background-timer-throttling",
+]
+
+const BLACK_HINT =
+  "the frame is black: the app may still be loading (wait_stable or wait_text), run fullscreen-exclusive (start it windowed: Unity -screen-fullscreen 0, Unreal -windowed, Godot --windowed) or draw only while on screen (launch with hidden: false)"
 
 const MAX_IMAGES = 8
 
@@ -129,6 +161,10 @@ type App = {
   child?: ChildProcess
   owned: boolean
   real: boolean
+  hidden: boolean
+  // Moved on screen behind other windows, fully transparent, after it drew nothing off-screen.
+  behind: boolean
+  size: { width: number; height: number }
   dir: string
   log?: string
   // Image pixels to the window's own client pixels, from the latest screenshot.
@@ -190,6 +226,17 @@ export const Plugin = {
         )
         if (!result.ok) {
           lines.push(`${label}: FAIL: ${result.error instanceof Error ? result.error.message : String(result.error)}`)
+          const before = steps[index - 1]?.action
+          const app = current ? apps.get(current) : undefined
+          if (
+            step.action === "wait_change" &&
+            app &&
+            !app.real &&
+            ["click", "key", "type", "drag", "scroll", "look", "down", "up"].includes(before ?? "")
+          )
+            lines.push(
+              "Hint: the input changed nothing. If the game should have reacted, it may read only hardware input: relaunch with input: real.",
+            )
           failed = true
           break
         }
@@ -243,16 +290,62 @@ export const Plugin = {
       return { x: Math.round(x * app.scale.x), y: Math.round(y * app.scale.y) }
     }
 
-    async function shoot(app: App, width: number | undefined) {
+    async function shoot(app: App, width: number | undefined, region?: readonly number[]) {
       app.shots += 1
       const file = path.join(app.dir, `shot-${String(app.shots).padStart(3, "0")}.jpg`)
-      const reply = await call(
-        `[OcPlay]::Capture(${app.hwnd}, ${psString(file)}, ${Math.round(width ?? 1280)}, ${app.cursor.x}, ${app.cursor.y})`,
+      // A region is given in screenshot pixels and cut from the window's own pixels.
+      const [rx = 0, ry = 0, rw = 0, rh = 0] = (region ?? []).map((value, index) =>
+        Math.round(value * (index % 2 === 0 ? app.scale.x : app.scale.y)),
       )
-      const [imageWidth = 0, imageHeight = 0, clientWidth = 0, clientHeight = 0] = reply.split(/\s+/).map(Number)
-      if (imageWidth > 0 && imageHeight > 0) app.scale = { x: clientWidth / imageWidth, y: clientHeight / imageHeight }
-      return { file, imageWidth, imageHeight, clientWidth, clientHeight }
+      const capture = async () => {
+        const reply = await call(
+          `[OcPlay]::Capture(${app.hwnd}, ${psString(file)}, ${Math.round(width ?? 1280)}, ${app.cursor.x}, ${app.cursor.y}, ${rx}, ${ry}, ${rw}, ${rh})`,
+        )
+        const [imageWidth = 0, imageHeight = 0, clientWidth = 0, clientHeight = 0, bright = 255] = reply
+          .split(/\s+/)
+          .map(Number)
+        return { imageWidth, imageHeight, clientWidth, clientHeight, black: bright < 3 }
+      }
+      const first = await capture()
+      const notes: string[] = []
+      const shot =
+        first.black && app.hidden && !app.behind
+          ? await (async () => {
+              // Many engines stop drawing off-screen; behind the user's windows and fully transparent they keep going.
+              await call(`[OcPlay]::Behind(${app.hwnd})`)
+              app.behind = true
+              await new Promise((resolve) => setTimeout(resolve, 600))
+              notes.push("it drew nothing off-screen, so it now runs behind your windows, invisible and click-through")
+              return capture()
+            })()
+          : first
+      if (shot.black) notes.push(BLACK_HINT)
+      if (!rw && shot.imageWidth > 0 && shot.imageHeight > 0)
+        app.scale = { x: shot.clientWidth / shot.imageWidth, y: shot.clientHeight / shot.imageHeight }
+      return { file, ...shot, note: notes.join("; ") }
     }
+
+    // Text on screen through Windows OCR, in the window's own pixels.
+    async function words(app: App, region?: readonly number[]) {
+      const file = path.join(app.dir, "ocr.png")
+      const factor = Math.max(1, Math.min(3, 1600 / Math.max(app.size.width, 1)))
+      await call(`[OcPlay]::Snap(${app.hwnd}, ${psString(file)}, ${factor})`)
+      const reply = await call(`Read-Text ${psString(file)}`)
+      const found = reply
+        .split("\n")
+        .map((line) => line.split("\t"))
+        .filter((parts) => parts.length >= 3)
+        .map(([box = "", line = "0", text = ""]) => {
+          const [x = 0, y = 0, w = 0, h = 0] = box.split(" ").map((value) => Number(value) / factor)
+          return { x, y, w, h, line: Number(line), text: text.trim() }
+        })
+      if (!region || region.length < 4) return found
+      const [rx = 0, ry = 0, rw = 0, rh = 0] = region.map((value, index) => value * (index % 2 === 0 ? app.scale.x : app.scale.y))
+      return found.filter((word) => word.x + word.w / 2 >= rx && word.x + word.w / 2 <= rx + rw && word.y + word.h / 2 >= ry && word.y + word.h / 2 <= ry + rh)
+    }
+
+    // Own window pixels to the pixels of the latest screenshot, which is what the model reads and clicks.
+    const shown = (app: App, x: number, y: number) => `${Math.round(x / app.scale.x)},${Math.round(y / app.scale.y)}`
 
     async function open(step: Step, attach: boolean) {
       counter += 1
@@ -263,6 +356,8 @@ export const Plugin = {
       // Real clicks land where the window is on screen, so real input keeps it visible unless asked otherwise.
       const hidden = step.hidden ?? (!attach && !real)
       const title = step.title ?? ""
+      // The window the user works in, given back if the app grabs the foreground.
+      const user = (await call("[OcPlay]::User()")).trim() || "0"
       let child: ChildProcess | undefined
       let log: string | undefined
       if (!attach) {
@@ -270,8 +365,9 @@ export const Plugin = {
         log = path.join(dir, "app.log")
         const fd = openSync(log, "a")
         const target = path.isAbsolute(step.path) || !/[\\/]/.test(step.path) ? step.path : path.resolve(root, step.path)
-        child = spawn(target, [...(step.args ?? [])], {
-          cwd: step.cwd ? path.resolve(root, step.cwd) : root,
+        const cwd = step.cwd ? path.resolve(root, step.cwd) : root
+        child = spawn(target, chromiumArgs(target, step.args ?? [], cwd, hidden), {
+          cwd,
           stdio: ["ignore", fd, fd],
           // Started with SW_HIDE, the window never flashes on screen before it is moved away.
           windowsHide: hidden,
@@ -306,7 +402,7 @@ export const Plugin = {
             .join("\n"),
         )
       }
-      const info = (await call(`[OcPlay]::Stage(${hwnd}, $${hidden}, $${real})`)).split("\t")
+      const info = (await call(`[OcPlay]::Stage(${hwnd}, $${hidden}, $${real}, ${user})`)).split("\t")
       const [clientWidth = 0, clientHeight = 0] = (info[0] ?? "").split(" ").map(Number)
       const app: App = {
         id,
@@ -315,6 +411,9 @@ export const Plugin = {
         child,
         owned: !attach,
         real,
+        hidden,
+        behind: false,
+        size: { width: clientWidth, height: clientHeight },
         dir,
         log,
         scale: { x: 1, y: 1 },
@@ -341,12 +440,20 @@ export const Plugin = {
       const button = step.button ?? "left"
       switch (step.action) {
         case "screenshot": {
-          const shot = await shoot(app, step.width)
+          const zoom = step.region && step.region.length >= 4 ? step.region : undefined
+          const shot = await shoot(app, step.width, zoom)
           return {
             shot: {
               file: shot.file,
               mime: "image/jpeg",
-              text: `${shot.imageWidth}x${shot.imageHeight} image of the ${shot.clientWidth}x${shot.clientHeight} window, saved as ${path.relative(root, shot.file)}; x/y now use this image's pixels`,
+              text: [
+                zoom
+                  ? `${shot.imageWidth}x${shot.imageHeight} zoom of [${zoom.join(", ")}], saved as ${path.relative(root, shot.file)}; x/y still use the full screenshot's pixels`
+                  : `${shot.imageWidth}x${shot.imageHeight} image of the ${shot.clientWidth}x${shot.clientHeight} window, saved as ${path.relative(root, shot.file)}; x/y now use this image's pixels`,
+                shot.note,
+              ]
+                .filter(Boolean)
+                .join("; "),
             },
           }
         }
@@ -434,6 +541,91 @@ export const Plugin = {
           const reply = await call(`[OcPlay]::Resize(${app.hwnd}, ${Math.round(step.width)}, ${Math.round(step.height)})`)
           app.scale = { x: 1, y: 1 }
           return { text: `client is ${reply} now` }
+        }
+        case "read": {
+          const found = await words(app, step.region)
+          if (found.length === 0) return { text: "no text on screen" }
+          const lines = Map.groupBy(found, (word) => word.line)
+          return {
+            text:
+              "\n" +
+              [...lines.values()]
+                .map((line) => `${shown(app, line[0]!.x, line[0]!.y + line[0]!.h / 2)}  ${line.map((word) => word.text).join(" ")}`)
+                .join("\n"),
+          }
+        }
+        case "click_text": {
+          if (!step.text) throw new Error("click_text needs text")
+          const found = await words(app, step.region)
+          const hit = locate(found, step.text)
+          if (!hit)
+            throw new Error(
+              `No "${step.text}" on screen. Text there: ${[...new Set(found.map((word) => word.text))].slice(0, 40).join(" ") || "none"}`,
+            )
+          app.cursor = { x: Math.round(hit.x + hit.w / 2), y: Math.round(hit.y + hit.h / 2) }
+          await call(`[OcPlay]::Click(${app.hwnd}, ${app.cursor.x}, ${app.cursor.y}, ${psString(button)}, $${step.double === true})`)
+          const seen = hit.text === step.text ? "" : ` (read as "${hit.text}")`
+          return { text: `clicked "${step.text}"${seen} at ${shown(app, app.cursor.x, app.cursor.y)}` }
+        }
+        case "wait_text": {
+          if (!step.text) throw new Error("wait_text needs text")
+          const ms = Math.min(Math.max(Math.round(step.ms ?? 10_000), 0), 25_000)
+          const started = Date.now()
+          for (;;) {
+            const found = await words(app, step.region)
+            const hit = locate(found, step.text)
+            if (hit)
+              return {
+                text: `"${step.text}"${hit.text === step.text ? "" : ` (read as "${hit.text}")`} at ${shown(app, hit.x + hit.w / 2, hit.y + hit.h / 2)} after ${Date.now() - started} ms`,
+              }
+            if (Date.now() - started >= ms)
+              throw new Error(
+                `"${step.text}" did not appear within ${ms} ms. Text there: ${[...new Set(found.map((word) => word.text))].slice(0, 40).join(" ") || "none"}`,
+              )
+            await new Promise((resolve) => setTimeout(resolve, 100))
+          }
+        }
+        case "wait_stable": {
+          const ms = Math.min(Math.max(Math.round(step.ms ?? 10_000), 0), 25_000)
+          const quiet = Math.min(Math.max(Math.round(step.interval ?? 400), 50), 5_000)
+          return { text: await call(`[OcPlay]::WaitStable(${app.hwnd}, ${ms}, ${quiet}, ${step.threshold ?? 2})`) }
+        }
+        case "skip": {
+          const limit = Math.min(Math.max(Math.round(step.count ?? 6), 1), 20)
+          const deadline = Date.now() + Math.min(Math.max(Math.round(step.ms ?? 12_000), 500), 25_000)
+          const center = { x: Math.round(app.size.width / 2), y: Math.round(app.size.height / 2) }
+          const tries: [string, string][] = [
+            ["click", `[OcPlay]::Click(${app.hwnd}, ${center.x}, ${center.y}, 'left', $false)`],
+            ["space", `[OcPlay]::Key(${app.hwnd}, [int[]]@(), 32, 0, 0)`],
+            ["enter", `[OcPlay]::Key(${app.hwnd}, [int[]]@(), 13, 0, 0)`],
+            ["esc", `[OcPlay]::Key(${app.hwnd}, [int[]]@(), 27, 0, 0)`],
+          ]
+          const skipped: string[] = []
+          // A playing video changes by itself, so a skip has to change the frame clearly more than that.
+          await call(`[OcPlay]::Diff(${app.hwnd})`)
+          await new Promise((resolve) => setTimeout(resolve, 250))
+          const motion = Number(await call(`[OcPlay]::Diff(${app.hwnd})`)) || 0
+          const needed = Math.min(90, Math.max(5, motion * 1.5 + 10))
+          while (skipped.length < limit && Date.now() < deadline) {
+            const reacted = await (async () => {
+              for (const [label, script] of tries) {
+                if (Date.now() >= deadline) return undefined
+                await call(`[OcPlay]::Diff(${app.hwnd})`)
+                await call(script)
+                const changed = await call(`[OcPlay]::WaitChange(${app.hwnd}, 700, ${needed})`).catch(() => undefined)
+                if (changed) return `${label} (${changed.split(" changed")[0]})`
+              }
+              return undefined
+            })()
+            if (!reacted) break
+            skipped.push(reacted)
+          }
+          app.cursor = center
+          if (skipped.length === 0)
+            return {
+              text: `nothing reacted to click, space, enter or esc: this screen does not skip${app.real ? "" : " (or the game ignores message input: try input: real)"}`,
+            }
+          return { text: `skipped ${skipped.length} screen(s): ${skipped.join(", ")}; then nothing more reacted` }
         }
         case "log": {
           if (!app.log) return { text: "attached apps have no captured log" }
@@ -568,6 +760,86 @@ export function virtualKeys(combo: string) {
 
 const psString = (text: string) => `'${text.replace(/'/g, "''")}'`
 
+type Word = { x: number; y: number; w: number; h: number; line: number; text: string }
+
+// OCR in one language reads lookalike letters of another ("Мепи" for "Menu", "PIay" for "Play"),
+// so both sides are folded to one alphabet before they are compared.
+const LOOKALIKE: Record<string, string> = {
+  а: "a", в: "b", с: "c", е: "e", ё: "e", н: "h", к: "k", м: "m", п: "n", о: "o", р: "p", т: "t", и: "u", у: "y", х: "x", г: "r", з: "3",
+  i: "l", "1": "l", "|": "l", "0": "o",
+}
+
+const normalize = (text: string) =>
+  [...text.toLowerCase().replace(/[^\p{L}\p{N}|]/gu, "")].map((char) => LOOKALIKE[char] ?? char).join("")
+
+// Edits to turn a into some substring of b, so a misread letter or two still matches.
+function distance(goal: string, text: string) {
+  const row = Array.from({ length: text.length + 1 }, () => 0)
+  for (const [i, char] of [...goal].entries()) {
+    let diagonal = row[0]!
+    row[0] = i + 1
+    for (let j = 1; j <= text.length; j++) {
+      const above = row[j]!
+      row[j] = Math.min(above + 1, row[j - 1]! + 1, diagonal + (text[j - 1] === char ? 0 : 1))
+      diagonal = above
+    }
+  }
+  return Math.min(...row)
+}
+
+// The shortest run of words on one line whose letters contain the wanted text, allowing one
+// misread letter in five when nothing matches exactly.
+export function locate(words: readonly Word[], wanted: string) {
+  const goal = normalize(wanted)
+  if (!goal) return undefined
+  const lines = [...Map.groupBy(words, (word) => word.line).values()]
+  const runs = (allowed: number) =>
+    lines.flatMap((line) =>
+      line.flatMap((_, start) =>
+        line
+          .slice(start)
+          .map((__, length) => line.slice(start, start + length + 1))
+          .filter((run) => distance(goal, normalize(run.map((word) => word.text).join(""))) <= allowed)
+          .slice(0, 1),
+      ),
+    )
+  const exact = runs(0)
+  const found = exact.length > 0 ? exact : runs(Math.floor(goal.length / 5))
+  const best = found.toSorted((a, b) => a.length - b.length)[0]
+  if (!best) return undefined
+  const left = Math.min(...best.map((word) => word.x))
+  const top = Math.min(...best.map((word) => word.y))
+  return {
+    x: left,
+    y: top,
+    w: Math.max(...best.map((word) => word.x + word.w)) - left,
+    h: Math.max(...best.map((word) => word.y + word.h)) - top,
+    text: best.map((word) => word.text).join(" "),
+  }
+}
+
+// Off-screen Chromium and Electron windows stop drawing unless told not to track occlusion.
+export function chromiumArgs(target: string, args: readonly string[], cwd: string, hidden: boolean) {
+  if (!hidden) return [...args]
+  const name = path.basename(target).toLowerCase()
+  const direct =
+    /^(electron|chrome|chromium|msedge|brave|nw)(\.exe|\.cmd)?$/.test(name) ||
+    existsSync(path.join(path.dirname(target), "resources", "app.asar")) ||
+    (/^npx(\.cmd)?$/.test(name) && args.some((arg) => /electron/i.test(arg)))
+  if (direct) return [...args, ...CHROMIUM_FLAGS]
+  // npm start in an Electron project passes arguments after -- on to electron.
+  if (!/^(npm|pnpm|yarn)(\.cmd)?$/.test(name)) return [...args]
+  const manifest = (() => {
+    try {
+      return readFileSync(path.join(cwd, "package.json"), "utf8")
+    } catch {
+      return ""
+    }
+  })()
+  if (!/"electron"/.test(manifest)) return [...args]
+  return [...args, ...(args.includes("--") ? [] : ["--"]), ...CHROMIUM_FLAGS]
+}
+
 // One compiled helper does every step in-process: window lookup, message input, PrintWindow
 // capture and frame comparison each take milliseconds, not a PowerShell start per step.
 export const HOST_PRELUDE = `
@@ -633,11 +905,16 @@ public static class OcPlay {
   [DllImport("user32.dll")] static extern void mouse_event(uint f, int x, int y, int d, IntPtr e);
   [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint f, IntPtr e);
   [DllImport("user32.dll")] static extern short VkKeyScan(char c);
+  [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr h, uint key, byte alpha, uint flags);
+  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
+  [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+  [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr d, int x, int y, int w, int h, IntPtr s, int sx, int sy, uint op);
 
   static readonly Dictionary<long, int> held = new Dictionary<long, int>();
   static readonly Dictionary<long, IntPtr> target = new Dictionary<long, IntPtr>();
   static readonly Dictionary<long, byte[]> last = new Dictionary<long, byte[]>();
   static readonly HashSet<long> real = new HashSet<long>();
+  static readonly Dictionary<long, IntPtr> owner = new Dictionary<long, IntPtr>();
   // What the user had before real input borrowed it, restored by Release.
   static IntPtr userWindow = IntPtr.Zero;
   static POINT userCursor;
@@ -702,18 +979,33 @@ public static class OcPlay {
     return r;
   }
 
-  public static string Stage(long handle, bool hidden, bool hardware) {
+  public static long User() { return GetForegroundWindow().ToInt64(); }
+
+  // A hidden app must never take the user's keyboard: it gets WS_EX_NOACTIVATE, and whenever it
+  // grabs the foreground anyway (on start, or later by itself) the user's window gets it back.
+  static void GiveBack(long handle, IntPtr h) {
+    IntPtr user;
+    if (!owner.TryGetValue(handle, out user) || user == IntPtr.Zero || !IsWindow(user)) return;
+    var front = GetForegroundWindow();
+    if (front == user) return;
+    uint mine, theirs; GetWindowThreadProcessId(h, out mine); GetWindowThreadProcessId(front, out theirs);
+    if (front == h || theirs == mine) Foreground(user);
+  }
+
+  public static string Stage(long handle, bool hidden, bool hardware, long user) {
     if (hardware) real.Add(handle); else real.Remove(handle);
     var h = new IntPtr(handle);
     if (!IsWindow(h)) throw new Exception("The window is gone");
     if (hidden) {
+      owner[handle] = new IntPtr(user);
       ShowWindow(h, 0);
       long ex = GetLong(h, -20).ToInt64();
-      SetLong(h, -20, new IntPtr((ex | 0x80) & ~0x40000L));
+      SetLong(h, -20, new IntPtr((ex | 0x80 | 0x08000000) & ~0x40000L));
       RECT w; GetWindowRect(h, out w);
       int left = GetSystemMetrics(76) - (w.R - w.L) - 400;
       SetWindowPos(h, IntPtr.Zero, left, GetSystemMetrics(77), 0, 0, 0x1 | 0x4 | 0x10);
       ShowWindow(h, 4);
+      GiveBack(handle, h);
     } else ShowWindow(h, 5);
     Activate(h);
     var c = Client(h, true);
@@ -756,6 +1048,7 @@ public static class OcPlay {
   static IntPtr Check(long handle) {
     var h = new IntPtr(handle);
     if (!IsWindow(h)) throw new Exception("The app's window is gone; it may have crashed (see log)");
+    if (!real.Contains(handle)) GiveBack(handle, h);
     return h;
   }
 
@@ -945,14 +1238,80 @@ public static class OcPlay {
     // PrintWindow draws a DPI-unaware window at its own (unscaled) size, so that is the bitmap size.
     var r = Client(h, true);
     int w = Math.Max(1, r.R - r.L), ht = Math.Max(1, r.B - r.T);
-    var bmp = new Bitmap(w, ht, PixelFormat.Format32bppRgb);
     var old = SetThreadDpiAwarenessContext(new IntPtr(-4));
-    using (var g = Graphics.FromImage(bmp)) {
-      var dc = g.GetHdc();
-      // PW_CLIENTONLY | PW_RENDERFULLCONTENT: DirectX and OpenGL content too, while the window is off-screen.
-      try { PrintWindow(h, dc, 3); } finally { g.ReleaseHdc(dc); SetThreadDpiAwarenessContext(old); }
+    try {
+      // PW_CLIENTONLY | PW_RENDERFULLCONTENT first (DirectX and OpenGL too, off-screen), then plain
+      // PrintWindow for GDI apps that ignore the first, then the window's own DC.
+      foreach (int mode in new[] { 3, 1, 0 }) {
+        var bmp = new Bitmap(w, ht, PixelFormat.Format32bppRgb);
+        using (var g = Graphics.FromImage(bmp)) {
+          var dc = g.GetHdc();
+          try {
+            if (mode > 0) PrintWindow(h, dc, (uint)mode);
+            else { var src = GetDC(h); BitBlt(dc, 0, 0, w, ht, src, 0, 0, 0x00CC0020 | 0x40000000); ReleaseDC(h, src); }
+          } finally { g.ReleaseHdc(dc); }
+        }
+        if (mode == 0 || Bright(bmp) >= 3) return bmp;
+        bmp.Dispose();
+      }
+    } finally { SetThreadDpiAwarenessContext(old); }
+    throw new Exception("unreachable");
+  }
+
+  // Average brightness from a sparse grid: cheap enough to run on every capture.
+  static double Bright(Bitmap b) {
+    double sum = 0; int n = 0;
+    for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
+      var c = b.GetPixel(x * (b.Width - 1) / 23, y * (b.Height - 1) / 23);
+      sum += (c.R + c.G + c.B) / 3.0; n++;
     }
-    return bmp;
+    return sum / n;
+  }
+
+  // Back on screen under every other window, fully transparent and click-through: engines that
+  // stop drawing off-screen keep drawing, and the user sees nothing.
+  public static string Behind(long handle) {
+    var h = Check(handle);
+    long ex = GetLong(h, -20).ToInt64();
+    SetLong(h, -20, new IntPtr(ex | 0x80000 | 0x20 | 0x80 | 0x08000000));
+    SetLayeredWindowAttributes(h, 0, 1, 2);
+    SetWindowPos(h, new IntPtr(1), GetSystemMetrics(76), GetSystemMetrics(77), 0, 0, 0x1 | 0x10);
+    return "";
+  }
+
+  // A full-size PNG for OCR, enlarged so small game text is readable.
+  public static string Snap(long handle, string file, double factor) {
+    var h = Check(handle);
+    using (var bmp = Grab(h)) {
+      float ratio = Ratio(h, bmp);
+      int w = (int)(bmp.Width / ratio * factor), ht = (int)(bmp.Height / ratio * factor);
+      using (var big = new Bitmap(w, ht))
+      using (var g = Graphics.FromImage(big)) {
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.DrawImage(bmp, 0, 0, w, ht);
+        big.Save(file, ImageFormat.Png);
+      }
+      return w + " " + ht;
+    }
+  }
+
+  // Waits until the frame stops changing for quiet ms: loading screens, transitions, fades.
+  public static string WaitStable(long handle, int ms, int quiet, double threshold) {
+    var h = Check(handle);
+    var watch = Stopwatch.StartNew();
+    byte[] prev; using (var bmp = Grab(h)) prev = Thumb(bmp);
+    long calm = 0;
+    while (true) {
+      Thread.Sleep(30);
+      byte[] now; using (var bmp = Grab(Check(handle))) now = Thumb(bmp);
+      if (Changed(prev, now) > threshold) calm = watch.ElapsedMilliseconds;
+      prev = now;
+      if (watch.ElapsedMilliseconds - calm >= quiet) { last[handle] = now; return "calm after " + watch.ElapsedMilliseconds + " ms"; }
+      if (watch.ElapsedMilliseconds >= ms) {
+        last[handle] = now;
+        throw new Exception("The screen kept changing for " + ms + " ms; an animated scene never calms, so check it with wait_text or a screenshot instead");
+      }
+    }
   }
 
   static void Cursor(Graphics g, float x, float y, float size) {
@@ -979,22 +1338,29 @@ public static class OcPlay {
     return own.R > own.L ? (float)bmp.Width / (own.R - own.L) : 1f;
   }
 
-  public static string Capture(long handle, string file, int width, int cx, int cy) {
+  // rw > 0 zooms into the region rx, ry, rw, rh of the window's own pixels.
+  public static string Capture(long handle, string file, int width, int cx, int cy, int rx, int ry, int rw, int rh) {
     var h = Check(handle);
     using (var bmp = Grab(h)) {
       Remember(handle, bmp);
       var own = Client(h, true);
       float ratio = Ratio(h, bmp);
-      int w = Math.Min(Math.Max(width, 160), bmp.Width), ht = Math.Max(1, bmp.Height * w / bmp.Width);
+      var src = rw > 0 && rh > 0
+        ? Rectangle.Intersect(new Rectangle((int)(rx * ratio), (int)(ry * ratio), Math.Max(1, (int)(rw * ratio)), Math.Max(1, (int)(rh * ratio))), new Rectangle(0, 0, bmp.Width, bmp.Height))
+        : new Rectangle(0, 0, bmp.Width, bmp.Height);
+      if (src.Width < 1 || src.Height < 1) throw new Exception("The region is outside the window");
+      // A zoom may enlarge; a full frame only shrinks.
+      int w = rw > 0 ? Math.Min(Math.Max(width, 160), 1280) : Math.Min(Math.Max(width, 160), src.Width);
+      int ht = Math.Max(1, src.Height * w / src.Width);
       using (var small = new Bitmap(w, ht))
       using (var g = Graphics.FromImage(small)) {
-        g.InterpolationMode = InterpolationMode.HighQualityBilinear;
-        g.DrawImage(bmp, 0, 0, w, ht);
-        float k = ratio * w / bmp.Width;
-        Cursor(g, cx * k, cy * k, Math.Max(12f, w / 60f));
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.DrawImage(bmp, new Rectangle(0, 0, w, ht), src, GraphicsUnit.Pixel);
+        float k = (float)w / src.Width;
+        Cursor(g, (cx * ratio - src.X) * k, (cy * ratio - src.Y) * k, Math.Max(12f, w / 60f));
         Save(small, file);
       }
-      return w + " " + ht + " " + (own.R - own.L) + " " + (own.B - own.T);
+      return w + " " + ht + " " + (own.R - own.L) + " " + (own.B - own.T) + " " + ((int)Bright(bmp));
     }
   }
 
@@ -1113,6 +1479,39 @@ public static class OcPlay {
 function Send-Reply([string]$tag, [string]$text) {
   [Console]::Out.WriteLine('@@' + $tag + ' ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text)))
   [Console]::Out.Flush()
+}
+# Windows OCR is a WinRT API; it is loaded on first use, so the helper starts fast without it.
+$script:ocr = $null
+function Read-Text([string]$file) {
+  if (-not $script:ocr) {
+    Add-Type -AssemblyName System.Runtime.WindowsRuntime
+    $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+    $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+    $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType = WindowsRuntime]
+    $script:asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation\x601' } | Select-Object -First 1
+    $script:ocr = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    if (-not $script:ocr) { throw 'Windows OCR has no language installed' }
+  }
+  function Await($operation, [Type]$type) {
+    $task = $script:asTask.MakeGenericMethod($type).Invoke($null, @($operation))
+    [void]$task.Wait(-1)
+    $task.Result
+  }
+  $item = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($file)) ([Windows.Storage.StorageFile])
+  $stream = Await ($item.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+  try {
+    $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    $result = Await ($script:ocr.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+  } finally { $stream.Dispose() }
+  $index = 0
+  foreach ($line in $result.Lines) {
+    foreach ($word in $line.Words) {
+      $r = $word.BoundingRect
+      "$([int]$r.X) $([int]$r.Y) $([int]$r.Width) $([int]$r.Height)" + "\x60t" + $index + "\x60t" + $word.Text
+    }
+    $index++
+  }
 }
 function Invoke-Step([string]$encoded) {
   try {

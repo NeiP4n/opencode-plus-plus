@@ -62,6 +62,32 @@ describe("PlaytestTool", () => {
     expect(() => PlaytestTool.virtualKeys("hyper")).toThrow("Unknown key")
   })
 
+  test("finds text across OCR words", () => {
+    const words = [
+      { x: 10, y: 10, w: 40, h: 10, line: 0, text: "New" },
+      { x: 55, y: 10, w: 40, h: 10, line: 0, text: "Game" },
+      { x: 10, y: 30, w: 40, h: 10, line: 1, text: "Options" },
+    ]
+    expect(PlaytestTool.locate(words, "new game")).toEqual({ x: 10, y: 10, w: 85, h: 10, text: "New Game" })
+    expect(PlaytestTool.locate(words, "OPTIONS!")?.text).toBe("Options")
+    expect(PlaytestTool.locate(words, "quit")).toBeUndefined()
+    const misread = [
+      { x: 0, y: 0, w: 10, h: 10, line: 0, text: "Main" },
+      { x: 12, y: 0, w: 10, h: 10, line: 0, text: "Мепи" },
+      { x: 0, y: 20, w: 10, h: 10, line: 1, text: "PIay" },
+      { x: 0, y: 40, w: 10, h: 10, line: 2, text: "Settngs" },
+    ]
+    expect(PlaytestTool.locate(misread, "Main Menu")?.text).toBe("Main Мепи")
+    expect(PlaytestTool.locate(misread, "Play")?.text).toBe("PIay")
+    expect(PlaytestTool.locate(misread, "Settings")?.text).toBe("Settngs")
+  })
+
+  test("keeps Chromium drawing off-screen", () => {
+    expect(PlaytestTool.chromiumArgs("electron.exe", ["."], ".", true)).toContain("--disable-backgrounding-occluded-windows")
+    expect(PlaytestTool.chromiumArgs("electron.exe", ["."], ".", false)).toEqual(["."])
+    expect(PlaytestTool.chromiumArgs("game.exe", [], ".", true)).toEqual([])
+  })
+
   test("compares colors with a tolerance", () => {
     expect(PlaytestTool.close("#ff0000", "#f00", 0)).toBe(true)
     expect(PlaytestTool.close("#f00a00", "#ff0000", 16)).toBe(true)
@@ -83,7 +109,14 @@ describe("PlaytestTool", () => {
                 args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fixture],
                 title: "Playtest Fixture",
               },
+              { action: "wait_stable", ms: 5000 },
+              { action: "skip", count: 1 },
+              { action: "wait_text", text: "main menu", ms: 5000 },
+              { action: "click_text", text: "Play" },
+              { action: "wait_text", text: "Level 1", ms: 5000 },
+              { action: "read" },
               { action: "screenshot", width: 400, see: false },
+              { action: "screenshot", region: [0, 0, 120, 50], see: false },
               { action: "pixel", x: 200, y: 150, color: "#0000ff" },
               { action: "click", x: 100, y: 150 },
               { action: "wait_change", ms: 3000 },
@@ -104,6 +137,10 @@ describe("PlaytestTool", () => {
           const output = text(result)
           expect(output).toContain("PASS")
           expect(output).toContain("hidden off-screen")
+          expect(output).toContain("skipped 1 screen(s): click")
+          expect(output).toContain('clicked "Play"')
+          expect(output).toMatch(/Level 1/)
+          expect(output).toContain("zoom of [0, 0, 120, 50]")
           expect(output).toContain("click 100 150")
           expect(output).toContain("key Space")
           expect(output).toContain("char h")
