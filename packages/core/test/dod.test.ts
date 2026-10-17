@@ -128,7 +128,9 @@ describe("Dod", () => {
     )
     expect(results.filter((result) => result._tag === "Success")).toHaveLength(1)
     const holder = (await run(Dod.read(dir.path))).items.find((item) => item.id === "L-003")?.owner
-    expect(results.find((result) => result._tag === "Success")?.success.items.find((item) => item.id === "L-003")?.owner).toBe(holder)
+    expect(
+      results.find((result) => result._tag === "Success")?.success.items.find((item) => item.id === "L-003")?.owner,
+    ).toBe(holder)
   })
 
   test("an item without task_state gets the owner at its end, before the blank line", async () => {
@@ -231,14 +233,18 @@ describe("Dod", () => {
     )
     await run(Dod.take({ directory: dir.path, id: "L-002", owner: alex }))
     expect(await run(Dod.command({ directory: dir.path, id: "L-002", owner: alex }))).toBe("bun test x")
-    expect(await fails(Dod.accept({
-      directory: dir.path,
-      id: "L-002",
-      command: "bun test something-else",
-      exitCode: 0,
-      summary: "forged pass",
-      by: "Alex",
-    }))).toBe('L-002 verification command mismatch; expected "bun test x"')
+    expect(
+      await fails(
+        Dod.accept({
+          directory: dir.path,
+          id: "L-002",
+          command: "bun test something-else",
+          exitCode: 0,
+          summary: "forged pass",
+          by: "Alex",
+        }),
+      ),
+    ).toBe('L-002 verification command mismatch; expected "bun test x"')
     expect(await fails(Dod.command({ directory: dir.path, id: "L-003", owner: alex }))).toBe(
       "Take L-003 before submitting it; only its holder submits",
     )
@@ -253,5 +259,73 @@ describe("Dod", () => {
       /^    verification:\n      state: PASSED\n      command: "bun test x"   # the oracle\n      evidence:\n        command: "bun test x"\n        exit_code: 0\n        at: "[^"]+"\n        by: "Alex"\n        output_summary: "3 pass"\n$/,
     )
     expect(text).not.toContain("1 fail")
+  })
+
+  test("the prompt makes the AI responsible and spells out the steps of the work in hand", async () => {
+    await using dir = await project()
+    await run(Dod.take({ directory: dir.path, id: "L-002", owner: alex }))
+    const prompt = (await run(readInitial(Dod.instructions(dir.path)))).text
+    expect(prompt).toContain("You are responsible for this board")
+    expect(prompt).toContain("`dod verify`")
+    expect(prompt).toContain('"[ ] write it"')
+    expect(prompt).not.toContain('"[x] read it"')
+  })
+
+  test("checking a step takes a free item and edits only that step's checkbox", async () => {
+    await using dir = await project()
+    expect(await fails(Dod.check({ directory: dir.path, id: "L-002", step: 3, checked: true, owner: alex }))).toBe(
+      "L-002 has steps 1 to 2; there is no step 3",
+    )
+    const dod = await run(Dod.check({ directory: dir.path, id: "L-002", step: 2, checked: true, owner: alex }))
+    expect(dod.items[1]).toMatchObject({ state: "IN_PROGRESS", owner: "Alex", done: 2, total: 2 })
+    const text = await Bun.file(path.join(dir.path, Dod.FILE)).text()
+    expect(text).toContain('      - "[x] write it"\n')
+    expect(text).toContain('    what: "Add the check"   # keep this comment\n')
+    expect(await fails(Dod.check({ directory: dir.path, id: "L-002", step: 1, checked: false, owner: bo }))).toBe(
+      "L-002 is taken by Alex",
+    )
+    const unchecked = await run(Dod.check({ directory: dir.path, id: "L-002", step: 1, checked: false, owner: alex }))
+    expect(unchecked.items[1].done).toBe(1)
+  })
+
+  test("blocking records the reason and unblocking takes it back", async () => {
+    await using dir = await project()
+    const blocked = await run(Dod.block({ directory: dir.path, id: "L-002", owner: alex, reason: "needs a key" }))
+    expect(blocked.items[1]).toMatchObject({ state: "BLOCKED", owner: "Alex" })
+    expect(await Bun.file(path.join(dir.path, Dod.FILE)).text()).toContain('blocked_by: "needs a key"')
+    const resumed = await run(Dod.block({ directory: dir.path, id: "L-002", owner: alex }))
+    expect(resumed.items[1].state).toBe("IN_PROGRESS")
+    expect(await Bun.file(path.join(dir.path, Dod.FILE)).text()).not.toContain("blocked_by")
+  })
+
+  test("adding items starts a missing board and appends after the last item", async () => {
+    await using dir = await tmpdir()
+    const first = await run(
+      Dod.add({ directory: dir.path, what: "Ship it", steps: ["build", "[x] plan"], verify: "bun test" }),
+    )
+    expect(first.id).toBe("L-001")
+    expect(first.dod.items).toEqual([
+      { id: "L-001", what: "Ship it", stage: "Ungrouped", state: "NOT_STARTED", done: 1, total: 2, verify: "bun test" },
+    ])
+    const second = await run(
+      Dod.add({ directory: dir.path, what: 'Say "done"', group: "Stage 2", dependsOn: ["L-001"] }),
+    )
+    expect(second.id).toBe("L-002")
+    expect(second.dod.items[1]).toMatchObject({ what: 'Say "done"', stage: "Stage 2", waits: ["L-001"] })
+    expect(await fails(Dod.add({ directory: dir.path, what: "Again", id: "L-001" }))).toBe("The DoD already has L-001")
+
+    await using existing = await project()
+    const added = await run(Dod.add({ directory: existing.path, what: "Release" }))
+    expect(added.id).toBe("L-004")
+    expect(added.dod.items.map((item) => item.id)).toEqual(["L-001", "L-002", "L-003", "L-004"])
+    const text = await Bun.file(path.join(existing.path, Dod.FILE)).text()
+    expect(text.startsWith(FILE)).toBe(true)
+  })
+
+  test("detail returns an item's step lines as written", async () => {
+    await using dir = await project()
+    const detail = await run(Dod.detail(dir.path, "L-002"))
+    expect(detail.steps).toEqual(["[x] find the spot", "[ ] write it"])
+    expect(detail.item.waits).toBeUndefined()
   })
 })

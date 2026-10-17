@@ -127,6 +127,7 @@ const projectDodStatus = [
   `Project root: ${JSON.stringify(path.resolve("/project"))}`,
   `Reason: ${Dod.FILE} does not exist.`,
   "No work is implicitly considered complete because the board is absent.",
+  "When the user gives multi-step work, start the board with `dod add`; from then on you are responsible for keeping it current.",
 ].join("\n")
 const projectContext = (text: string) => `${projectDodStatus}\n\n${text}`
 const replacementIdentity = identity("fake", "replacement")
