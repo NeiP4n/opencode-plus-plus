@@ -153,8 +153,12 @@ export const Plugin = {
                     return yield* new ToolFailure({ message: "send needs to, kind and subject (and body)." })
                   if (groupSupervisor) {
                     const managed = (yield* federation.groups()).find((group) => group.name === groupSupervisor.name)
-                    if (!managed || !managed.projects.includes(Orchestra.ProjectID.make(input.to)))
+                    const target = Orchestra.ProjectID.make(input.to)
+                    if (!managed || !managed.projects.includes(target))
                       return yield* new ToolFailure({ message: "The Group Orchestrator may send tickets only to projects in its registered group." })
+                    const linked = yield* federation.linked(project.id)
+                    if (!linked.some((item) => item.id === target))
+                      return yield* new ToolFailure({ message: "This member is not linked to the coordinator. Ask the operator to use Link all before contacting it." })
                   }
                   if (input.kind !== "question") yield* ask(`send:${input.kind}:${input.to}`)
                   const ticket = yield* federation
