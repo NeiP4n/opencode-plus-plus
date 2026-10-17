@@ -94,6 +94,12 @@ export function DialogGroups(props: { onClose?: () => void }) {
         metadata: {
           "opencode-pp:group-supervisor": { groupName: group.name, leader: leaderID },
         },
+        permissions: [
+          { action: "edit", resource: "*", effect: "deny" },
+          { action: "shell", resource: "*", effect: "deny" },
+          { action: "sessions", resource: "*", effect: "deny" },
+          { action: "federation", resource: "*", effect: "ask" },
+        ],
       })
       const sessionID = created.data.id
       await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: sessionID })
