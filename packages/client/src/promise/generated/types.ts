@@ -2363,6 +2363,7 @@ export type ConfigEntry =
         share?: "manual" | "auto" | "disabled"
         enterprise?: { url?: string }
         username?: string
+        proxy?: { http?: string; https?: string; no_proxy?: Array<string> }
         permissions?: PermissionRuleset
         agents?: {
           [x: string]: {
