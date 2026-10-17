@@ -24,10 +24,8 @@ describe("Orchestra permission decisions", () => {
   test("never treats unclear, malformed, or unsupported decisions as approval", () => {
     expect(parsePermissionDecision("Looks safe, go ahead.")).toBeUndefined()
     expect(parsePermissionDecision('{"decision":"approve","reason":"not a supported decision"}')).toBeUndefined()
-    expect(parsePermissionDecision('{"decision":"allow","reason":[]}')).toEqual({
-      decision: "allow",
-      reason: "Allowed by the project orchestrator.",
-    })
+    expect(parsePermissionDecision('{"decision":"allow","reason":[]}')).toBeUndefined()
+    expect(parsePermissionDecision('{"decision":"allow"}')).toBeUndefined()
     expect(parsePermissionDecision("not json")).toBeUndefined()
   })
 })
