@@ -175,7 +175,7 @@ export async function run(args: readonly string[]): Promise<string> {
   if (!cli) throw new WarpError("cli-missing", "Cloudflare WARP CLI (warp-cli) was not found. Install Cloudflare WARP first.")
   try {
     // Linux/macOS require accepting the terms once; the flag is harmless where it is not needed.
-    return await execCli(cli, args[0] === "registration" || args[0] === "register" ? ["--accept-tos", ...args] : args)
+    return await execCli(cli, ["--accept-tos", ...args])
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)
     if (isMissingCli(message)) {
@@ -240,16 +240,26 @@ async function ensureDaemon() {
 
 /** Try the current CLI syntax first, then the legacy one used by older WARP releases. */
 async function runAny(...variants: Array<readonly string[]>) {
-  let last: unknown
+  const failures: unknown[] = []
   for (const args of variants) {
     try {
       return await run(args)
     } catch (cause) {
-      if (cause instanceof WarpError && cause.code === "cli-missing") throw cause
-      last = cause
+      if (cause instanceof WarpError && (cause.code === "cli-missing" || cause.code === "daemon-down")) throw cause
+      failures.push(cause)
     }
   }
-  throw last
+  // A later variant often fails only because its syntax does not exist in this WARP version; the
+  // earlier failure is the real one.
+  const syntax = /unrecognized subcommand|unexpected argument|invalid value|unknown command/i
+  throw failures.find((cause) => !syntax.test(cause instanceof Error ? cause.message : String(cause))) ?? failures.at(-1)
+}
+
+/** Linux/macOS clients start without a registration; settings cannot be changed until one exists. */
+async function ensureRegistration() {
+  const shown = await runAny(["registration", "show"], ["account"]).catch(() => "")
+  if (shown && !/missing|not registered|no registration/i.test(shown)) return
+  await runAny(["registration", "new"], ["register"])
 }
 
 // ---------- keep the WARP GUI out of the way ----------
@@ -385,6 +395,7 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
  */
 export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice?: boolean } = {}): Promise<Status> {
   await ensureDaemon()
+  await ensureRegistration()
   const current = await mode()
   if (current.mode === "device") {
     const state = await status()
