@@ -1,18 +1,16 @@
-import type { SessionMessageAssistantTool, SessionMessageInfo } from "@opencode/client"
+import type { SessionMessageInfo } from "@opencode/client"
+import { Option, Schema } from "effect"
 import { canonicalToolName } from "../../util/tool-display"
 import type { PartRef } from "./grouping/session"
 
-/** A step inside a turn: a heading the model wrote, or a run of tool calls between texts. */
+/** A section inside a topic, pointing at the turn where it starts. */
 export type OutlineEntry = {
   key: string
-  kind: "heading" | "activity"
   title: string
-  level: 1 | 2
   ref: PartRef
-  busy: boolean
 }
 
-/** One user request and everything the assistant did for it. */
+/** A topic of the conversation and the turns it covers. */
 export type OutlineCategory = {
   key: string
   title: string
@@ -21,162 +19,154 @@ export type OutlineCategory = {
   entries: OutlineEntry[]
 }
 
-type Translate = (text: string, values?: Record<string, string | number>) => string
-
-const verbs: Record<string, string> = {
-  shell: "Command",
-  read: "Read",
-  edit: "Edit",
-  write: "Write",
-  patch: "Patch",
-  glob: "Find files",
-  grep: "Search",
-  webfetch: "Fetch",
-  websearch: "Web search",
-  subagent: "Subagent",
-  todowrite: "Plan",
-  execute: "Code",
+/** One user request with the assistant's work on it, as the model sees it when naming topics. */
+export type Turn = {
+  messageID: string
+  messageIDs: string[]
+  user: string
+  answer: string
+  tools: string[]
 }
 
-const counters: Record<string, string> = {
-  shell: "Commands",
-  read: "Reads",
-  edit: "Edits",
-  write: "Edits",
-  patch: "Edits",
-  glob: "Searches",
-  grep: "Searches",
-  webfetch: "Fetches",
-  websearch: "Searches",
-  subagent: "Subagents",
-}
+const Topics = Schema.Array(
+  Schema.Struct({
+    title: Schema.String,
+    from: Schema.Number,
+    sections: Schema.optional(Schema.Array(Schema.Struct({ title: Schema.String, at: Schema.Number }))),
+  }),
+)
+export type Topic = { title: string; from: number; sections: { title: string; at: number }[] }
 
-/**
- * Builds the transcript outline from the live message list, so new categories and
- * subcategories appear while the assistant is still streaming.
- */
-export function buildOutline(messages: readonly SessionMessageInfo[], t: Translate): OutlineCategory[] {
-  const categories: OutlineCategory[] = []
-  let run: { entry: OutlineEntry; tools: SessionMessageAssistantTool[] } | undefined
-  const closeRun = () => {
-    if (run) run.entry.title = activityTitle(run.tools, t)
-    run = undefined
-  }
-  messages.forEach((message) => {
+const decodeTopics = Schema.decodeUnknownOption(Schema.fromJsonString(Topics))
+
+const DIGEST_LIMIT = 12_000
+
+export function chatTurns(messages: readonly SessionMessageInfo[]): Turn[] {
+  return messages.reduce<Turn[]>((turns, message) => {
     if (message.type === "user") {
-      closeRun()
-      categories.push({
-        key: message.id,
-        title: firstLine(message.text) || t("Request"),
-        ref: { messageID: message.id, partID: "message" },
-        messageIDs: [message.id],
-        entries: [],
-      })
-      return
+      turns.push({ messageID: message.id, messageIDs: [message.id], user: message.text, answer: "", tools: [] })
+      return turns
     }
-    if (message.type !== "assistant") return
-    const category = categories.at(-1)
-    if (!category) return
-    category.messageIDs.push(message.id)
-    const ordinals = { text: 0, reasoning: 0 }
+    const turn = turns.at(-1)
+    if (message.type !== "assistant" || !turn) return turns
+    turn.messageIDs.push(message.id)
     message.content.forEach((part) => {
-      if (part.type === "reasoning") {
-        ordinals.reasoning++
-        return
-      }
-      if (part.type === "text") {
-        const ref = { messageID: message.id, partID: `text:${ordinals.text++}` }
-        if (!part.text.trim()) return
-        closeRun()
-        headings(part.text).forEach((heading, index) =>
-          category.entries.push({
-            key: `${ref.messageID}:${ref.partID}:${index}`,
-            kind: "heading",
-            title: heading.title,
-            level: heading.level,
-            ref,
-            busy: false,
-          }),
-        )
-        return
-      }
-      const busy = part.state.status === "streaming" || part.state.status === "running"
-      if (run) {
-        run.tools.push(part)
-        run.entry.busy ||= busy
-        return
-      }
-      const entry: OutlineEntry = {
-        key: `${message.id}:${part.id}`,
-        kind: "activity",
-        title: "",
-        level: 1,
-        ref: { messageID: message.id, partID: part.id },
-        busy,
-      }
-      category.entries.push(entry)
-      run = { entry, tools: [part] }
+      if (part.type === "text" && part.text.trim()) turn.answer = part.text
+      if (part.type === "tool") turn.tools.push(canonicalToolName(part.name))
     })
+    return turns
+  }, [])
+}
+
+/** Asks for a table of contents of the whole conversation rather than one entry per message. */
+export function outlinePrompt(turns: readonly Turn[], previous: readonly Topic[], language: string | undefined) {
+  const instructions = [
+    "Below is a numbered list of turns from a chat between a user and an AI assistant.",
+    "Build a table of contents of the whole conversation: group the turns into topics by their overall context, the way a person would name chapters.",
+    "Never make a topic per message. Greetings, small talk, short questions and follow-ups belong to the topic around them.",
+    "Start a new topic only when the subject of the work clearly changes. Use at most 8 topics; a short chat may have just one.",
+    "A topic may list up to 5 sections for notable steps inside it, each pointing at the turn where that step starts. Skip sections that would only repeat the topic.",
+    `Write titles in ${language === "ru" ? "Russian" : "English"}, two to five words, without quotes or trailing punctuation.`,
+    'Reply with JSON only, no prose and no code fence: [{"title":"…","from":1,"sections":[{"title":"…","at":3}]}]. Numbers are turn numbers, topics are in order, and the first topic starts at 1.',
+  ].join(" ")
+  const current = previous.length
+    ? `Current table of contents; keep its titles where they still fit:\n${JSON.stringify(previous)}`
+    : ""
+  return [instructions, current, digest(turns)].filter(Boolean).join("\n\n")
+}
+
+/** Reads the model's reply into topics ordered by turn, dropping anything that points outside the chat. */
+export function parseTopics(text: string, turns: number): Topic[] {
+  const start = text.indexOf("[")
+  const end = text.lastIndexOf("]")
+  if (start === -1 || end <= start) return []
+  const topics = Option.getOrUndefined(decodeTopics(text.slice(start, end + 1))) ?? []
+  const valid = (turn: number) => Number.isInteger(turn) && turn >= 1 && turn <= turns
+  const sorted = topics
+    .filter((topic) => topic.title.trim() && valid(topic.from))
+    .map((topic) => ({
+      title: topic.title.trim(),
+      from: topic.from,
+      sections: (topic.sections ?? [])
+        .filter((section) => section.title.trim() && valid(section.at))
+        .map((section) => ({ title: section.title.trim(), at: section.at })),
+    }))
+    .toSorted((a, b) => a.from - b.from)
+    .filter((topic, index, all) => index === 0 || topic.from !== all[index - 1].from)
+  if (sorted[0]) sorted[0].from = 1
+  return sorted
+}
+
+/** Lays topics over the current turns; turns after the last generation join the last topic. */
+export function topicOutline(topics: readonly Topic[], turns: readonly Turn[]): OutlineCategory[] {
+  return topics.flatMap((topic, index) => {
+    const end = topics[index + 1]?.from ?? turns.length + 1
+    const covered = turns.slice(topic.from - 1, end - 1)
+    if (!covered[0]) return []
+    return [
+      {
+        key: `${covered[0].messageID}:${index}`,
+        title: topic.title,
+        ref: { messageID: covered[0].messageID, partID: "message" },
+        messageIDs: covered.flatMap((turn) => turn.messageIDs),
+        entries: topic.sections.flatMap((section, position) => {
+          const turn = section.at >= topic.from && section.at < end ? turns[section.at - 1] : undefined
+          return turn
+            ? [
+                {
+                  key: `${turn.messageID}:${index}:${position}`,
+                  title: section.title,
+                  ref: { messageID: turn.messageID, partID: "message" },
+                },
+              ]
+            : []
+        }),
+      },
+    ]
   })
-  closeRun()
-  return categories
 }
 
-/** Markdown headings outside code fences; `#`/`##` are sections, `###` and bold lines are subsections. */
-export function headings(text: string) {
-  let fenced = false
-  return text.split("\n").flatMap((line): { title: string; level: 1 | 2 }[] => {
-    const trimmed = line.trim()
-    if (/^(```|~~~)/.test(trimmed)) {
-      fenced = !fenced
-      return []
-    }
-    if (fenced) return []
-    const heading = /^(#{1,4})\s+(.+?)\s*#*$/.exec(trimmed)
-    if (heading) return [{ title: plain(heading[2]), level: heading[1].length <= 2 ? 1 : 2 }]
-    const bold = /^\*\*([^*]{2,80})\*\*:?$/.exec(trimmed)
-    if (bold) return [{ title: plain(bold[1]), level: 2 }]
-    return []
-  })
+/** Until topics exist (or when naming them failed), each request stands on its own. */
+export function turnOutline(turns: readonly Turn[]): OutlineCategory[] {
+  return turns.map((turn) => ({
+    key: turn.messageID,
+    title: firstLine(turn.user),
+    ref: { messageID: turn.messageID, partID: "message" },
+    messageIDs: turn.messageIDs,
+    entries: [],
+  }))
 }
 
-function activityTitle(tools: readonly SessionMessageAssistantTool[], t: Translate) {
-  if (tools.length === 1) {
-    const name = canonicalToolName(tools[0].name)
-    const target = toolTarget(tools[0])
-    const verb = t(verbs[name] ?? name)
-    return target ? `${verb}: ${target}` : verb
-  }
-  const counts = tools.reduce<Record<string, number>>((result, tool) => {
-    const name = canonicalToolName(tool.name)
-    const label = t(counters[name] ?? "Tools")
-    result[label] = (result[label] ?? 0) + 1
-    return result
-  }, {})
-  return Object.entries(counts)
-    .map(([label, count]) => `${label} ${count}`)
-    .join(" · ")
+// Long chats shrink every turn's excerpt so the whole conversation still fits.
+function digest(turns: readonly Turn[]) {
+  const render = (size: number) =>
+    turns
+      .map((turn, index) => {
+        const tools = Object.entries(
+          turn.tools.reduce<Record<string, number>>(
+            (counts, tool) => ({ ...counts, [tool]: (counts[tool] ?? 0) + 1 }),
+            {},
+          ),
+        )
+          .map(([tool, count]) => (count > 1 ? `${tool}×${count}` : tool))
+          .join(", ")
+        return [
+          `${index + 1}. User: ${clip(turn.user, size)}`,
+          turn.answer ? `   Assistant: ${clip(turn.answer, size)}` : "",
+          tools ? `   Tools: ${tools}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      })
+      .join("\n")
+  return [240, 120, 60, 30].map(render).find((text) => text.length <= DIGEST_LIMIT) ?? render(30).slice(-DIGEST_LIMIT)
 }
 
-function toolTarget(tool: SessionMessageAssistantTool) {
-  if (tool.state.status === "streaming") return ""
-  const input = tool.state.input
-  const value = ["description", "filePath", "path", "pattern", "command", "url", "query"]
-    .map((key) => input[key])
-    .find((value) => typeof value === "string" && value.trim())
-  if (typeof value !== "string") return ""
-  return firstLine(value.includes("/") || value.includes("\\") ? (value.split(/[\\/]/).at(-1) ?? value) : value)
+function clip(text: string, size: number) {
+  const flat = text.replace(/\s+/g, " ").trim()
+  return flat.length > size ? `${flat.slice(0, size)}…` : flat
 }
 
 function firstLine(text: string) {
-  return plain(text.split("\n").find((line) => line.trim()) ?? "")
-}
-
-function plain(text: string) {
-  return text
-    .replace(/`([^`]*)`/g, "$1")
-    .replace(/\*\*([^*]*)\*\*/g, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim()
+  return (text.split("\n").find((line) => line.trim()) ?? "").replace(/\s+/g, " ").trim()
 }

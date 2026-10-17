@@ -126,7 +126,9 @@ import { defaultVerbosity, type GroupKind, type SessionEntry } from "./grouping/
 import { SessionGroupView } from "./group-view"
 import { useEntryAnchor } from "./anchor-view"
 import { containsAnchor, createTimelineAnchors } from "./anchors"
-import { buildOutline } from "./outline"
+import { chatTurns, outlinePrompt, parseTopics, topicOutline, turnOutline, type Topic } from "./outline"
+import { useStorage } from "../../context/storage"
+import { modelErrorText, withModelWarmup } from "../../util/model-error"
 import { OutlineRail } from "./outline-view"
 import { useT } from "../../util/i18n"
 import { rowsAfter, rowsBefore, rowWeight } from "./mount-budget"
@@ -750,8 +752,50 @@ export function Session(props: {
     })
 
   const t = useT()
-  const outline = createMemo(() => buildOutline(messagesBeforeRevert(), t))
-  const outlineVisible = createMemo(() => outline().length > 1 && dimensions().width - props.verticalTabsWidth >= 60)
+  const turns = createMemo(() => chatTurns(messagesBeforeRevert()))
+  // Topics are named by the model from the whole chat once an answer finishes, and kept per session.
+  const [outlineStore, updateOutlineStore] = useStorage().store<{
+    sessions: Record<string, { turns: number; topics: Topic[] }>
+  }>("chat-outline", { initial: { sessions: {} } })
+  const [outlineStatus, setOutlineStatus] = createSignal<{ type: "loading" } | { type: "error"; text: string }>()
+  const outline = createMemo(() => {
+    const topics = outlineStore.sessions[route.sessionID]?.topics ?? []
+    return topics.length ? topicOutline(topics, turns()) : turnOutline(turns())
+  })
+  const outlineVisible = createMemo(() => turns().length > 1 && dimensions().width - props.verticalTabsWidth >= 60)
+  createEffect(
+    on(
+      () => {
+        const last = messages().at(-1)
+        const idle = last?.type === "assistant" && last.time.completed !== undefined
+        return [route.sessionID, idle ? turns().length : 0] as const
+      },
+      ([id, count]) => {
+        if (count < 2 || outlineStore.sessions[id]?.turns === count) return
+        const model = promptModel()
+        // Waiting out a burst of short turns keeps this to one call per pause in the chat.
+        const timer = setTimeout(() => {
+          const previous = outlineStore.sessions[id]?.topics ?? []
+          setOutlineStatus({ type: "loading" })
+          void withModelWarmup(() =>
+            client.api.generate.text({ prompt: outlinePrompt(turns(), previous, config.language), model }),
+          )
+            .then((result) => {
+              const topics = parseTopics(result.text, count)
+              if (!topics.length) throw new Error(t("The model did not return a table of contents"))
+              setOutlineStatus(undefined)
+              return updateOutlineStore((draft) => {
+                // A slower reply for an older chat state must not replace a newer outline.
+                if ((draft.sessions[id]?.turns ?? 0) > count) return
+                draft.sessions[id] = { turns: count, topics }
+              })
+            })
+            .catch((cause: unknown) => setOutlineStatus({ type: "error", text: modelErrorText(cause, t) }))
+        }, 1_500)
+        onCleanup(() => clearTimeout(timer))
+      },
+    ),
+  )
   const [outlineTop, setOutlineTop] = createSignal<PartRef>()
   const [outlineHeight, setOutlineHeight] = createSignal(0)
   const updateOutlinePosition = () => {
@@ -767,10 +811,7 @@ export function Session(props: {
     const category = top ? outline().find((item) => item.messageIDs.includes(top.messageID)) : outline().at(-1)
     if (!category) return {}
     const index = top ? category.messageIDs.indexOf(top.messageID) : Infinity
-    const entry = category.entries.findLast((entry) => {
-      const position = category.messageIDs.indexOf(entry.ref.messageID)
-      return position < index || (position === index && entry.ref.partID === top?.partID)
-    })
+    const entry = category.entries.findLast((entry) => category.messageIDs.indexOf(entry.ref.messageID) <= index)
     return { category: category.key, entry: entry?.key }
   })
   const jumpToPart = (ref: PartRef) =>
@@ -987,12 +1028,9 @@ export function Session(props: {
         dialog.replace(() => (
           <DialogSelect
             title={t("Chat outline")}
-            options={outline().flatMap((category) => [
-              { title: category.title, value: category.ref },
-              ...category.entries.map((entry) => ({
-                title: `${entry.level === 1 ? "  " : "    "}${entry.title}${entry.busy ? " …" : ""}`,
-                value: entry.ref,
-              })),
+            options={outline().flatMap((category, index) => [
+              { title: `${index + 1}. ${category.title}`, value: category.ref },
+              ...category.entries.map((entry) => ({ title: `    · ${entry.title}`, value: entry.ref })),
             ])}
             onSelect={(option) => {
               dialog.clear()
@@ -1502,6 +1540,11 @@ export function Session(props: {
                 <OutlineRail
                   categories={outline()}
                   active={outlineActive()}
+                  status={(() => {
+                    const status = outlineStatus()
+                    if (status?.type === "loading") return t("updating…")
+                    return status?.text
+                  })()}
                   height={outlineHeight() || dimensions().height - 8}
                   maxWidth={Math.floor((dimensions().width - props.verticalTabsWidth) / 2)}
                   right={showScrollbar() ? 2 : 0}

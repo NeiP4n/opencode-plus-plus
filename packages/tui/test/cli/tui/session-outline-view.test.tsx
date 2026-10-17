@@ -18,19 +18,13 @@ const categories: OutlineCategory[] = [
     entries: [
       {
         key: "a1:t1",
-        kind: "activity",
-        title: "Edits 2",
-        level: 1,
-        ref: { messageID: "a1", partID: "t1" },
-        busy: false,
+        title: "Edits",
+        ref: { messageID: "a1", partID: "message" },
       },
       {
         key: "a1:h",
-        kind: "heading",
         title: "Cause",
-        level: 1,
         ref: { messageID: "a1", partID: "text:0" },
-        busy: false,
       },
     ],
   },
@@ -70,7 +64,8 @@ test("shows a dash rail that opens into clickable titles on hover", async () => 
   await app.mockMouse.moveTo(59, 0)
   await app.waitForFrame((frame) => frame.includes("Cause"))
   const panel = app.captureCharFrame()
-  expect(panel).toContain("Fix the login bug")
+  expect(panel).toContain("1. Fix the login bug")
+  expect(panel).toContain("2. Now add tests")
   expect(panel).toContain("Cause")
   const lines = panel.split("\n")
   const row = lines.findIndex((line) => line.includes("Cause"))

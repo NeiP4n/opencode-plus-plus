@@ -1043,21 +1043,8 @@ const ru: Record<string, string> = {
   "The model could not answer: {error}": "Модель не смогла ответить: {error}",
   // Session outline
   "Chat outline": "Содержание чата",
-  Request: "Запрос",
-  Command: "Команда",
-  Read: "Чтение",
-  Write: "Запись",
-  Patch: "Патч",
-  "Find files": "Поиск файлов",
-  Fetch: "Загрузка",
-  "Web search": "Веб-поиск",
-  Subagent: "Субагент",
-  Code: "Код",
-  Reads: "Чтения",
-  Edits: "Правки",
-  Searches: "Поиски",
-  Fetches: "Загрузки",
-  Subagents: "Субагенты",
+  "updating…": "обновляется…",
+  "The model did not return a table of contents": "Модель не вернула содержание",
 }
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {
