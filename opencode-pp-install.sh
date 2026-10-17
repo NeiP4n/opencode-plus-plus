@@ -9,6 +9,9 @@ BRANCH="${OPENCODE_PP_BRANCH:-lan-rooms}"
 # 1.4.0-patched still calls close_range(436), which Android 12's seccomp policy
 # traps with SIGSYS ("Bad system call"); 1.4.3-patched replaces that syscall.
 TERMUX_BUN_VERSION="${OPENCODE_PP_TERMUX_BUN_VERSION:-1.4.3}"
+# Android-native OpenTUI binaries are published with the 0.5.17 package set.
+# Keep this override available for testing a later compatible AndroidTUI set.
+TERMUX_OPENTUI_VERSION="${OPENCODE_PP_TERMUX_OPENTUI_VERSION:-0.5.17}"
 TERMUX_RELEASES="https://github.com/bd-loser/bun-termux/releases/download"
 case "${PREFIX:-}" in
   # $PREFIX/bin is always on Termux's PATH, so no shell profile edits are needed.
@@ -257,6 +260,96 @@ fetch_checked() {
   mv "$dest.tmp" "$dest"
 }
 
+# Replace OpenTUI's unsupported upstream platform packages with the Android/Bionic
+# build maintained by bd-loser/opentui. Do this before bun install so both the
+# JavaScript wrappers and native renderer resolve to compatible Android assets.
+prepare_termux_opentui() {
+  patcher="$PREFIX/tmp/opencode-pp-androidtui-config.mjs"
+  mkdir -p "$PREFIX/tmp"
+  cat >"$patcher" <<'ANDROIDTUI_CONFIG'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import path from "node:path"
+
+const root = path.resolve(process.argv[2] ?? "")
+const version = process.argv[3] ?? "0.5.17"
+if (!root || !existsSync(path.join(root, "package.json"))) {
+  throw new Error("Could not locate the OpenCode++ package.json for Termux configuration")
+}
+const aliases = {
+  "@opentui/core": `npm:@androidtui/core@${version}`,
+  "@opentui/keymap": `npm:@androidtui/keymap@${version}`,
+  "@opentui/solid": `npm:@androidtui/solid@${version}`,
+}
+const nativeKey = "@opentui/core-android-arm64"
+const nativeAlias = `npm:@androidtui/core-android-arm64@${version}`
+const readJson = (file) => JSON.parse(readFileSync(file, "utf8"))
+const writeJson = (file, data) => writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
+
+const rootFile = path.join(root, "package.json")
+const rootPkg = readJson(rootFile)
+rootPkg.workspaces ??= {}
+rootPkg.workspaces.catalog ??= {}
+Object.assign(rootPkg.workspaces.catalog, aliases)
+rootPkg.overrides ??= {}
+rootPkg.optionalDependencies ??= {}
+delete rootPkg.overrides["@androidtui/core-android-arm64"]
+delete rootPkg.optionalDependencies["@androidtui/core-android-arm64"]
+rootPkg.overrides[nativeKey] = nativeAlias
+rootPkg.optionalDependencies[nativeKey] = nativeAlias
+writeJson(rootFile, rootPkg)
+
+function rewriteMap(map) {
+  if (!map || typeof map !== "object") return false
+  let changed = false
+  for (const [key, alias] of Object.entries(aliases)) {
+    const current = map[key]
+    if (typeof current !== "string" || current === "catalog:" || current.startsWith("workspace:")) continue
+    if (current !== alias) {
+      map[key] = alias
+      changed = true
+    }
+  }
+  return changed
+}
+
+const skip = new Set([".git", "node_modules", "dist", ".turbo", ".opencode"])
+function walk(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (!skip.has(entry.name)) walk(path.join(dir, entry.name))
+      continue
+    }
+    if (entry.name !== "package.json") continue
+    const file = path.join(dir, entry.name)
+    const pkg = readJson(file)
+    const changed =
+      rewriteMap(pkg.dependencies) |
+      rewriteMap(pkg.devDependencies) |
+      rewriteMap(pkg.peerDependencies) |
+      rewriteMap(pkg.workspaces?.catalog)
+    if (changed) writeJson(file, pkg)
+  }
+}
+walk(root)
+
+const bunfig = path.join(root, "bunfig.toml")
+if (existsSync(bunfig)) {
+  let text = readFileSync(bunfig, "utf8")
+  const match = text.match(/^minimumReleaseAgeExcludes\s*=\s*(\[[^\n]*\])\s*$/m)
+  if (!match) throw new Error("Could not find minimumReleaseAgeExcludes in bunfig.toml")
+  const excludes = JSON.parse(match[1])
+  for (const name of ["@androidtui/core", "@androidtui/keymap", "@androidtui/solid", "@androidtui/core-android-arm64"]) {
+    if (!excludes.includes(name)) excludes.push(name)
+  }
+  text = text.replace(match[0], `minimumReleaseAgeExcludes = ${JSON.stringify(excludes)}`)
+  writeFileSync(bunfig, text)
+}
+console.log(`Configured @androidtui OpenTUI packages at ${version} for Termux`)
+ANDROIDTUI_CONFIG
+  "$BUN_BIN" "$patcher" "$DIR" "$TERMUX_OPENTUI_VERSION" || fail "could not configure Android-compatible OpenTUI packages"
+  rm -f "$patcher"
+}
+
 install_opencode() {
   if [ -n "${OPENCODE_PP_BUN_BIN:-}" ]; then
     BUN_BIN="$OPENCODE_PP_BUN_BIN"
@@ -306,8 +399,16 @@ install_opencode() {
   if ! git -C "$DIR" checkout --quiet --detach "$TARGET"; then restore; fail "git checkout failed"; fi
   restore
 
-  echo "Installing dependencies…"
-  (cd "$DIR" && "$BUN_BIN" install --frozen-lockfile --filter ./packages/cli)
+  if [ -n "${TERMUX_ENV:-}" ]; then
+    prepare_termux_opentui
+    echo "Installing Android-compatible OpenTUI packages…"
+    # The Android aliases require a lockfile refresh; frozen-lockfile would
+    # reject the platform-specific dependency mapping.
+    (cd "$DIR" && "$BUN_BIN" install --filter ./packages/cli) || fail "could not install Android-compatible OpenTUI dependencies"
+  else
+    echo "Installing dependencies…"
+    (cd "$DIR" && "$BUN_BIN" install --frozen-lockfile --filter ./packages/cli)
+  fi
 
   mkdir -p "$BIN"
   cat >"$BIN/opencode-pp" <<WRAPPER
