@@ -140,7 +140,8 @@ function runInteractive(context: Plugin.Context, command: string, args: string[]
     }
     child.once("error", (cause) => finish(cause instanceof Error ? cause : new Error(String(cause))))
     child.once("close", (code) => {
-      if (code === 0) finish()
+      // winget: 43 / 0x8A15002B = nothing to install or update; 0x8A150061 = already installed.
+      if (code === 0 || (command === "winget" && (code === 43 || code === 0x8a15002b || code === 0x8a150061))) finish()
       else finish(new Error("Installer exited with code " + String(code ?? "unknown") + "."))
     })
   })
@@ -169,6 +170,14 @@ async function hasPath(path: string) {
 }
 
 async function installWarp(context: Plugin.Context): Promise<boolean> {
+  if (Warp.resolveCli()) {
+    context.ui.toast.show({
+      title: text(context, "WARP is already installed", "WARP уже установлен"),
+      message: text(context, "Use \"Route only OpenCode through WARP\" to set it up.", "Нажми «Только OpenCode через WARP…», чтобы настроить."),
+      variant: "info",
+    })
+    return false
+  }
   const termux = Boolean(process.env.PREFIX?.includes("/com.termux/") || process.env.TERMUX_VERSION)
   const installGuide = "https://developers.cloudflare.com/warp-client/get-started/"
   let command: string | undefined
@@ -686,7 +695,7 @@ export default Plugin.define({
         }
       } catch (cause) {
         const message = describe(context, cause)
-        setSharedStatus(updateStatus, warpStatusError(message))
+        setSharedStatus(updateStatus, action === "install" ? await readWarpStatus() : warpStatusError(message))
         context.ui.toast.show({
           title: text(context, "WARP action failed", "Ошибка WARP"),
           message,
