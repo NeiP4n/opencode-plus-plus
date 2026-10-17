@@ -45,9 +45,14 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   const [running, setRunning] = createSignal(false)
   // The poll replaces the answer every few seconds; only a different session remounts the view.
   const sessionID = createMemo(() => joined()?.session.id)
-  // Set by the view inside the data provider; the room log calls it once it has caught up.
+  // Set by the view inside the data provider; the room log calls it once it has caught up, and
+  // the poll whenever the host's transcript moves.
   let live: (() => void) | undefined
   let pollSequence = 0
+  // A host keeps no durable events unless configured to, and hosts before live streaming send
+  // only permission requests, so the room log can stay silent while the host answers. The
+  // poll sees the newest message and the running state; when either moves, the view reloads.
+  let latest: string | undefined
 
   onMount(() => {
     const poll = () => {
@@ -70,6 +75,10 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
           if (sequence !== pollSequence) return
           setNote(result.note)
           setRunning(result.running)
+          const last = result.data.at(-1)
+          const next = `${last?.id}:${last?.text.length}:${result.running}`
+          if (latest !== undefined && latest !== next) live?.()
+          latest = next
         })
         .catch(() => undefined)
     }
