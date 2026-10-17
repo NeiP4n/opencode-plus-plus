@@ -21,11 +21,12 @@ import { FSUtil } from "@opencode/util/fs-util"
 import { Flock } from "@opencode/util/flock"
 import { Global } from "@opencode/util/global"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
-import { and, desc, eq, inArray, like, or } from "drizzle-orm"
+import { and, desc, eq, inArray, like, ne, or } from "drizzle-orm"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import path from "path"
 import { Database } from "../database/database.js"
 import { Location } from "../location.js"
+import type { SessionSchema } from "../session/schema.js"
 import { SessionMessageTable, SessionTable } from "../session/sql.js"
 import { MemoryRank } from "./rank.js"
 
@@ -67,6 +68,7 @@ export const DEFAULT_LIMIT = 2000
 export const MAX_LIMIT = 8000
 const MAX_BLOCKS = 12
 const FRESH = 3000
+const RECALL_SESSIONS = 200
 /** Folded into an existing fact at or above this token overlap. */
 const DUPLICATE = 0.8
 
@@ -111,6 +113,8 @@ export interface Interface {
     scope?: Scope
     limit?: number
     sessions?: boolean
+    /** The chat searching, left out of recall. */
+    session?: SessionSchema.ID
   }) => Effect.Effect<{ entries: ReadonlyArray<Entry>; recalled: ReadonlyArray<Recalled> }, MemoryError>
   readonly forget: (input: { id: string }) => Effect.Effect<Entry, MemoryError>
 }
@@ -193,10 +197,11 @@ const layer = Layer.effect(
     })
 
     // An omitted scope means the block that already carries the label, preferring the project.
-    const find = Effect.fn("Memory.find")(function* (label: string, scope?: Scope) {
+    // `fresh` bypasses the cache: an edit holding the scope lock must read what is on disk now.
+    const find = Effect.fn("Memory.find")(function* (label: string, scope?: Scope, fresh = false) {
       if (!LABEL.test(label))
         return yield* fail(`Block label must be 2 to 40 lowercase latin letters, digits and hyphens, got: ${label}`)
-      const all = yield* blocks()
+      const all = fresh ? yield* readBlocks() : yield* blocks()
       const matches = all.filter((block) => block.label === label && (scope === undefined || block.scope === scope))
       const block = matches.find((item) => item.scope === "project") ?? matches[0]
       return { block, scope: block?.scope ?? scope ?? "project", count: all.filter((item) => item.updated > 0).length }
@@ -214,7 +219,7 @@ const layer = Layer.effect(
     })
 
     const existing = Effect.fn("Memory.existing")(function* (label: string, scope?: Scope) {
-      const found = yield* find(label, scope)
+      const found = yield* find(label, scope, true)
       if (!found.block)
         return yield* fail(`No memory block "${label}". Use rewrite to create it, or view to list the blocks.`)
       return found.block
@@ -269,7 +274,7 @@ const layer = Layer.effect(
         input.label,
         input.scope,
         Effect.gen(function* () {
-          const found = yield* find(input.label, input.scope)
+          const found = yield* find(input.label, input.scope, true)
           if (!found.block && found.count >= MAX_BLOCKS)
             return yield* fail(`There are already ${found.count} memory blocks; reuse or drop one first.`)
           return yield* save({
@@ -348,9 +353,18 @@ const layer = Layer.effect(
       )
     }
 
-    const recall = Effect.fn("Memory.recall")(function* (query: string, limit: number) {
+    const recall = Effect.fn("Memory.recall")(function* (query: string, limit: number, session?: SessionSchema.ID) {
       const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])].slice(0, 8)
       if (words.length === 0) return []
+      // SQLite LIKE folds case for ASCII only, so a capitalised Cyrillic word needs its own pattern.
+      const patterns = [...new Set(words.flatMap((word) => [word, word[0].toUpperCase() + word.slice(1)]))]
+      // Only the most recently active chats are scanned, so a search stays cheap on a large history.
+      const recent = db
+        .select({ id: SessionTable.id })
+        .from(SessionTable)
+        .where(eq(SessionTable.project_id, location.project.id))
+        .orderBy(desc(SessionTable.time_updated))
+        .limit(RECALL_SESSIONS)
       const rows = yield* db
         .select({
           sessionID: SessionMessageTable.session_id,
@@ -363,9 +377,11 @@ const layer = Layer.effect(
         .innerJoin(SessionTable, eq(SessionTable.id, SessionMessageTable.session_id))
         .where(
           and(
-            eq(SessionTable.project_id, location.project.id),
+            inArray(SessionMessageTable.session_id, recent),
             inArray(SessionMessageTable.type, ["user", "assistant"]),
-            or(...words.map((word) => like(SessionMessageTable.data, `%${word}%`))),
+            or(...patterns.map((pattern) => like(SessionMessageTable.data, `%${pattern}%`))),
+            // The chat asking would otherwise find its own question first.
+            session === undefined ? undefined : ne(SessionMessageTable.session_id, session),
           ),
         )
         .orderBy(desc(SessionMessageTable.time_created))
@@ -402,7 +418,7 @@ const layer = Layer.effect(
         const limit = Math.min(30, Math.max(1, input.limit ?? 8))
         const scopes: ReadonlyArray<Scope> = input.scope ? [input.scope] : ["project", "user"]
         const entries = (yield* Effect.forEach(scopes, readArchive)).flat()
-        const recalled = input.sessions === false ? [] : yield* recall(input.query, Math.min(limit, 6))
+        const recalled = input.sessions === false ? [] : yield* recall(input.query, Math.min(limit, 6), input.session)
         return {
           entries: MemoryRank.rank(input.query, entries)
             .slice(0, limit)
@@ -413,23 +429,24 @@ const layer = Layer.effect(
 
     const forget: Interface["forget"] = (input) =>
       Effect.gen(function* () {
-        for (const scope of ["project", "user"] as const) {
-          const removed = yield* locked(
+        const removed = yield* Effect.forEach(["project", "user"] as const, (scope) =>
+          locked(
             scope,
             Effect.gen(function* () {
               const entries = yield* readArchive(scope)
               const entry = entries.find((item) => item.id === input.id)
-              if (!entry) return undefined
-              yield* writeArchive(
-                scope,
-                entries.filter((item) => item.id !== input.id),
-              )
+              if (entry)
+                yield* writeArchive(
+                  scope,
+                  entries.filter((item) => item.id !== input.id),
+                )
               return entry
             }),
-          )
-          if (removed) return removed
-        }
-        return yield* fail(`No archived memory with id ${input.id}.`)
+          ),
+        )
+        const entry = removed.find((item) => item !== undefined)
+        if (!entry) return yield* fail(`No archived memory with id ${input.id}.`)
+        return entry
       })
 
     return Service.of({ blocks, append, replace, rewrite, drop, remember, search, forget })

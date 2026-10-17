@@ -3,6 +3,7 @@ export * as MemoryTool from "./memory.js"
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { ToolFailure } from "@opencode/ai"
 import { optional } from "@opencode/schema/schema"
+import type { Tool } from "@opencode/schema/tool"
 import { Effect, Schema } from "effect"
 import { Memory } from "../../memory/index.js"
 
@@ -59,7 +60,7 @@ export const Plugin = {
   effect: Effect.fn("MemoryTool.Plugin")(function* (ctx: Context) {
     const memory = yield* Memory.Service
 
-    const run = Effect.fn("MemoryTool.run")(function* (input: Input) {
+    const run = Effect.fn("MemoryTool.run")(function* (input: Input, sessionID: Tool.Context["sessionID"]) {
       switch (input.action) {
         case "view":
           return (yield* memory.blocks()).map(show).join("\n\n")
@@ -111,6 +112,7 @@ export const Plugin = {
             scope: input.scope,
             limit: input.limit,
             sessions: input.sessions,
+            session: sessionID,
           })
           if (found.entries.length === 0 && found.recalled.length === 0) return "Nothing found in memory."
           return [
@@ -147,8 +149,8 @@ export const Plugin = {
           options: { codemode: false },
           description,
           input: Input,
-          execute: (input) =>
-            run(input).pipe(
+          execute: (input, context) =>
+            run(input, context.sessionID).pipe(
               Effect.map((output) => ({ content: output })),
               Effect.mapError((error) =>
                 error instanceof ToolFailure ? error : new ToolFailure({ message: error.message }),

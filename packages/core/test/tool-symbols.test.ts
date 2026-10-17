@@ -165,10 +165,13 @@ describe.skipIf(!available)("symbols tool", () => {
               "",
             ].join("\n"),
           )
-          expect(asserted.map((input) => [input.action, input.resources])).toEqual([
-            ["edit", ["store.ts"]],
-            ["edit", ["store.ts"]],
-            ["edit", ["store.ts"]],
+          // Reads ask the read approval like the read tool; every write asks edit.
+          expect(asserted.every((input) => input.action === "read" || input.action === "edit")).toBe(true)
+          expect(asserted.filter((input) => input.action === "read").length).toBeGreaterThan(0)
+          expect(asserted.filter((input) => input.action === "edit").map((input) => input.resources)).toEqual([
+            ["store.ts"],
+            ["store.ts"],
+            ["store.ts"],
           ])
         }),
       ),

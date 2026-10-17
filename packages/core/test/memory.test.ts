@@ -12,18 +12,27 @@ import { MemoryInstructions } from "@opencode/core/memory/instructions"
 import { MemoryRank } from "@opencode/core/memory/rank"
 import { Instructions } from "@opencode/core/instructions/index"
 import { AbsolutePath } from "@opencode/core/schema"
+import { Project } from "@opencode/core/project"
+import { ProjectTable } from "@opencode/core/project/sql"
+import { Session } from "@opencode/core/session"
+import { SessionMessage } from "@opencode/core/session/message"
+import { SessionMessageTable, SessionTable } from "@opencode/core/session/sql"
 import { location } from "./fixture/location"
 import { withTempDir } from "./fixture/tmpdir"
 import { it } from "./lib/effect"
 
-function withMemory<A, E>(directory: string, body: (memory: Memory.Interface) => Effect.Effect<A, E>) {
+function withMemory<A, E>(
+  directory: string,
+  body: (memory: Memory.Interface, db: Database.Interface["db"]) => Effect.Effect<A, E>,
+) {
   const data = path.join(directory, "data")
   return Effect.gen(function* () {
-    return yield* body(yield* Memory.Service)
+    const database = yield* Database.Service
+    return yield* body(yield* Memory.Service, database.db)
   }).pipe(
     Effect.scoped,
     Effect.provide(
-      AppNodeBuilder.build(LayerNode.group([Memory.node]), [
+      AppNodeBuilder.build(LayerNode.group([Memory.node, Database.node]), [
         Location.node.replace(
           Layer.succeed(
             Location.Service,
@@ -137,6 +146,57 @@ describe("Memory archive", () => {
 
           yield* memory.forget({ id: first.entry.id })
           expect((yield* memory.search({ query: "перезапуск сервиса" })).entries).toEqual([])
+        }),
+      ),
+    ),
+  )
+})
+
+describe("Memory recall", () => {
+  it.live("finds earlier chats of the project in any letter case and skips the chat asking", () =>
+    withTempDir((tmp) =>
+      withMemory(tmp.path, (memory, db) =>
+        Effect.gen(function* () {
+          yield* db
+            .insert(ProjectTable)
+            .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+            .onConflictDoNothing()
+            .run()
+            .pipe(Effect.orDie)
+          const sessions = [Session.ID.make("ses_recall_earlier"), Session.ID.make("ses_recall_current")]
+          yield* Effect.forEach(sessions, (id) =>
+            db
+              .insert(SessionTable)
+              .values({
+                id,
+                project_id: Project.ID.global,
+                slug: id,
+                directory: "/project",
+                title: id,
+                version: "test",
+              })
+              .run()
+              .pipe(Effect.orDie),
+          )
+          const message = (id: string, session: Session.ID, seq: number, text: string) =>
+            db
+              .insert(SessionMessageTable)
+              .values({
+                id: SessionMessage.ID.make(id),
+                session_id: session,
+                type: "user",
+                seq,
+                data: { text } as never,
+              })
+              .run()
+              .pipe(Effect.orDie)
+          yield* message("msg_recall_1", sessions[0]!, 1, "Сервис падает при перезапуске во время сессии")
+          yield* message("msg_recall_2", sessions[1]!, 1, "почему сервис падает?")
+
+          const found = yield* memory.search({ query: "сервис падает", session: sessions[1] })
+          expect(found.recalled.map((item) => [item.sessionID, item.text])).toEqual([
+            [sessions[0], "Сервис падает при перезапуске во время сессии"],
+          ])
         }),
       ),
     ),

@@ -93,17 +93,19 @@ export const Plugin = {
     const root = location.directory
     const relative = (file: string) => path.relative(root, file) || "."
 
-    const located = Effect.fn("SymbolsTool.located")(function* (input: Input) {
-      const file = yield* need(input, "path")
+    const located = Effect.fn("SymbolsTool.located")(function* (input: Input, scoped: string | undefined) {
+      const file = scoped ?? (yield* fail(`symbols ${input.action} needs path`))
       const query = yield* need(input, "name_path")
       const matches = flatten(yield* lsp.symbols(file)).filter((entry) => matchesPath(entry.path, query, false))
       if (matches.length === 0)
-        return yield* fail(`No symbol ${query} in ${file}. Use overview to see the symbols the file declares.`)
+        return yield* fail(
+          `No symbol ${query} in ${relative(file)}. Use overview to see the symbols the file declares.`,
+        )
       if (matches.length > 1)
         return yield* fail(
           `${query} matches ${matches.length} symbols in ${file}: ${matches.map((entry) => `${entry.path.join("/")} (line ${entry.symbol.range.start.line + 1})`).join(", ")}. Use a longer name path.`,
         )
-      return { file: path.resolve(root, file), entry: matches[0] }
+      return { file, entry: matches[0] }
     })
 
     // Write one or more files through the approval, plot and formatter path write uses.
@@ -139,16 +141,21 @@ export const Plugin = {
           .writeTextPreservingBom({ target: item.target, content: item.change.after })
           .pipe(Effect.andThen(formatter.file(item.target.absolute))),
       )
-      const problems = yield* Effect.forEach(targets, (item) =>
-        lsp.diagnostics(item.target.absolute).pipe(
-          Effect.map((found) =>
-            found
-              .filter((diagnostic) => diagnostic.severity === 1)
-              .slice(0, 10)
-              .map((diagnostic) => `${item.target.resource}:${diagnostic.range.start.line + 1}: ${diagnostic.message}`),
+      const problems = yield* Effect.forEach(
+        targets,
+        (item) =>
+          lsp.diagnostics(item.target.absolute).pipe(
+            Effect.map((found) =>
+              found
+                .filter((diagnostic) => diagnostic.severity === 1)
+                .slice(0, 10)
+                .map(
+                  (diagnostic) => `${item.target.resource}:${diagnostic.range.start.line + 1}: ${diagnostic.message}`,
+                ),
+            ),
+            Effect.orElseSucceed((): string[] => []),
           ),
-          Effect.orElseSucceed((): string[] => []),
-        ),
+        { concurrency: "unbounded" },
       )
       const errors = problems.flat()
       return errors.length === 0
@@ -163,16 +170,18 @@ export const Plugin = {
       })
 
     const run = Effect.fn("SymbolsTool.run")(function* (input: Input, context: Tool.Context) {
+      // The same read approval as the read tool, external directories included.
+      const scoped = input.path === undefined ? undefined : (yield* access.authorizeRead(input.path, context)).absolute
       switch (input.action) {
         case "overview": {
-          const file = yield* need(input, "path")
+          const file = scoped ?? (yield* fail("symbols overview needs path"))
           const symbols = yield* lsp.symbols(file)
-          if (symbols.length === 0) return `${file} declares no symbols the language server reports.`
-          return [`${file}:`, ...outline(symbols, Math.max(1, input.depth ?? 1), 0)].join("\n")
+          if (symbols.length === 0) return `${relative(file)} declares no symbols the language server reports.`
+          return [`${relative(file)}:`, ...outline(symbols, Math.max(1, input.depth ?? 1), 0)].join("\n")
         }
         case "find": {
           const query = yield* need(input, "name_path")
-          const files = yield* candidates(query, input.path)
+          const files = yield* candidates(query, scoped)
           const found = yield* Effect.forEach(
             files,
             (file) =>
@@ -202,13 +211,16 @@ export const Plugin = {
           return parts.join(input.include_body ? "\n\n" : "\n")
         }
         case "references": {
-          const target = yield* located(input)
+          const target = yield* located(input, scoped)
           const references = yield* lsp.references(target.file, target.entry.symbol.selection.start)
           if (references.length === 0) return `No references to ${target.entry.path.join("/")} found.`
           const byFile = Map.groupBy(references.slice(0, 200), (reference) => reference.file)
           const rendered = yield* Effect.forEach([...byFile], ([file, items]) =>
             Effect.gen(function* () {
-              const text = (yield* read(file).pipe(Effect.orElseSucceed(() => ""))).split("\n")
+              const text = (yield* access.authorizeRead(file, context).pipe(
+                Effect.andThen(read(file)),
+                Effect.orElseSucceed(() => ""),
+              )).split("\n")
               const symbols = yield* lsp.symbols(file).pipe(Effect.orElseSucceed(() => []))
               return [
                 `${relative(file)}:`,
@@ -224,7 +236,7 @@ export const Plugin = {
         case "replace":
         case "insert_before":
         case "insert_after": {
-          const target = yield* located(input)
+          const target = yield* located(input, scoped)
           const body = input.body ?? (yield* fail(`symbols ${input.action} needs body`))
           const before = yield* read(target.file)
           const range = target.entry.symbol.range
@@ -253,7 +265,7 @@ export const Plugin = {
           return `${verb} ${target.entry.path.join("/")} in ${relative(target.file)}. ${report}`
         }
         case "rename": {
-          const target = yield* located(input)
+          const target = yield* located(input, scoped)
           const newName = yield* need(input, "new_name")
           const edits = yield* lsp.rename(target.file, target.entry.symbol.selection.start, newName)
           if (edits.length === 0) return "The language server found nothing to rename."
@@ -278,32 +290,36 @@ export const Plugin = {
           return `Renamed ${target.entry.path.join("/")} to ${newName} in ${changes.length} ${changes.length === 1 ? "file" : "files"}: ${changes.map((change) => relative(change.file)).join(", ")}. ${report}`
         }
         case "diagnostics": {
-          const file = yield* need(input, "path")
+          const file = scoped ?? (yield* fail("symbols diagnostics needs path"))
           const found = yield* lsp.diagnostics(file)
-          if (found.length === 0) return `No problems reported for ${file}.`
+          if (found.length === 0) return `No problems reported for ${relative(file)}.`
           return found
             .slice(0, 50)
             .map(
               (item) =>
-                `${file}:${item.range.start.line + 1}:${item.range.start.character + 1} ${SEVERITY[item.severity ?? 1] ?? "error"}: ${item.message}`,
+                `${relative(file)}:${item.range.start.line + 1}:${item.range.start.character + 1} ${SEVERITY[item.severity ?? 1] ?? "error"}: ${item.message}`,
             )
             .join("\n")
         }
       }
     })
 
-    // Files that mention the symbol's last name segment, most mentions first.
+    // Files that mention the outermost name segment, most mentions first: the declaring file
+    // always names it, while a member name like `get` is everywhere.
     const candidates = Effect.fn("SymbolsTool.candidates")(function* (query: string, scope?: string) {
-      const word = query.split("/").filter(Boolean).at(-1) ?? query
-      const base = scope ? path.resolve(root, scope) : root
+      const word = query.split("/").find(Boolean) ?? query
+      const base = scope ?? root
       if (scope && (yield* Effect.promise(() => Bun.file(base).exists()))) return [base]
       const matches = yield* ripgrep
         .grep({ cwd: base, pattern: word, literal: true, caseSensitive: false, limit: 2000 })
         .pipe(Effect.orElseSucceed(() => []))
-      const counts = Map.groupBy(matches, (match) => path.resolve(base, match.entry.path))
-      const ranked = [...counts].toSorted((a, b) => b[1].length - a[1].length).map(([file]) => file)
-      const supported = yield* Effect.filter(ranked, (file) => lsp.supports(file))
-      return supported.slice(0, 40)
+      const ranked = [...Map.groupBy(matches, (match) => path.resolve(base, match.entry.path))]
+        .toSorted((a, b) => b[1].length - a[1].length)
+        .map(([file]) => file)
+      // One server lookup per extension, not per file.
+      const extensions = [...new Set(ranked.map((file) => path.extname(file).toLowerCase()))]
+      const handled = new Set(yield* Effect.filter(extensions, (extension) => lsp.supports(`file${extension}`)))
+      return ranked.filter((file) => handled.has(path.extname(file).toLowerCase())).slice(0, 40)
     })
 
     yield* ctx.tool

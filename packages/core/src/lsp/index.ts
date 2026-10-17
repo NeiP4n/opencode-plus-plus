@@ -206,14 +206,14 @@ const layer = Layer.effect(
     const pick = Effect.fn("Lsp.pick")(function* (file: string) {
       const extension = path.extname(file).toLowerCase()
       const searchPath = [path.join(root, "node_modules", ".bin"), process.env.PATH ?? ""].join(path.delimiter)
-      for (const server of yield* servers()) {
-        if (!server.extensions.includes(extension)) continue
-        for (const command of server.commands) {
-          const binary = Bun.which(command[0], { PATH: searchPath })
-          if (binary) return { server, command: [binary, ...command.slice(1)] }
-        }
-      }
-      return undefined
+      return (yield* servers())
+        .filter((server) => server.extensions.includes(extension))
+        .flatMap((server) => server.commands.map((command) => ({ server, command })))
+        .map((item) => ({ ...item, binary: Bun.which(item.command[0], { PATH: searchPath }) }))
+        .map((item) =>
+          item.binary ? { server: item.server, command: [item.binary, ...item.command.slice(1)] } : undefined,
+        )
+        .find((item) => item !== undefined)
     })
 
     const client = Effect.fn("Lsp.client")(function* (file: string) {

@@ -79,7 +79,8 @@ export async function start(input: StartInput): Promise<Client> {
   let closed = false
 
   const send = (message: unknown) => {
-    if (closed) return
+    // `exited` settles a tick after the process dies; a write in between must not throw.
+    if (closed || child.exitCode !== null || child.signalCode !== null) return
     const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", ...(message as object) }), "utf8")
     child.stdin.write(`Content-Length: ${body.length}\r\n\r\n`)
     child.stdin.write(body)
