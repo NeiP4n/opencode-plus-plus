@@ -98,7 +98,7 @@ describe("Memory blocks", () => {
       withMemory(tmp.path, (memory) =>
         Effect.gen(function* () {
           const [source] = MemoryInstructions.make(memory)
-          expect((yield* source!.read)).toBe(Instructions.removed)
+          expect(yield* source!.read).toBe(Instructions.removed)
           yield* memory.append({ label: "project", text: "Run tests from packages/core." })
           const before = yield* source!.read
           expect(source!.initial(before as never)).toContain('<block label="project" scope="project" chars="29/2000">')
@@ -117,9 +117,14 @@ describe("Memory archive", () => {
     withTempDir((tmp) =>
       withMemory(tmp.path, (memory) =>
         Effect.gen(function* () {
-          const first = yield* memory.remember({ text: "Сервис opencode нельзя перезапускать во время сессий", tags: ["ops"] })
+          const first = yield* memory.remember({
+            text: "Сервис opencode нельзя перезапускать во время сессий",
+            tags: ["ops"],
+          })
           yield* memory.remember({ text: "Tests cannot run from the repository root" })
-          const twin = yield* memory.remember({ text: "Сервис opencode нельзя перезапускать во время сессий пользователя" })
+          const twin = yield* memory.remember({
+            text: "Сервис opencode нельзя перезапускать во время сессий пользователя",
+          })
           expect(twin.merged).toBe(true)
           expect(twin.entry.id).toBe(first.entry.id)
 

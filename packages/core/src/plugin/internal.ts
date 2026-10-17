@@ -91,6 +91,8 @@ import { ReadTool } from "../tool/plugin/read.js"
 import { ShellTool } from "../tool/plugin/shell.js"
 import { MemoryTool } from "../tool/plugin/memory.js"
 import { Memory } from "../memory/index.js"
+import { Lsp } from "../lsp/index.js"
+import { SymbolsTool } from "../tool/plugin/symbols.js"
 import { NoteTool } from "../tool/plugin/note.js"
 import { NoteStore } from "../note.js"
 import { SkillMarketplace } from "../skill-marketplace/index.js"
@@ -171,6 +173,7 @@ const services = [
   Snapshot.Service,
   NoteStore.Service,
   Memory.Service,
+  Lsp.Service,
   SkillMarketplace.Service,
   Skill.Service,
   SkillDiscovery.Service,
@@ -230,6 +233,7 @@ export const requirements = LayerNode.group([
   Snapshot.node,
   NoteStore.node,
   Memory.node,
+  Lsp.node,
   SkillMarketplace.node,
   Skill.node,
   SkillDiscovery.node,
@@ -286,6 +290,7 @@ const pre = [
   SkillCatalogTool.Plugin,
   NoteTool.Plugin,
   MemoryTool.Plugin,
+  SymbolsTool.Plugin,
   SubagentTool.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,

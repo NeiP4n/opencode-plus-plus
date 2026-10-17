@@ -37,7 +37,15 @@ describe("ToolCallName.resolve", () => {
   })
 
   test("refuses an ambiguous spelling", () => {
-    expect(ToolCallName.resolve("ReadFile", new Map([["read_file", "a"], ["readFile", "b"]]))).toBeUndefined()
+    expect(
+      ToolCallName.resolve(
+        "ReadFile",
+        new Map([
+          ["read_file", "a"],
+          ["readFile", "b"],
+        ]),
+      ),
+    ).toBeUndefined()
   })
 })
 

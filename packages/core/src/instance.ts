@@ -43,6 +43,7 @@ import { SessionContext } from "./session/context.js"
 import { Skill } from "./skill.js"
 import { SkillInstructions } from "./skill/instructions.js"
 import { Memory } from "./memory/index.js"
+import { Lsp } from "./lsp/index.js"
 import { NoteStore } from "./note.js"
 import { SkillMarketplace } from "./skill-marketplace/index.js"
 import { NoteInstructions } from "./note-instructions.js"
@@ -99,6 +100,7 @@ const nodes = [
   SkillInstructions.node,
   NoteStore.node,
   Memory.node,
+  Lsp.node,
   SkillMarketplace.node,
   NoteInstructions.node,
   ReferenceInstructions.node,

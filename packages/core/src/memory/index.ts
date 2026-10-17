@@ -142,11 +142,13 @@ const layer = Layer.effect(
     const writeFile = (file: string, content: string) => {
       const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`
       return io(
-        fs.ensureDir(path.dirname(file)).pipe(
-          Effect.andThen(fs.writeFileString(temporary, content)),
-          Effect.andThen(fs.rename(temporary, file)),
-          Effect.ensuring(fs.remove(temporary, { force: true }).pipe(Effect.ignore)),
-        ),
+        fs
+          .ensureDir(path.dirname(file))
+          .pipe(
+            Effect.andThen(fs.writeFileString(temporary, content)),
+            Effect.andThen(fs.rename(temporary, file)),
+            Effect.ensuring(fs.remove(temporary, { force: true }).pipe(Effect.ignore)),
+          ),
       )
     }
 
@@ -247,9 +249,13 @@ const layer = Layer.effect(
           if (input.old === "") return yield* fail("old must not be empty; use append to add text.")
           const count = block.value.split(input.old).length - 1
           if (count === 0)
-            return yield* fail(`Block "${block.label}" does not contain the text to replace. Its current value:\n${block.value}`)
+            return yield* fail(
+              `Block "${block.label}" does not contain the text to replace. Its current value:\n${block.value}`,
+            )
           if (count > 1)
-            return yield* fail(`The text occurs ${count} times in "${block.label}"; include more of it so it is unique.`)
+            return yield* fail(
+              `The text occurs ${count} times in "${block.label}"; include more of it so it is unique.`,
+            )
           return yield* save({
             ...block,
             value: block.value.replace(input.old, () => input.new).trim(),
@@ -288,7 +294,6 @@ const layer = Layer.effect(
           return block
         }),
       )
-
 
     const archiveFile = (scope: Scope) => path.join(roots[scope], "archive.jsonl")
 
@@ -329,7 +334,14 @@ const layer = Layer.effect(
             )
             return { entry, merged: true }
           }
-          const entry: Entry = { id: `m_${crypto.randomUUID().slice(0, 8)}`, text, tags, created: now, updated: now, scope }
+          const entry: Entry = {
+            id: `m_${crypto.randomUUID().slice(0, 8)}`,
+            text,
+            tags,
+            created: now,
+            updated: now,
+            scope,
+          }
           yield* writeArchive(scope, [...entries, entry])
           return { entry, merged: false }
         }),
@@ -487,7 +499,10 @@ function excerpt(text: string, query: string) {
   if (flat.length <= 400) return flat
   const words = query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []
   const lower = flat.toLowerCase()
-  const at = Math.max(0, Math.min(...words.map((word) => lower.indexOf(word)).filter((index) => index >= 0), flat.length))
+  const at = Math.max(
+    0,
+    Math.min(...words.map((word) => lower.indexOf(word)).filter((index) => index >= 0), flat.length),
+  )
   const start = Math.max(0, (at === flat.length ? 0 : at) - 150)
   return `${start > 0 ? "..." : ""}${flat.slice(start, start + 400)}${start + 400 < flat.length ? "..." : ""}`
 }

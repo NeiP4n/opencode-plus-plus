@@ -50,7 +50,12 @@ export function make(memory: Memory.Interface): Instructions.List {
           "</memory>",
         ].join("\n"),
       changed: (previous, current) => {
-        const diff = Instructions.diffByKey(previous, current, key, (a, b) => a.value !== b.value || a.limit !== b.limit || a.description !== b.description)
+        const diff = Instructions.diffByKey(
+          previous,
+          current,
+          key,
+          (a, b) => a.value !== b.value || a.limit !== b.limit || a.description !== b.description,
+        )
         return [
           "Memory changed; these blocks replace the earlier versions:",
           ...[...diff.added, ...diff.changed.map((item) => item.current)].map(render),

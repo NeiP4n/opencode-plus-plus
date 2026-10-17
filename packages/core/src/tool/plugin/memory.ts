@@ -64,7 +64,14 @@ export const Plugin = {
         case "view":
           return (yield* memory.blocks()).map(show).join("\n\n")
         case "append":
-          return changed("Appended to", yield* memory.append({ label: yield* need(input, "label"), text: yield* need(input, "text"), scope: input.scope }))
+          return changed(
+            "Appended to",
+            yield* memory.append({
+              label: yield* need(input, "label"),
+              text: yield* need(input, "text"),
+              scope: input.scope,
+            }),
+          )
         case "replace":
           return changed(
             "Updated",
@@ -91,7 +98,11 @@ export const Plugin = {
           return `Deleted block ${block.label} (${block.scope}).`
         }
         case "remember": {
-          const result = yield* memory.remember({ text: yield* need(input, "text"), tags: input.tags, scope: input.scope })
+          const result = yield* memory.remember({
+            text: yield* need(input, "text"),
+            tags: input.tags,
+            scope: input.scope,
+          })
           return `${result.merged ? "Updated the matching fact" : "Remembered"} ${result.entry.id} (${result.entry.scope}).`
         }
         case "search": {

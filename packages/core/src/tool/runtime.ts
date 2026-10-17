@@ -145,7 +145,8 @@ const shorten = (value: unknown, depth = 0): unknown => {
     return value.length > 300 ? `${value.slice(0, 200)}... [${value.length - 200} more characters]` : value
   if (depth > 6) return value
   if (Array.isArray(value)) return value.map((item) => shorten(item, depth + 1))
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shorten(item, depth + 1)]))
+  if (isRecord(value))
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shorten(item, depth + 1)]))
   return value
 }
 
