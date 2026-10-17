@@ -393,10 +393,12 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
  * `warp-cli connect` can return before the daemon acts on it, and switching mode or registering right
  * before it may leave the client at "Disconnected: Manual Disconnection". Ask again until it reports Connected.
  */
+let lastConnectOutput = ""
+
 async function connectUntilUp(attempts = 3): Promise<Status> {
   let current = await status()
   for (let attempt = 0; attempt < attempts && current.state !== "connected"; attempt++) {
-    await run(["connect"])
+    lastConnectOutput = (await run(["connect"])).replace(/\s+/g, " ").slice(0, 160)
     current = await waitForState("connected", 15)
     if (current.state !== "connected") await wait(1_000)
   }
@@ -441,7 +443,7 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
   if (!(await waitForPort(effectivePort, 25))) {
     throw new WarpError(
       "proxy-unreachable",
-      `The WARP local proxy is not listening on 127.0.0.1:${effectivePort}. WARP says: ${connected.details.replace(/\s+/g, " ").slice(0, 160)}`,
+      `The WARP local proxy is not listening on 127.0.0.1:${effectivePort}. WARP says: ${connected.details.replace(/\s+/g, " ").slice(0, 160)}. connect said: ${lastConnectOutput || "(nothing)"}`,
     )
   }
   return status()
