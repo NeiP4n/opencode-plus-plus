@@ -1052,6 +1052,31 @@ describe("ChatGPTPlugin", () => {
     }),
   )
 
+  it.effect("keeps unsupported hosted image generation out of steps, compaction, and one-shot generation", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      const hooks = yield* PluginHooks.Service
+      const draft = {
+        sessionID: Session.ID.make("ses_test"),
+        model: Model.Ref.make({ providerID: Provider.ID.openai, id: Model.ID.make("not-supported") }),
+        system: [],
+        messages: [],
+        options: {},
+        agent: Agent.ID.make("build"),
+      }
+      const tools = () => ({
+        image_generation: { description: "Generate an image", input: {} },
+        read: { description: "Read a file", input: {} },
+      })
+      const events = [
+        yield* hooks.trigger("session", "context", { ...draft, tools: tools() }),
+        yield* hooks.trigger("session", "compaction", { ...draft, tools: tools() }),
+        yield* hooks.trigger("session", "generate", { ...draft, tools: tools() }),
+      ]
+      expect(events.map((event) => Object.keys(event.tools))).toEqual([["read"], ["read"], ["read"]])
+    }),
+  )
+
   it.effect("omits the default output limit from OpenAI steps and compaction", () =>
     Effect.gen(function* () {
       yield* addPlugin()

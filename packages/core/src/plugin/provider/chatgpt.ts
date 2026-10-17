@@ -373,16 +373,15 @@ export const ChatGPTPlugin = define({
           ),
       })
     })
-    yield* ctx.session.hook(
-      "context",
-      (event) =>
+    // ChatGPT token sharing does not allow hosted image generation. It must not be advertised on any
+    // request that carries the session's tools, including one-shot generation, or the request is rejected.
+    for (const name of ["context", "compaction", "generate"] as const)
+      yield* ctx.session.hook(name, (event) =>
         Effect.sync(() => {
-          // ChatGPT token sharing does not allow hosted image generation. It must not be
-          // advertised on every text request or the entire request can be rejected.
           if (canUseHostedImageGeneration(event.model.providerID, event.model.id, !!chatgpt)) return
           delete event.tools.image_generation
         }),
-    )
+      )
     yield* load()
     yield* ctx.session.hook(
       "retry",
