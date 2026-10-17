@@ -1,7 +1,7 @@
 #!/bin/sh
 # Termux installer wrapper for OpenCode++.
 # Revision marker helps diagnose stale raw.githubusercontent.com responses.
-INSTALLER_WRAPPER_REV="termux-room-chat-repair-2026-10-17-c"
+INSTALLER_WRAPPER_REV="termux-room-client-fix-2026-10-17-d"
 echo "opencode-pp: installer revision $INSTALLER_WRAPPER_REV"
 set -eu
 
@@ -31,39 +31,23 @@ fi
 
 sh "$TMP"
 
-# Repair a duplicate signal left in some interrupted/overlapping room-chat updates.
-# This is intentionally limited to this exact declaration; normal installs are unchanged.
+# Migrate stale room-client UI code restored from local changes during update.
+# Current client code derives the indicator from the host's polled running state.
 opencode_dir="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
 room_chat="$opencode_dir/packages/tui/src/component/room-chat.tsx"
-if [ -f "$room_chat" ]; then
-  repair_tmp="${room_chat}.repair"
-  : > "$repair_tmp"
-  seen_awaiting_ai=0
-  duplicate_awaiting_ai=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      *'const [awaitingAI, setAwaitingAI] = createSignal(false)'*)
-        if [ "$seen_awaiting_ai" -eq 1 ]; then
-          duplicate_awaiting_ai=1
-          continue
-        fi
-        seen_awaiting_ai=1
-        ;;
-    esac
-    printf '%s\n' "$line" >> "$repair_tmp"
-  done < "$room_chat"
-  if [ "$duplicate_awaiting_ai" -eq 1 ]; then
-    mv "$repair_tmp" "$room_chat"
-    echo "opencode-pp: removed duplicate awaitingAI declaration from room-chat.tsx"
-  else
-    if ! grep -q 'const \\[awaitingAI, setAwaitingAI\\] = createSignal(false)' "$room_chat"; then
-      echo "opencode-pp: room-chat source is missing the awaitingAI signal; refusing to leave a broken TUI" >&2
-      rm -f "$repair_tmp"
-      exit 1
-    fi
-  else
-    rm -f "$repair_tmp"
+if [ -f "$room_chat" ] && grep -q 'awaitingAI' "$room_chat"; then
+  sed -i \
+    -e '/const \\[awaitingAI, setAwaitingAI\\] = createSignal(false)/d' \
+    -e '/  const executionEnded = (event: { data: { sessionID: string } }) =>/,/  onCleanup(() => endSubscriptions.forEach((unsubscribe) => unsubscribe()))/d' \
+    -e '/setAwaitingAI(/d' \
+    -e 's/props.running || awaitingAI() || sending() > 0/props.running || sending() > 0/' \
+    -e 's/props.running || awaitingAI() ? "Thinking…"/props.running ? "Thinking…"/' \
+    "$room_chat"
+  if grep -q 'awaitingAI' "$room_chat"; then
+    echo "opencode-pp: could not migrate stale room-chat thinking state" >&2
+    exit 1
   fi
+  echo "opencode-pp: repaired stale room-client thinking state"
 fi
 
 # Replace the preliminary shim with a handler that stays installed when Bun
