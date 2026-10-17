@@ -12,6 +12,8 @@ export default Runtime.handler(
     if (input.upstream) env.OPENCODE_GATEWAY_UPSTREAM_URL = input.upstream
     if (input.model) env.OPENCODE_GATEWAY_MODEL = input.model
     if (input.fallbackModel?.length) env.OPENCODE_GATEWAY_FALLBACK_MODELS = input.fallbackModel.join(",")
+    if (input.roomApiUrl) env.OPENCODE_GATEWAY_ROOM_API_URL = input.roomApiUrl
+    if (input.roomId) env.OPENCODE_GATEWAY_ROOM_ID = input.roomId
 
     let config: ReturnType<typeof readConfig>
     try {

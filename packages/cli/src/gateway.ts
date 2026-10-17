@@ -6,7 +6,9 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504])
 export type GatewayConfig = {
   host: string
   port: number
-  token: string
+  token?: string
+  roomAPIURL?: string
+  roomID?: string
   upstreamURL: string
   upstreamKey: string
   model: string
@@ -18,10 +20,33 @@ type JsonObject = Record<string, any>
 
 export function readConfig(env: Record<string, string | undefined> = process.env): GatewayConfig {
   const token = env.OPENCODE_GATEWAY_TOKEN?.trim()
+  const roomAPIURLInput = env.OPENCODE_GATEWAY_ROOM_API_URL?.trim()
+  const roomID = env.OPENCODE_GATEWAY_ROOM_ID?.trim()
   const upstreamKey = env.OPENCODE_GATEWAY_UPSTREAM_KEY?.trim()
-  if (!token) throw new Error("OPENCODE_GATEWAY_TOKEN is required. Generate a long random secret before starting the gateway.")
-  if (token.length < 32) throw new Error("OPENCODE_GATEWAY_TOKEN must be at least 32 characters long.")
+  if (Boolean(roomAPIURLInput) !== Boolean(roomID)) {
+    throw new Error("OPENCODE_GATEWAY_ROOM_API_URL and OPENCODE_GATEWAY_ROOM_ID must be set together.")
+  }
+  if (roomAPIURLInput && token) {
+    throw new Error("Choose room-token authorization or OPENCODE_GATEWAY_TOKEN; do not configure both.")
+  }
+  if (!token && !roomAPIURLInput) {
+    throw new Error("Set OPENCODE_GATEWAY_TOKEN or configure OPENCODE_GATEWAY_ROOM_API_URL and OPENCODE_GATEWAY_ROOM_ID.")
+  }
+  if (token && token.length < 32) throw new Error("OPENCODE_GATEWAY_TOKEN must be at least 32 characters long.")
   if (!upstreamKey) throw new Error("OPENCODE_GATEWAY_UPSTREAM_KEY is required; the upstream credential must stay on this host.")
+
+  let roomAPIURL: string | undefined
+  if (roomAPIURLInput) {
+    const roomURL = new URL(roomAPIURLInput)
+    if (roomURL.protocol !== "https:" && roomURL.protocol !== "http:") {
+      throw new Error("OPENCODE_GATEWAY_ROOM_API_URL must use HTTP or HTTPS.")
+    }
+    const roomHost = roomURL.hostname.replace(/^\[|\]$/g, "").toLowerCase()
+    if (roomURL.protocol === "http:" && !["localhost", "127.0.0.1", "::1"].includes(roomHost)) {
+      throw new Error("Non-loopback room API URLs must use HTTPS so room tokens are not sent in clear text.")
+    }
+    roomAPIURL = roomURL.href.replace(/\/+$/, "")
+  }
 
   const upstreamURL = env.OPENCODE_GATEWAY_UPSTREAM_URL?.trim() ||
     "https://opencode.ai/zen/v1/chat/completions"
@@ -57,6 +82,8 @@ export function readConfig(env: Record<string, string | undefined> = process.env
     host: env.OPENCODE_GATEWAY_HOST?.trim() || "127.0.0.1",
     port,
     token,
+    roomAPIURL,
+    roomID,
     upstreamURL,
     upstreamKey,
     model,
@@ -78,17 +105,42 @@ function equalSecret(a: string, b: string) {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-function authorized(request: Request, token: string) {
+type AuthorizationResult = "ok" | "unauthorized" | "forbidden"
+
+async function authorize(request: Request, config: GatewayConfig): Promise<AuthorizationResult> {
   const bearer = /^Bearer\s+(.+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   const provided = request.headers.get("x-api-key") ?? bearer
-  return Boolean(provided && equalSecret(provided, token))
+  if (!provided) return "unauthorized"
+
+  if (config.roomAPIURL && config.roomID) {
+    try {
+      const url = config.roomAPIURL + "/api/room/" + encodeURIComponent(config.roomID) + "/guest"
+      const response = await fetch(url, {
+        headers: { authorization: "Bearer " + provided },
+        signal: AbortSignal.any([request.signal, AbortSignal.timeout(5000)]),
+      })
+      if (response.status === 403) return "forbidden"
+      if (!response.ok) return "unauthorized"
+      const joined = await response.json() as { role?: unknown }
+      if (joined.role === "viewer") return "forbidden"
+      if (["member", "helper", "cohost", "trusted"].includes(String(joined.role))) return "ok"
+      return "unauthorized"
+    } catch {
+      // Fail closed if the room host is unreachable or refuses the token.
+      return "unauthorized"
+    }
+  }
+
+  return config.token && equalSecret(provided, config.token) ? "ok" : "unauthorized"
 }
 
 function anthropicError(status: number, message: string) {
   const type =
-    status === 401 || status === 403
+    status === 401
       ? "authentication_error"
-      : status === 429
+      : status === 403
+        ? "permission_error"
+        : status === 429
         ? "rate_limit_error"
         : status === 400 || status === 413
           ? "invalid_request_error"
@@ -582,8 +634,11 @@ export async function handleRequest(request: Request, config: GatewayConfig): Pr
   }
 
   if (!url.pathname.startsWith("/v1/")) return json({ error: "Not found" }, 404)
-  if (!authorized(request, config.token)) {
-    return anthropicError(401, "A valid gateway token is required.")
+  const authorization = await authorize(request, config)
+  if (authorization !== "ok") {
+    return authorization === "forbidden"
+      ? anthropicError(403, "This room role is view-only; the model gateway requires member access.")
+      : anthropicError(401, "A valid gateway token or active room member token is required.")
   }
 
   if (url.pathname === "/v1/models" && request.method === "GET") return json(anthropicModels(config))

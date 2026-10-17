@@ -108,6 +108,48 @@ describe("gateway HTTP guards", () => {
     expect((await response.json()).data.map((model: { id: string }) => model.id)).toEqual(["primary", "backup"])
   })
 
+  test("uses live room membership and refuses viewer tokens", async () => {
+    const roomServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (request) => {
+        const token = request.headers.get("authorization")
+        if (token === "Bearer member-token") return Response.json({ role: "member" })
+        if (token === "Bearer viewer-token") return Response.json({ role: "viewer" })
+        return Response.json({ error: "unauthorized" }, { status: 401 })
+      },
+    })
+    const roomConfig: GatewayConfig = {
+      host: config.host,
+      port: config.port,
+      roomAPIURL: "http://127.0.0.1:" + roomServer.port,
+      roomID: "room_test",
+      upstreamURL: config.upstreamURL,
+      upstreamKey: config.upstreamKey,
+      model: config.model,
+      fallbackModels: config.fallbackModels,
+      timeoutMs: config.timeoutMs,
+    }
+    try {
+      const viewer = await handleRequest(new Request("http://127.0.0.1/v1/models", {
+        headers: { authorization: "Bearer viewer-token" },
+      }), roomConfig)
+      expect(viewer.status).toBe(403)
+
+      const member = await handleRequest(new Request("http://127.0.0.1/v1/models", {
+        headers: { "x-api-key": "member-token" },
+      }), roomConfig)
+      expect(member.status).toBe(200)
+
+      const removed = await handleRequest(new Request("http://127.0.0.1/v1/models", {
+        headers: { authorization: "Bearer removed-member-token" },
+      }), roomConfig)
+      expect(removed.status).toBe(401)
+    } finally {
+      roomServer.stop(true)
+    }
+  })
+
   test("rejects missing or weak secrets, invalid ports, and cleartext remote upstreams", () => {
     expect(() => readConfig({})).toThrow("OPENCODE_GATEWAY_TOKEN is required")
     expect(() => readConfig({
@@ -123,6 +165,11 @@ describe("gateway HTTP guards", () => {
       OPENCODE_GATEWAY_TOKEN: "t".repeat(32),
       OPENCODE_GATEWAY_UPSTREAM_KEY: "upstream",
       OPENCODE_GATEWAY_UPSTREAM_URL: "http://192.168.1.10:1234/v1/chat/completions",
+    })).toThrow("must use HTTPS")
+    expect(() => readConfig({
+      OPENCODE_GATEWAY_UPSTREAM_KEY: "upstream",
+      OPENCODE_GATEWAY_ROOM_API_URL: "http://192.168.1.10:4096",
+      OPENCODE_GATEWAY_ROOM_ID: "room_test",
     })).toThrow("must use HTTPS")
   })
 })

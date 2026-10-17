@@ -600,6 +600,14 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
           Flag.withDescription("Fallback model ID (repeat for multiple allowed models)"),
           Flag.atLeast(0),
         ),
+        roomApiUrl: Flag.string("room-api-url").pipe(
+          Flag.withDescription("Local OpenCode server URL for room-token authorization"),
+          Flag.optional,
+        ),
+        roomId: Flag.string("room-id").pipe(
+          Flag.withDescription("LAN room ID whose active membership authorizes requests"),
+          Flag.optional,
+        ),
       },
     }),
     Spec.make("serve", {
