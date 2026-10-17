@@ -390,6 +390,20 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
 // ---------- actions ----------
 
 /**
+ * `warp-cli connect` can return before the daemon acts on it, and switching mode or registering right
+ * before it may leave the client at "Disconnected: Manual Disconnection". Ask again until it reports Connected.
+ */
+async function connectUntilUp(attempts = 3): Promise<Status> {
+  let current = await status()
+  for (let attempt = 0; attempt < attempts && current.state !== "connected"; attempt++) {
+    await run(["connect"])
+    current = await waitForState("connected", 15)
+    if (current.state !== "connected") await wait(1_000)
+  }
+  return current
+}
+
+/**
  * Put WARP into Local Proxy mode and connect it. A full-device WARP connection that is currently
  * connected is left alone: switching it would cut other applications off their tunnel.
  */
@@ -421,10 +435,9 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
     )
   }
   const effectivePort = confirmed.port ?? port
-  await run(["connect"])
   await hideGui()
   // A first connection after registering can take several seconds before the proxy starts listening.
-  const connected = await waitForState("connected", 40)
+  const connected = await connectUntilUp()
   if (!(await waitForPort(effectivePort, 25))) {
     throw new WarpError(
       "proxy-unreachable",
@@ -445,8 +458,7 @@ async function requireProxyMode() {
 
 export async function connect(): Promise<Status> {
   await requireProxyMode()
-  await run(["connect"])
-  return waitForState("connected")
+  return connectUntilUp()
 }
 
 export async function disconnect(): Promise<Status> {
@@ -459,8 +471,7 @@ export async function reconnect(): Promise<Status> {
   await requireProxyMode()
   await run(["disconnect"]).catch(() => undefined)
   await waitForState("disconnected", 10)
-  await run(["connect"])
-  return waitForState("connected")
+  return connectUntilUp()
 }
 
 /** Recreate the personal registration. Refuses Zero Trust / organization-managed devices. */
@@ -477,8 +488,7 @@ export async function resetRegistration(): Promise<Status> {
   await wait(900)
   await runAny(["registration", "delete"], ["delete"]).catch(() => undefined)
   await runAny(["registration", "new"], ["register"])
-  await run(["connect"])
-  return waitForState("connected")
+  return connectUntilUp()
 }
 
 export type Rotation = { before?: ExitIp; after?: ExitIp; changed: boolean; usedNewRegistration: boolean; status: Status }
