@@ -754,18 +754,6 @@ export default Plugin.define({
               palette: true,
               run: open,
             },
-            {
-              id: "opencode.warp.update",
-              title: text(context, "Refresh WARP registration", "Обновить регистрацию WARP"),
-              description: text(context, "Reset and recreate the personal WARP registration, then reconnect", "Сбросить и создать заново регистрацию личного WARP, затем подключиться"),
-              group: "System",
-              slash: { name: "update", arguments: true },
-              palette: true,
-              run() {
-                open()
-                void perform("reset")
-              },
-            },
           ],
         }))
         return null

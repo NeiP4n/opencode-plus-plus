@@ -423,10 +423,12 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
   const effectivePort = confirmed.port ?? port
   await run(["connect"])
   await hideGui()
-  if (!(await waitForPort(effectivePort))) {
+  // A first connection after registering can take several seconds before the proxy starts listening.
+  const connected = await waitForState("connected", 40)
+  if (!(await waitForPort(effectivePort, 25))) {
     throw new WarpError(
       "proxy-unreachable",
-      `The WARP local proxy is not listening on 127.0.0.1:${effectivePort}. Check that the WARP service is running and retry.`,
+      `The WARP local proxy is not listening on 127.0.0.1:${effectivePort}. WARP says: ${connected.details.replace(/\s+/g, " ").slice(0, 160)}`,
     )
   }
   return status()
