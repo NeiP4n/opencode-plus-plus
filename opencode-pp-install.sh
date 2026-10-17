@@ -1,6 +1,6 @@
 #!/bin/sh
 # Install Opencode++ for Linux, macOS and Android/Termux.
-# Termux uses the official Termux glibc runtime instead of proot-distro.
+# Termux uses a native Android/Bionic Bun build; no proot or glibc-runner.
 set -eu
 
 REPO="${OPENCODE_PP_REPO:-https://github.com/NeiP4n/opencode-plus-plus.git}"
@@ -72,11 +72,7 @@ install_bun() {
     chmod 755 "$bin_dir/bun"
     rm -rf "$tmp"
 
-    if [ "${OPENCODE_PP_TERMUX:-0}" = 1 ]; then
-      if grun "$bin_dir/bun" --version >/dev/null 2>&1; then
-        return 0
-      fi
-    elif "$bin_dir/bun" --version >/dev/null 2>&1; then
+    if "$bin_dir/bun" --version >/dev/null 2>&1; then
       PATH="$bin_dir:$PATH"
       export PATH
       return 0
@@ -88,43 +84,36 @@ install_bun() {
 }
 
 termux() {
-  echo "Configuring Termux glibc runtime…"
-  pkg update -y >/dev/null 2>&1 || true
-  pkg install -y glibc-repo || fail "could not install glibc-repo"
-  pkg update -y || fail "could not update Termux package lists"
-  pkg install -y glibc glibc-runner git curl unzip || fail "could not install Termux glibc runtime"
+  echo "Configuring native Termux/Android runtime…"
 
-  # IMPORTANT: the installer itself may be reached through a curl pipe. If the
-  # native curl/libcurl/OpenSSL ABI is broken, repair it here for subsequent runs.
-  # The repair uses pkg/apt and does not execute the broken curl binary.
+  # The stock Android Bun build can hit seccomp-trapped fchmodat2/openat2
+  # during `bun install`, producing SIGSYS / "Bad system call" on Termux.
+  # Use the patched Bionic-native Bun instead. It needs neither proot nor
+  # glibc-runner and is specifically patched for Termux Android.
+  pkg update -y >/dev/null 2>&1 || true
+  pkg install -y git curl unzip ca-certificates || fail "could not install Termux prerequisites"
+
+  # The installer can itself be invoked through a broken curl/libcurl ABI after
+  # a partial Termux upgrade. Repair the package pair before using curl again.
   if ! curl --version >/dev/null 2>&1; then
     echo "Repairing Termux curl/libcurl/OpenSSL packages…"
     pkg upgrade -y || fail "could not synchronize Termux packages"
-    pkg reinstall -y libcurl openssl curl || fail "could not repair Termux curl/libcurl/OpenSSL"
-    curl --version >/dev/null 2>&1 || fail "Termux curl is still broken after package repair"
+    pkg reinstall -y libcurl openssl curl ca-certificates || fail "could not repair Termux curl/libcurl/OpenSSL"
   fi
+  curl --version >/dev/null 2>&1 || fail "Termux curl is still broken"
 
-  need grun || fail "glibc-runner installed but 'grun' is not available"
-  export OPENCODE_PP_TERMUX=1
+  if ! need bun; then
+    echo "Installing patched native Bun for Termux…"
+    curl -fsSL --retry 3 https://raw.githubusercontent.com/bd-loser/bun-termux/main/scripts/install.sh | bash || fail "could not install patched Termux Bun"
+  fi
+  need bun || fail "patched Termux Bun was not installed"
+  bun --version || fail "patched Termux Bun cannot start"
 
   mkdir -p "$BIN"
   case ":$PATH:" in
     *":$BIN:"*) ;;
     *) PATH="$BIN:$PATH"; export PATH ;;
   esac
-
-  if ! need bun; then
-    install_bun
-  fi
-  [ -x "$HOME/.bun/bin/bun" ] || fail "Bun was not installed"
-  mv -f "$HOME/.bun/bin/bun" "$HOME/.bun/bin/buno"
-  cat >"$BIN/bun" <<'WRAPPER'
-#!/bin/sh
-exec grun "$HOME/.bun/bin/buno" "$@"
-WRAPPER
-  chmod +x "$BIN/bun"
-
-  bun --version || fail "Bun cannot start through glibc-runner"
 
   if [ -d "$DIR/.git" ]; then
     echo "Updating $DIR…"
@@ -161,18 +150,18 @@ WRAPPER
   if ! git -C "$DIR" checkout --quiet --detach "$TARGET"; then restore; fail "git checkout failed"; fi
   restore
 
-  echo "Installing dependencies with glibc Bun…"
+  echo "Installing dependencies with native Bun…"
   (cd "$DIR" && bun install --frozen-lockfile --filter ./packages/cli)
 
   mkdir -p "$BIN"
   cat >"$BIN/opencode-pp" <<WRAPPER
 #!/bin/sh
 # Opencode++ $VERSION, installed by opencode-pp-install.sh.
-OPENCODE_COMMAND=opencode-pp exec "$(dirname "$0")/bun" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
+OPENCODE_COMMAND=opencode-pp exec "$(command -v bun)" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
 WRAPPER
   chmod +x "$BIN/opencode-pp"
   echo
-  echo "Opencode++ $VERSION is installed in Termux using glibc-runner (no proot)."
+  echo "Opencode++ $VERSION is installed in Termux using native Android Bun."
   echo "Run: opencode-pp"
   exit 0
 }
