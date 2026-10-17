@@ -531,14 +531,16 @@ function WarpPage(props: {
       </box>
 
       <box flexDirection="row" gap={1} flexWrap="wrap">
-        <ActionButton
+        {props.status.state === "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.install"
           label={ru() ? "Установить WARP…" : "Install WARP…"}
           run={() => props.run("install")}
-          disabled={pending() || (props.status.state !== "unavailable" && props.status.state !== "unknown")}
+          disabled={pending()}
           emphasized
         />
+        )}
         <ActionButton
           context={props.context}
           id="warp.refresh"
