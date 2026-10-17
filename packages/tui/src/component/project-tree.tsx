@@ -31,6 +31,7 @@ import { RoomDodRows } from "./room-dod"
 import { HoverAction } from "./hover-action"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
+import { tint } from "../theme/color"
 
 // The left panel: the operator's own projects, each a name and a directory,
 // with its main session (the orchestrator) and the sessions opened in that
@@ -371,7 +372,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           minHeight={0}
           horizontalScrollbarOptions={{ visible: false }}
         >
-          <Card title={projects().length > 0 ? `${t("Projects")} · ${projects().length}` : t("Projects")}>
+          <Section
+            title={t("Projects")}
+            count={projects().length}
+            actions={<SectionAction id="groups:new" label={t("+ Group")} onClick={openGroups} />}
+          >
           <For each={sections()}>
             {(section) => (
               <>
@@ -397,8 +402,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                       onMouseLeave={() => setHover(`group:${section.name}`)}
                       onClick={openGroups}
                     >
-                      <text fg={hover() === `group:${section.name}` ? theme.text.action.primary.base : theme.text.muted}>
-                        {" ⚙"}
+                      <text fg={theme.text.action.primary.base}>
+                        {hover() === `group:${section.name}` ? " ⚙" : "  "}
                       </text>
                     </HoverAction>
                   </Row>
@@ -529,15 +534,11 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               </>
             )}
           </For>
-          <Row id="groups:new" hover={hover} setHover={setHover} onClick={openGroups}>
-            <text fg={hover() === "groups:new" ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
-              {t("+ Group")}
-            </text>
-          </Row>
-          </Card>
-          <Card title={`⇄ ${t("Multiplayer")}`}>
-            <box flexDirection="row" flexWrap="wrap">
-              <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
+          </Section>
+          <Section title={t("Multiplayer")} gap>
+            <box flexDirection="row" flexWrap="wrap" gap={1} paddingLeft={1} paddingRight={1} paddingBottom={1}>
+              <SectionButton label={t("+ Host")} onClick={() => openRooms(DialogHost)} />
+              <SectionButton label={t("+ Connect")} onClick={() => openRooms(DialogConnect)} />
             </box>
             <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
               <Row
@@ -693,62 +694,81 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                 </text>
               </box>
             </Show>
-          </Card>
+          </Section>
         </scrollbox>
       </box>
     </Show>
   )
 }
 
-// A section of the panel framed with its name in the top border, so projects and
-// multiplayer read as two separate blocks rather than one list.
-function Card(props: { title: string; children: JSX.Element }) {
+// A collapsible section of the panel: a shaded heading strip with the section's name and
+// its actions, so projects and multiplayer read as separate blocks rather than one list.
+function Section(props: {
+  title: string
+  count?: number
+  gap?: boolean
+  actions?: JSX.Element
+  children: JSX.Element
+}) {
   const theme = useTheme()
+  const [open, setOpen] = createSignal(true)
+  const strip = createMemo(() =>
+    tint(theme.background.raised.base, theme.background.raised.high, theme.background.raised.high.a),
+  )
   return (
-    <box
-      flexShrink={0}
-      marginLeft={1}
-      marginRight={1}
-      marginBottom={1}
-      border
-      borderStyle="rounded"
-      borderColor={theme.border.base}
-      title={` ${props.title} `}
-      titleColor={theme.text.base}
-    >
-      {props.children}
+    <box flexShrink={0} paddingTop={props.gap ? 1 : 0}>
+      <box
+        flexDirection="row"
+        paddingLeft={1}
+        paddingRight={1}
+        marginBottom={open() ? 1 : 0}
+        backgroundColor={strip()}
+        onMouseUp={() => setOpen(!open())}
+      >
+        <text flexShrink={0} fg={theme.text.muted}>
+          {open() ? "▾ " : "▸ "}
+        </text>
+        <box flexGrow={1} minWidth={0}>
+          <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+            {props.title.toLocaleUpperCase()}
+            <Show when={props.count}>
+              <span style={{ fg: theme.text.muted }}>{`  ${props.count}`}</span>
+            </Show>
+          </text>
+        </box>
+        {props.actions}
+      </box>
+      <Show when={open()}>{props.children}</Show>
     </box>
   )
 }
 
-function MultiplayerActions(props: {
-  hover: () => string | undefined
-  setHover: (id: string | undefined) => void
-  onOpen: (window: typeof DialogHost | typeof DialogConnect) => void
-}) {
+// A small text action on the right of a section heading.
+function SectionAction(props: { id: string; label: string; onClick: () => void }) {
   const theme = useTheme()
-  const t = useT()
   return (
-    <For
-      each={[
-        { id: "multiplayer:host", label: t("+ Host"), window: DialogHost },
-        { id: "multiplayer:connect", label: t("+ Connect"), window: DialogConnect },
-      ]}
+    <HoverAction id={props.id} paddingLeft={1} paddingRight={1} onClick={props.onClick}>
+      <text fg={theme.text.action.primary.base}>{props.label}</text>
+    </HoverAction>
+  )
+}
+
+// A filled button for the main actions inside a section.
+function SectionButton(props: { label: string; onClick: () => void }) {
+  const theme = useTheme()
+  const [hovered, setHovered] = createSignal(false)
+  return (
+    <box
+      flexShrink={0}
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={hovered() ? theme.background.action.primary.hovered : theme.background.action.primary.base}
+      onMouseOver={() => setHovered(true)}
+      onMouseOut={() => setHovered(false)}
+      onMouseUp={props.onClick}
     >
-      {(action) => (
-        <HoverAction
-          id={action.id}
-          paddingLeft={1}
-          onMouseEnter={() => props.setHover(action.id)}
-          onMouseLeave={() => props.setHover(undefined)}
-          onClick={() => props.onOpen(action.window)}
-        >
-          <text fg={props.hover() === action.id ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
-            {action.label}
-          </text>
-        </HoverAction>
-      )}
-    </For>
+      <text fg={hovered() ? theme.text.action.primary.hovered : theme.text.action.primary.base}>{props.label}</text>
+    </box>
   )
 }
 
