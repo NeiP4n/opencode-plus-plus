@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { useTheme } from "../../context/theme"
 import { useT } from "../../util/i18n"
 import type { PartRef } from "./grouping/session"
@@ -64,8 +64,24 @@ export function OutlineRail(props: {
     const start = Math.min(Math.max(0, current - Math.floor(height / 2)), categories.length - height)
     return categories.slice(start, start + height)
   })
-  const rows = () => lines().length
+  // The list shows as many lines as fit under the header and scrolls the rest.
+  const visibleRows = () => Math.max(1, Math.min(lines().length, props.height - 1))
   const width = () => Math.max(16, Math.min(props.maxWidth, 48))
+  // Moving between rows sends "out" before the next "over", so closing waits a moment
+  // instead of unmounting the list under the pointer.
+  let closing: ReturnType<typeof setTimeout> | undefined
+  const close = () => {
+    clearTimeout(closing)
+    closing = undefined
+    setOpen(false)
+    setHovered(undefined)
+  }
+  const show = () => {
+    clearTimeout(closing)
+    closing = undefined
+    setOpen(true)
+  }
+  onCleanup(() => clearTimeout(closing))
   const color = (line: Line) => {
     if (hovered() === line.key) return theme.text.action.primary.hovered
     if (isActive(line)) return theme.text.action.primary.base
@@ -80,11 +96,12 @@ export function OutlineRail(props: {
       right={props.right}
       zIndex={20}
       flexDirection="column"
-      onMouseOver={() => setOpen(true)}
+      onMouseOver={show}
       onMouseOut={() => {
-        setOpen(false)
-        setHovered(undefined)
+        clearTimeout(closing)
+        closing = setTimeout(close, 250)
       }}
+      onMouseDown={show}
     >
       <Show
         when={open()}
@@ -102,6 +119,7 @@ export function OutlineRail(props: {
       >
         <box
           width={width()}
+          height={visibleRows() + 1}
           flexDirection="column"
           backgroundColor={theme.background.raised.base}
           border={["left"]}
@@ -109,24 +127,27 @@ export function OutlineRail(props: {
           paddingLeft={1}
           paddingRight={1}
         >
-          <text fg={theme.text.muted} wrapMode="none" truncate>
+          <text fg={theme.text.muted} wrapMode="none" truncate flexShrink={0}>
             {props.status ? `${t("Chat outline")} · ${props.status}` : t("Chat outline")}
           </text>
           <scrollbox
-            height={Math.min(rows(), Math.max(2, props.height - 1))}
-            verticalScrollbarOptions={{ visible: rows() > props.height - 1 }}
+            height={visibleRows()}
+            flexShrink={0}
+            verticalScrollbarOptions={{ visible: lines().length > visibleRows() }}
             horizontalScrollbarOptions={{ visible: false }}
           >
             <For each={lines()}>
               {(line) => (
                 <box
                   flexDirection="row"
+                  height={1}
+                  flexShrink={0}
                   paddingLeft={line.level * 3}
                   onMouseOver={() => setHovered(line.key)}
-                  onMouseUp={() => {
+                  onMouseDown={(event) => {
+                    event.stopPropagation()
                     props.onJump(line.ref)
-                    setOpen(false)
-                    setHovered(undefined)
+                    close()
                   }}
                 >
                   <text fg={color(line)} wrapMode="none" truncate>
