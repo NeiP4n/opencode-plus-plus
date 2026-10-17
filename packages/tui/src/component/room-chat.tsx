@@ -21,7 +21,7 @@ import { guestApi, ignoreGuestUnavailable, roomClient } from "../util/room-guest
 // The host polls this often for who is connected; the guest also learns of role changes and removal.
 const POLL_MS = 2000
 
-const ROLE = { viewer: "Viewer", member: "Member", helper: "Helper", cohost: "Cohost" } as const
+const ROLE = { viewer: "Viewer", member: "Member", helper: "Helper", cohost: "Cohost", trusted: "Trusted" } as const
 
 // A joined room in the main area, drawn like a session: the host's transcript with its
 // tool calls and reasoning, read through the room's guest routes. What a guest may do
@@ -42,6 +42,8 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   const [joined, setJoined] = createSignal<Awaited<ReturnType<typeof remote.room.guest.get>>>()
   const [error, setError] = createSignal<unknown>()
   const [note, setNote] = createSignal<{ name: string; title: string }>()
+  const [running, setRunning] = createSignal(false)
+  const [awaitingAI, setAwaitingAI] = createSignal(false)
   // The poll replaces the answer every few seconds; only a different session remounts the view.
   const sessionID = createMemo(() => joined()?.session.id)
   // Set by the view inside the data provider; the room log calls it once it has caught up.
@@ -62,7 +64,10 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
         })
       void remote.room.guest
         .messages({ roomID, sessionID: target })
-        .then((result) => setNote(result.note))
+        .then((result) => {
+          setNote(result.note)
+          setRunning(result.running)
+        })
         .catch(() => undefined)
     }
     poll()
@@ -82,6 +87,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
               host={new URL(props.room.url).host}
               error={error() ? errorMessage(error()) : undefined}
               note={note()}
+              running={running()}
               onLive={(reload) => (live = reload)}
               onMinimize={minimize}
             />
@@ -105,6 +111,7 @@ function RoomView(props: {
   host: string
   error?: string
   note?: { name: string; title: string }
+  running: boolean
   onLive: (reload: () => void) => void
   onMinimize: () => void
 }) {
@@ -138,6 +145,16 @@ function RoomView(props: {
   const permissions = () =>
     (data.session.permission.list(props.sessionID) ?? []).filter((request) => !answered().has(request.id))
 
+  const executionEnded = (event: { data: { sessionID: string } }) => {
+    if (event.data.sessionID === props.sessionID) setAwaitingAI(false)
+  }
+  const endSubscriptions = [
+    data.on("session.execution.succeeded", executionEnded),
+    data.on("session.execution.failed", executionEnded),
+    data.on("session.execution.interrupted", executionEnded),
+  ]
+  onCleanup(() => endSubscriptions.forEach((unsubscribe) => unsubscribe()))
+
   // The field clears at once so the next message can be typed while this one posts, and the
   // message shows in the transcript before the host answers; a failed post puts it back.
   const send = () => {
@@ -145,8 +162,9 @@ function RoomView(props: {
     if (!text || !input) return
     input.clear()
     setSending((count) => count + 1)
-    // A cohost's "/name arguments" runs the host's command; anyone else's slash is just text.
+    // A cohost's "/name arguments" runs a host command rather than prompting the model.
     const command = props.role === "cohost" ? /^\/(\S+)\s*([\s\S]*)$/.exec(text) : null
+    setAwaitingAI(!command)
     void (
       command
         ? remote.room.guest.session.command({
@@ -157,8 +175,18 @@ function RoomView(props: {
           })
         : data.session.prompt({ sessionID: props.sessionID, text })
     )
-      .then(() => setFailure())
+      .then(() => {
+        setFailure()
+        void remote.room.guest
+          .messages({ roomID: props.room.roomID, sessionID: props.sessionID })
+          .then((result) => {
+            setNote(result.note)
+            setRunning(result.running)
+          })
+          .catch(() => undefined)
+      })
       .catch((cause: unknown) => {
+        setAwaitingAI(false)
         setFailure(errorMessage(cause))
         if (input && !input.plainText) input.setText(text)
       })
@@ -255,6 +283,13 @@ function RoomView(props: {
             sessionID={props.sessionID}
             width={dimensions().width - padding() * 2 - (sidebar() ? SIDEBAR_WIDTH : 0)}
           />
+        </Show>
+        <Show when={props.running || awaitingAI() || sending() > 0}>
+          <box flexDirection="row" gap={1} flexShrink={0} marginTop={1}>
+            <text fg={theme.text.muted} wrapMode="none">
+              {"◌ " + t(props.running || awaitingAI() ? "Thinking…" : "Sending…")}
+            </text>
+          </box>
         </Show>
         <Show when={(props.role === "helper" || props.role === "cohost") && permissions().length > 0}>
           <For each={permissions()}>
