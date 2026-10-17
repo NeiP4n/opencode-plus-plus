@@ -203,6 +203,17 @@ describe("Federation", () => {
     }),
   )
 
+  it.live("rejects an unregistered group supervisor session", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const error = yield* federation
+        .setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: a.main! })
+        .pipe(Effect.flip)
+      expect(error.message).toContain("Group supervisor must be an Orchestrator session registered for this group")
+    }),
+  )
+
   it.live("notifies the group supervisor when a federated ticket changes state", () =>
     Effect.gen(function* () {
       const { a, b } = yield* setup
