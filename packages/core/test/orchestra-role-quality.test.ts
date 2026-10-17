@@ -16,6 +16,9 @@ describe("role tool limits", () => {
     expect(Permission.evaluate("external_directory", "/tmp", rules).effect).toBe("ask")
     expect(toolAllowed(["read", "context7_*"], "context7_docs")).toBe(true)
     expect(toolAllowed(["read"], "edit")).toBe(false)
+    // Roles saved before playtest existed get it with desktop.
+    expect(toolAllowed(["desktop"], "playtest")).toBe(true)
+    expect(toolRules(["desktop"])).toContainEqual({ action: "playtest", resource: "*", effect: "allow" })
   })
 
   test("keep the Code Mode wrapper open so a role's MCP tools stay reachable", () => {

@@ -1942,7 +1942,8 @@ function merge<A extends { id: string }, B extends { id: string; created: number
 // `execute` is the Code Mode wrapper MCP servers' tools run through. It only reaches the
 // server tools these rules leave usable, so it stays open: denying it would cut a role off
 // from the AI tools (context7_*, playwright_*, ...) its list explicitly gives it.
-export function toolRules(tools: ReadonlyArray<string>): Permission.Ruleset {
+export function toolRules(given: ReadonlyArray<string>): Permission.Ruleset {
+  const tools = Orchestra.withImplied(given)
   return [
     { action: "*", resource: "*", effect: "deny" },
     ...tools.map((tool) => ({ action: tool, resource: "*", effect: "allow" as const })),
@@ -1961,7 +1962,7 @@ export function toolRules(tools: ReadonlyArray<string>): Permission.Ruleset {
 
 // Whether a role or session limited to these tools may use the permission action.
 export function toolAllowed(tools: ReadonlyArray<string>, action: string) {
-  return tools.some((tool) => Wildcard.match(action, tool))
+  return Orchestra.withImplied(tools).some((tool) => Wildcard.match(action, tool))
 }
 
 // The runner only reads a session's own model, so a role's model is set on the

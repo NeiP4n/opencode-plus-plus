@@ -151,10 +151,18 @@ export const toolGroups: readonly { id: string; name: string; actions: readonly 
   { id: "hub", name: "Registry", actions: ["hub"] },
   { id: "web", name: "Web", actions: ["webfetch", "websearch"] },
   { id: "browser", name: "Browser", actions: ["browser"] },
-  { id: "desktop", name: "Desktop", actions: ["desktop"] },
+  { id: "desktop", name: "Desktop", actions: ["desktop", "playtest"] },
   { id: "skills", name: "Skills", actions: ["skill", "skill_catalog"] },
   { id: "notes", name: "Notes", actions: ["note", "idea_bank", "plots"] },
 ]
+
+// Tools added to a group after roles were saved with it: a saved role that has the first
+// action also gets the rest, so operators need not re-save every role.
+export const impliedTools: Readonly<Record<string, readonly string[]>> = { desktop: ["playtest"] }
+
+export function withImplied(tools: ReadonlyArray<string>) {
+  return [...new Set(tools.flatMap((tool) => [tool, ...(impliedTools[tool] ?? [])]))]
+}
 
 // A team role: the agent its sessions run is `role(id)`.
 export const Role = Schema.Struct({
@@ -401,6 +409,7 @@ const baseRoles: readonly (RoleSpec & { id: string })[] = [
       "Read the acceptance criteria and the diff, then pick checks that would fail without the change: existing tests, new focused tests, and running the app or command when possible.",
       "Cover success, failure, empty/loading/error states, boundaries and the platforms that matter for the change, in proportion to its risk.",
       "Check user-facing changes on the running product when you can: hub mobile entries for devices, emulators, logs and screenshots; hub build.page-screenshot or the browser tool for web pages.",
+      "Games and desktop apps (Electron, Unity, Godot, native): use the playtest tool, not shell scripts. Launch the build hidden, get past intros with skip, reach the feature with click_text and key, check with read, wait_text and pixel, and keep the saved screenshots as evidence.",
       "You may add or edit test files only. Use the project's own test runner and helpers.",
       "Report a table: criterion → check (exact command or steps) → PASS / FAIL / NOT RUN with the observed result. Investigate failures instead of counting flaky or pre-existing ones as passes.",
     ].join("\n"),
@@ -581,7 +590,7 @@ const READ = ["read", "glob", "grep"]
 const EDIT = ["edit"]
 const SHELL = ["shell", "hub"]
 const WEB = ["webfetch", "websearch"]
-const SCREEN = ["browser", "desktop"]
+const SCREEN = ["browser", "desktop", "playtest"]
 const SKILLS = ["skill", "skill_catalog"]
 const NOTES = ["note", "idea_bank", "plots"]
 const kit = (...groups: readonly string[][]) => [...new Set(groups.flat())]
@@ -787,7 +796,7 @@ export const templates: readonly (TemplateSpec & { id: string })[] = [
       "2. Design: send designer the main windows and flows; get specs with menus, shortcuts (Ctrl/Cmd), DPI scaling and every state.",
       "3. Build: send desktop-developer the plan and specs in feature slices. Keep IPC narrow and long work off the UI thread.",
       "4. Package in parallel with verification: send devops the installer/packaging task (and signing, auto-update only if asked) once the app builds.",
-      "5. Verify in parallel: tester runs tests and checks the criteria on the OS it can run and lists the others as NOT RUN; reviewer reviews the diff with IPC/filesystem security in mind. Create compatibility-engineer when Windows/macOS/Linux parity matters.",
+      "5. Verify in parallel: tester runs tests and checks the criteria on the OS it can run (the playtest tool drives the built app off-screen) and lists the others as NOT RUN; reviewer reviews the diff with IPC/filesystem security in mind. Create compatibility-engineer when Windows/macOS/Linux parity matters.",
     ].join("\n"),
   },
   {
