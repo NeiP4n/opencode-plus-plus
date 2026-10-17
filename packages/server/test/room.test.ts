@@ -287,7 +287,12 @@ it.live("the server stamps the guest as author and keeps approvals with the host
       body: { text: "hello from the phone" },
     })
     expect(prompt.status).toBe(200)
-    expect(prompt.body.data.payload.metadata.room).toEqual({ id: room.id, guest: joined.guest })
+    const roomContext = prompt.body.data.payload.metadata.room
+    expect(roomContext.id).toBe(room.id)
+    expect(roomContext.guest).toEqual(joined.guest)
+    expect(roomContext.hostName).toBeTypeOf("string")
+    expect(roomContext.participants).toContain("Phone")
+    expect(roomContext.participants).toContain(roomContext.hostName)
 
     // the guest's chat shows plain messages with their author
     const chat = yield* call(`/api/room/${room.id}/guest/message`, { headers: guest })
@@ -374,6 +379,7 @@ it.live("a following guest log carries the session's permission requests as they
     const asked = JSON.parse((yield* until("permission.asked")).replace(/^data: /, ""))
     expect(asked.data.action).toBe("room.run")
     expect(asked.data.sessionID).toBe(session.id)
+    expect(asked.metadata.__opencodeRoomLive).toBe(true)
     // the host's directory is not the guest's business
     expect(asked.location).toBeUndefined()
     yield* call(`/api/session/${session.id}/permission/${asked.data.id}/reply`, {
