@@ -33,16 +33,17 @@ describe("anonymous FREE model routes", () => {
           supported_parameters: ["tools", "temperature"],
         },
         { id: "provider/another-model:free", name: "Another Model" },
-        { id: "provider/paid-model", name: "Paid Model", pricing: { prompt: "0", completion: "0" } },
-        { id: "provider/paid-model-2", name: "Paid Model 2", pricing: { prompt: "0.0001", completion: "0.0002" } },
+        { id: "giga-potato", name: "Giga Potato", pricing: { prompt: "0", completion: "0" } },
+        { id: "provider/paid-model", name: "Paid Model", pricing: { prompt: "0.0001", completion: "0.0002" } },
         { name: "Broken model" },
       ],
     })
-    expect(Object.keys(parsed)).toEqual(["provider/code-model:free", "provider/another-model:free"])
+    expect(Object.keys(parsed)).toEqual(["provider/code-model:free", "provider/another-model:free", "giga-potato"])
     expect(parsed["provider/code-model:free"].name).toBe("[FREE] Code Model")
     expect(parsed["provider/code-model:free"].limit).toEqual({ context: 65_536, input: 65_536, output: 8_192 })
     expect(parsed["provider/code-model:free"].tool_call).toBe(true)
     expect(parsed["provider/another-model:free"].name).toBe("[FREE] Another Model")
+    expect(parsed["giga-potato"].name).toBe("[FREE] Giga Potato")
     const catalog = normalize({}, parsed)
     const kilo = catalog.find((provider) => provider.info.id === "kilo-free")
     expect(kilo?.models.some((model) => model.id === "provider/code-model:free")).toBe(true)
