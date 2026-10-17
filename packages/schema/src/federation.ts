@@ -3,6 +3,7 @@ export * as Federation from "./federation.js"
 import { Schema } from "effect"
 import { ascending } from "./identifier.js"
 import { ProjectID } from "./orchestra.js"
+import { SessionID } from "./session-id.js"
 import { statics } from "./schema.js"
 
 // A federation is a room whose members are projects. Each project keeps its own rules and
@@ -50,10 +51,12 @@ export const Policy = Schema.Struct({
 export interface Policy extends Schema.Schema.Type<typeof Policy> {}
 
 // A named set of projects the operator keeps together, such as "Shop" for its web, API and
-// mobile projects. Linking a group links every pair in it.
+// mobile projects. The first project is the group's coordinator. A dedicated supervisor session
+// may monitor the group; it is stored here so notifications can wake the same session.
 export const Group = Schema.Struct({
   name: Schema.String,
   projects: Schema.Array(ProjectID),
+  supervisor: SessionID.pipe(Schema.optional),
 }).annotate({ identifier: "Federation.Group" })
 export interface Group extends Schema.Schema.Type<typeof Group> {}
 
