@@ -165,8 +165,8 @@ function RoomView(props: {
   const permissions = () =>
     (data.session.permission.list(props.sessionID) ?? []).filter((request) => !answered().has(request.id))
 
-  // The host's running state is polled by RoomChat and is authoritative. Do not
-  // keep a second optimistic "thinking" flag here: a missed end event would strand it.
+  // Keep the optimistic indicator only until the host's running poll takes over.
+  // The fallback timer prevents missed status transitions from leaving it stuck.
 
   // The field clears at once so the next message can be typed while this one posts, and the
   // message shows in the transcript before the host answers; a failed post puts it back.
