@@ -1,5 +1,5 @@
 import { TextAttributes } from "@opentui/core"
-import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type {
   OrchestraAccess,
@@ -371,6 +371,7 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           minHeight={0}
           horizontalScrollbarOptions={{ visible: false }}
         >
+          <Card title={projects().length > 0 ? `${t("Projects")} · ${projects().length}` : t("Projects")}>
           <For each={sections()}>
             {(section) => (
               <>
@@ -421,7 +422,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     onMouseLeave={() => setHover(project.id)}
                     onClick={() => edit(project)}
                   >
-                    <text fg={hover() === project.id ? theme.text.action.primary.base : theme.text.muted}> ⚙</text>
+                    {/* Only the hovered project shows its settings, so the names are not lined with gears. */}
+                    <text fg={theme.text.action.primary.base}>{hover() === project.id ? " ⚙" : "  "}</text>
                   </HoverAction>
                 </Row>
                 <Show when={expanded[project.id]}>
@@ -528,28 +530,15 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             )}
           </For>
           <Row id="groups:new" hover={hover} setHover={setHover} onClick={openGroups}>
-            <text fg={theme.text.muted}>{"  " + t("+ Group")}</text>
+            <text fg={hover() === "groups:new" ? theme.text.action.primary.hovered : theme.text.action.primary.base}>
+              {t("+ Group")}
+            </text>
           </Row>
-          <box paddingTop={projects().length > 0 ? 1 : 0}>
-            <box flexDirection="row" paddingLeft={1} paddingRight={1}>
-              <text flexShrink={0} fg={theme.text.action.secondary.base} attributes={TextAttributes.BOLD}>
-                {"⇄ "}
-              </text>
-              <box flexGrow={1} minWidth={0}>
-                <text fg={theme.text.base} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
-                  {t("Multiplayer")}
-                </text>
-              </box>
-              <Show when={!narrow()}>
-                <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
-              </Show>
+          </Card>
+          <Card title={`⇄ ${t("Multiplayer")}`}>
+            <box flexDirection="row" flexWrap="wrap">
+              <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
             </box>
-            {/* A narrow panel has no room beside the heading, so multiplayer modes go under it. */}
-            <Show when={narrow()}>
-              <box flexDirection="row" paddingLeft={3} paddingRight={1}>
-                <MultiplayerActions hover={hover} setHover={setHover} onOpen={openRooms} />
-              </box>
-            </Show>
             <Show when={meshStatus() && meshStatus()!.status !== "unconfigured"}>
               <Row
                 id="mesh:connected"
@@ -698,16 +687,37 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
               )}
             </For>
             <Show when={(rooms.latest ?? []).length === 0 && joined.joined.length === 0}>
-              <box paddingLeft={4} paddingRight={1}>
-                <text fg={theme.text.muted} wrapMode="word">
+              <box paddingLeft={1} paddingRight={1}>
+                <text fg={theme.text.muted} attributes={TextAttributes.ITALIC} wrapMode="word">
                   {t("No rooms yet. Host a session or connect to someone else's.")}
                 </text>
               </box>
             </Show>
-          </box>
+          </Card>
         </scrollbox>
       </box>
     </Show>
+  )
+}
+
+// A section of the panel framed with its name in the top border, so projects and
+// multiplayer read as two separate blocks rather than one list.
+function Card(props: { title: string; children: JSX.Element }) {
+  const theme = useTheme()
+  return (
+    <box
+      flexShrink={0}
+      marginLeft={1}
+      marginRight={1}
+      marginBottom={1}
+      border
+      borderStyle="rounded"
+      borderColor={theme.border.base}
+      title={` ${props.title} `}
+      titleColor={theme.text.base}
+    >
+      {props.children}
+    </box>
   )
 }
 
