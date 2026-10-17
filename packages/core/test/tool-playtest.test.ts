@@ -82,10 +82,18 @@ describe("PlaytestTool", () => {
     expect(PlaytestTool.locate(misread, "Settings")?.text).toBe("Settngs")
   })
 
-  test("keeps Chromium drawing off-screen", () => {
-    expect(PlaytestTool.chromiumArgs("electron.exe", ["."], ".", true)).toContain("--disable-backgrounding-occluded-windows")
-    expect(PlaytestTool.chromiumArgs("electron.exe", ["."], ".", false)).toEqual(["."])
-    expect(PlaytestTool.chromiumArgs("game.exe", [], ".", true)).toEqual([])
+  test("keeps Chromium drawing off-screen and opens its DevTools port", () => {
+    const args = PlaytestTool.chromiumArgs("electron.exe", ["."], ".", 9333)
+    expect(args).toContain("--disable-backgrounding-occluded-windows")
+    expect(args).toContain("--remote-debugging-port=9333")
+    expect(PlaytestTool.chromiumArgs("game.exe", [], ".", 9333)).toEqual([])
+  })
+
+  test("maps virtual keys to DOM keys for DevTools input", () => {
+    expect(PlaytestTool.keyInfo(0x5a, false)).toEqual({ key: "z", code: "KeyZ", text: "z" })
+    expect(PlaytestTool.keyInfo(0x0d, false)).toEqual({ key: "Enter", code: "Enter", text: "\r" })
+    expect(PlaytestTool.keyInfo(0x26, false)).toEqual({ key: "ArrowUp", code: "ArrowUp", text: undefined })
+    expect(PlaytestTool.keyInfo(0x74, false).code).toBe("F5")
   })
 
   test("compares colors with a tolerance", () => {

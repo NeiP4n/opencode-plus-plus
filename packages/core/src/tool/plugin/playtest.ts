@@ -3,6 +3,7 @@ export * as PlaytestTool from "./playtest.js"
 import { spawn, type ChildProcess } from "node:child_process"
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { createServer } from "node:net"
 import path from "node:path"
 import { ToolFailure } from "@opencode/ai"
 import type { Context } from "@opencode/plugin/effect/plugin"
@@ -25,7 +26,8 @@ const description = [
   "Fast checks without images: pixel (optionally asserted with color), diff and wait_change compare frames; frames films a burst into one contact sheet.",
   `Every screenshot, the app's stdout/stderr (log) and last-steps.json land in ${DIRECTORY}/<app>/; pass script to replay a saved steps file.`,
   "Input modes, set on launch: message (default) is background and instant, for engines that read window messages (Godot, SDL, GameMaker, Unity's old Input, web and UI apps).",
-  "input: real feeds hardware-level input (scan codes, raw mouse) that every game reads, including DirectInput, Raw Input, Unreal and Unity's Input System; it brings the game forward for each call and gives the user's focus and cursor back after. If a game ignores message input, relaunch it with input: real.",
+  "Chromium-based games and apps (NW.js and RPG Maker MV/MZ, Electron, web builds in a browser) are driven through Chromium's DevTools protocol automatically: their own mouse and keyboard, focus emulated so games that pause without focus keep running, nothing of the user's moves.",
+  "input: real feeds hardware-level input (scan codes, raw mouse) that every game reads, including DirectInput, Raw Input, Unreal and Unity's Input System, but it moves the user's real mouse and takes their keyboard during each call: use it only when the user agrees.",
   "Hold keys with key press: down / up around other steps; look moves the camera by dx/dy.",
   "Fast navigation without images: read lists the text on screen with x/y; click_text clicks a button or menu item by its text; wait_text waits until text appears (a menu, a level name, Game Over).",
   "skip gets past logos, intros, cutscenes and dialogs by trying click, space, enter and esc until nothing reacts; wait_stable waits until loading or a transition ends.",
@@ -73,7 +75,7 @@ const Step = Schema.Struct({
   hidden: Schema.optionalKey(Schema.Boolean).annotate({ description: "launch/attach: true is mode hidden, false is mode visible" }),
   input: Schema.optionalKey(Schema.Literals(["message", "real"])).annotate({
     description:
-      "launch/attach: message (default) sends input to the window in the background; real uses the hardware path (scan codes, raw mouse) that every game reads, but takes the user's mouse and keyboard during each call",
+      "launch/attach: message (default) uses the playtest's own mouse and keyboard (DevTools for Chromium-based apps, window messages otherwise); real uses the hardware path every game reads but moves the user's real mouse and keyboard, so only with the user's consent",
   }),
   x: Schema.optionalKey(Schema.Number),
   y: Schema.optionalKey(Schema.Number),
@@ -138,7 +140,7 @@ const GUIDE = [
   "- Get to what you are testing quickly: launch, wait_stable (loading), skip (logos, intros, cutscenes, tutorials, dialogs), then click_text on menu items (Play, New Game, Continue, OK). Skip whatever is not under test.",
   "- Put a whole scenario in one call and check with read, wait_text, pixel, diff and wait_change. Take a screenshot only on a new screen, when a check fails, or to judge visuals; use see: false to keep one on disk.",
   "- Wait on what you expect (wait_text, wait_change, wait_stable), never on fixed sleeps.",
-  "- Input that changes nothing: the game may ignore message input; relaunch with input: real. A black frame that auto mode could not fix (it tries the app's other windows and showing it step by step): the game is still loading (wait_stable) or fullscreen-exclusive (start it windowed).",
+  "- Input that changes nothing: check that the game is past loading and that the click hit the control (read, screenshot). Only if it still ignores input, ask the user before relaunching with input: real, which moves their real mouse. A black frame that auto mode could not fix (it tries the app's other windows and showing it step by step): the game is still loading (wait_stable) or fullscreen-exclusive (start it windowed).",
   "- Report what you checked, what failed and the saved screenshot paths.",
   `Save a scenario that works as a JSON file and replay it with script; each run's files are in ${DIRECTORY}/<app>/.`,
 ].join("\n")
@@ -171,6 +173,12 @@ type App = {
   user: string
   // The input that last skipped a screen, tried first next time.
   skipWith?: string
+  // Chromium's DevTools connection: its own mouse and keyboard, in CSS pixels (own pixels / dpr).
+  cdp?: Cdp
+  dpr: number
+  // Where the page starts inside the window: Edge and Chrome app windows draw their title bar there.
+  view: { x: number; y: number }
+  held: number
   dir: string
   log?: string
   // Image pixels to the window's own client pixels, from the latest screenshot.
@@ -264,7 +272,9 @@ export const Plugin = {
             ["click", "key", "type", "drag", "scroll", "look", "down", "up"].includes(before ?? "")
           )
             lines.push(
-              "Hint: the input changed nothing. If the game should have reacted, it may read only hardware input: relaunch with input: real.",
+              app.cdp
+                ? "Hint: the input changed nothing. Check the target with read or a screenshot; the game may be loading or the control elsewhere."
+                : "Hint: the input changed nothing. If the game should have reacted, it may read only hardware input; input: real fixes that but moves the user's real mouse, so ask the user first.",
             )
           failed = true
           break
@@ -317,6 +327,88 @@ export const Plugin = {
     const point = (app: App, x: number | undefined, y: number | undefined) => {
       if (x === undefined || y === undefined) return app.cursor
       return { x: Math.round(x * app.scale.x), y: Math.round(y * app.scale.y) }
+    }
+
+    // The page's scale and where it sits in the window's client area, for DevTools coordinates.
+    async function measure(app: App) {
+      if (!app.cdp) return
+      const reply = await app.cdp
+        .send("Runtime.evaluate", {
+          expression: "[innerWidth, innerHeight, devicePixelRatio]",
+          returnByValue: true,
+        })
+        .catch(() => undefined)
+      const [width = 0, height = 0, ratio = 1] =
+        ((reply as { result?: { value?: number[] } } | undefined)?.result?.value ?? []).map(Number)
+      app.dpr = ratio || 1
+      app.view = {
+        x: Math.max(0, Math.round((app.size.width - width * app.dpr) / 2)),
+        y: Math.max(0, Math.round(app.size.height - height * app.dpr)),
+      }
+    }
+
+    // DevTools input unless the user chose real (hardware) input.
+    const devtools = (app: App): app is App & { cdp: Cdp } => !!app.cdp && !app.real
+
+    async function mouse(app: App & { cdp: Cdp }, type: string, at: { x: number; y: number }, extra: object = {}) {
+      await app.cdp.send("Input.dispatchMouseEvent", {
+        type,
+        x: (at.x - app.view.x) / app.dpr,
+        y: (at.y - app.view.y) / app.dpr,
+        buttons: app.held,
+        ...extra,
+      })
+      return ""
+    }
+
+    async function press(app: App & { cdp: Cdp }, at: { x: number; y: number }, button: Button, down: boolean) {
+      app.held = down ? app.held | BUTTONS[button] : app.held & ~BUTTONS[button]
+      return mouse(app, down ? "mousePressed" : "mouseReleased", at, { button, clickCount: 1 })
+    }
+
+    async function clickAt(app: App, at: { x: number; y: number }, button: Button, double: boolean) {
+      if (!devtools(app))
+        return call(`[OcPlay]::Click(${app.hwnd}, ${at.x}, ${at.y}, ${psString(button)}, $${double})`)
+      await mouse(app, "mouseMoved", at)
+      for (const count of double ? [1, 2] : [1]) {
+        app.held |= BUTTONS[button]
+        await mouse(app, "mousePressed", at, { button, clickCount: count })
+        app.held &= ~BUTTONS[button]
+        await mouse(app, "mouseReleased", at, { button, clickCount: count })
+      }
+      return ""
+    }
+
+    async function keyPress(app: App, combo: string, hold: number, mode: "tap" | "down" | "up") {
+      const { modifiers, key } = virtualKeys(combo)
+      if (!devtools(app)) {
+        const code = { tap: 0, down: 1, up: 2 }[mode]
+        return call(`[OcPlay]::Key(${app.hwnd}, [int[]]@(${modifiers.join(",")}), ${key}, ${hold}, ${code})`)
+      }
+      const mask = modifiers.reduce((sum, vk) => sum | ({ 0x12: 1, 0x11: 2, 0x5b: 4, 0x10: 8 }[vk] ?? 0), 0)
+      const send = (vk: number, down: boolean) => {
+        const info = keyInfo(vk, (mask & 8) !== 0)
+        // Text only for plain typing keys, so ctrl+s stays a shortcut and not an "s".
+        const text = down && info.text && (mask & ~8) === 0 ? info.text : undefined
+        return app.cdp.send("Input.dispatchKeyEvent", {
+          type: down ? (text ? "keyDown" : "rawKeyDown") : "keyUp",
+          modifiers: mask,
+          windowsVirtualKeyCode: vk,
+          nativeVirtualKeyCode: vk,
+          key: info.key,
+          code: info.code,
+          ...(text ? { text, unmodifiedText: text } : {}),
+        })
+      }
+      if (mode !== "up") {
+        for (const vk of modifiers) await send(vk, true)
+        await send(key, true)
+      }
+      if (mode === "down") return "holding"
+      if (hold > 0) await new Promise((resolve) => setTimeout(resolve, hold))
+      await send(key, false)
+      for (const vk of modifiers.toReversed()) await send(vk, false)
+      return ""
     }
 
     async function shoot(app: App, width: number | undefined, region?: readonly number[]) {
@@ -391,34 +483,55 @@ export const Plugin = {
     }
 
     // Text on screen through Windows OCR, in the window's own pixels.
-    async function words(app: App, region?: readonly number[]) {
-      // An uncompressed bitmap saves and loads far faster than PNG. Windows OCR misses text at
-      // some scales and reads it at others (a 2x frame can come back empty where 1.5x and 3x
-      // read it), and a read takes tens of ms, so an empty read is retried at the next scale.
+    // Text on screen through Windows OCR, in the window's own pixels. An uncompressed bitmap
+    // saves and loads far faster than PNG. Windows OCR misses text at some scales and reads it at
+    // others, and misses light pixel fonts on dark game backgrounds that it reads once inverted
+    // to dark on light; a read takes tens of ms, so the variants are tried in turn: until the
+    // wanted text is found, or for a plain read, until there is text plus one inverted pass.
+    async function words(app: App, region?: readonly number[], want?: string) {
       const file = path.join(app.dir, "ocr.bmp")
       const largest = Math.max(1, Math.min(3, 2400 / Math.max(app.size.width, 1)))
       const scales = [...new Set([largest, 1.5, 1].filter((scale) => scale <= largest))]
-      const read = async (factor: number) => {
-        await call(`[OcPlay]::Snap(${app.hwnd}, ${psString(file)}, ${factor})`)
+      const variants = [...scales.map((scale) => [scale, false] as const), ...scales.map((scale) => [scale, true] as const)]
+      const [rx = 0, ry = 0, rw = 0, rh = 0] = (region ?? []).map(
+        (value, index) => value * (index % 2 === 0 ? app.scale.x : app.scale.y),
+      )
+      const inside = (word: Word) =>
+        !region ||
+        region.length < 4 ||
+        (word.x + word.w / 2 >= rx && word.x + word.w / 2 <= rx + rw && word.y + word.h / 2 >= ry && word.y + word.h / 2 <= ry + rh)
+      const read = async (factor: number, invert: boolean, offset: number) => {
+        await call(`[OcPlay]::Snap(${app.hwnd}, ${psString(file)}, ${factor}, $${invert})`)
         return (await call(`Read-Text ${psString(file)}`))
           .split("\n")
           .map((line) => line.split("\t"))
           .filter((parts) => parts.length >= 3)
           .map(([box = "", line = "0", text = ""]) => {
             const [x = 0, y = 0, w = 0, h = 0] = box.split(" ").map((value) => Number(value) / factor)
-            return { x, y, w, h, line: Number(line), text: text.trim() }
+            return { x, y, w, h, line: offset + Number(line), text: text.trim() }
           })
+          .filter(inside)
       }
-      const found = await scales.reduce<Promise<Word[]>>(
-        async (previous, factor) => {
-          const result = await previous
-          return result.length > 0 ? result : read(factor)
-        },
-        Promise.resolve([]),
-      )
-      if (!region || region.length < 4) return found
-      const [rx = 0, ry = 0, rw = 0, rh = 0] = region.map((value, index) => value * (index % 2 === 0 ? app.scale.x : app.scale.y))
-      return found.filter((word) => word.x + word.w / 2 >= rx && word.x + word.w / 2 <= rx + rw && word.y + word.h / 2 >= ry && word.y + word.h / 2 <= ry + rh)
+      // Lines another variant already read are not repeated.
+      const merge = (all: Word[], more: Word[]) => {
+        const seen = new Set([...Map.groupBy(all, (word) => word.line).values()].map((line) => normalize(line.map((word) => word.text).join(""))))
+        return [
+          ...all,
+          ...[...Map.groupBy(more, (word) => word.line).values()]
+            .filter((line) => !seen.has(normalize(line.map((word) => word.text).join(""))))
+            .flat(),
+        ]
+      }
+      const state = { all: [] as Word[], inverted: false }
+      for (const [index, [factor, invert]] of variants.entries()) {
+        if (!want && state.all.length > 0 && !invert) continue
+        if (!want && invert && state.inverted) break
+        const found = await read(factor, invert, index * 1000)
+        state.all = merge(state.all, found)
+        if (invert) state.inverted = true
+        if (want && locate(found, want)) return found
+      }
+      return state.all
     }
 
     // Own window pixels to the pixels of the latest screenshot, which is what the model reads and clicks.
@@ -442,13 +555,15 @@ export const Plugin = {
       const user = (await call("[OcPlay]::User()")).trim() || "0"
       let child: ChildProcess | undefined
       let log: string | undefined
+      let port: number | undefined
       if (!attach) {
         if (!step.path) throw new Error("launch needs path")
         log = path.join(dir, "app.log")
         const fd = openSync(log, "a")
         const target = path.isAbsolute(step.path) || !/[\\/]/.test(step.path) ? step.path : path.resolve(root, step.path)
         const cwd = step.cwd ? path.resolve(root, step.cwd) : root
-        child = spawn(target, chromiumArgs(target, step.args ?? [], cwd, hidden), {
+        port = chromiumKind(target, step.args ?? [], cwd) ? await freePort() : undefined
+        child = spawn(target, chromiumArgs(target, step.args ?? [], cwd, port), {
           cwd,
           stdio: ["ignore", fd, fd],
           // Started with SW_HIDE, the window never flashes on screen before it is moved away.
@@ -505,6 +620,9 @@ export const Plugin = {
         placement: start,
         limit,
         size: { width: clientWidth, height: clientHeight },
+        dpr: 1,
+        view: { x: 0, y: 0 },
+        held: 0,
         title,
         user,
         dir,
@@ -513,12 +631,18 @@ export const Plugin = {
         cursor: { x: Math.round(clientWidth / 2), y: Math.round(clientHeight / 2) },
         shots: 0,
       }
+      // Chromium answers on its DevTools port a moment after its window appears.
+      app.cdp = port ? await connect(port).catch(() => undefined) : undefined
+      if (app.cdp) {
+        await app.cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => undefined)
+        await measure(app)
+      }
       apps.set(id, app)
       return {
         app: id,
         text: `${attach ? "attached" : "launched"} ${id} "${info[1] ?? ""}" ${clientWidth}x${clientHeight}${
           { hidden: " hidden off-screen", behind: " invisible behind your windows", under: "", visible: " on screen" }[start]
-        }${mode === "auto" ? " (auto: shown only if it draws nothing)" : ""}, ${real ? "real" : "message"} input; files in ${path.relative(root, dir)}`,
+        }${mode === "auto" ? " (auto: shown only if it draws nothing)" : ""}, ${real ? "real input (moves the user's mouse)" : app.cdp ? "own mouse and keyboard through Chromium DevTools, focus emulated" : "own mouse and keyboard (window messages)"}; files in ${path.relative(root, dir)}`,
       }
     }
 
@@ -568,16 +692,17 @@ export const Plugin = {
         }
         case "move": {
           app.cursor = point(app, step.x, step.y)
+          if (devtools(app)) return { text: await mouse(app, "mouseMoved", app.cursor) }
           return { text: await call(`[OcPlay]::Move(${app.hwnd}, ${app.cursor.x}, ${app.cursor.y})`) }
         }
         case "click":
         case "down":
         case "up": {
           app.cursor = point(app, step.x, step.y)
+          if (step.action === "click") return { text: await clickAt(app, app.cursor, button, step.double === true) }
+          if (devtools(app)) return { text: await press(app, app.cursor, button, step.action === "down") }
           const at = `${app.hwnd}, ${app.cursor.x}, ${app.cursor.y}, ${psString(button)}`
-          if (step.action === "down") return { text: await call(`[OcPlay]::Button(${at}, $true)`) }
-          if (step.action === "up") return { text: await call(`[OcPlay]::Button(${at}, $false)`) }
-          return { text: await call(`[OcPlay]::Click(${at}, $${step.double === true})`) }
+          return { text: await call(`[OcPlay]::Button(${at}, $${step.action === "down"})`) }
         }
         case "drag": {
           const from = point(app, step.x, step.y)
@@ -586,6 +711,17 @@ export const Plugin = {
           app.cursor = to
           const moves = Math.min(Math.max(Math.round(step.count ?? 12), 1), 200)
           const ms = Math.min(Math.max(Math.round(step.ms ?? 0), 0), 10_000)
+          if (devtools(app)) {
+            await press(app, from, button, true)
+            for (const index of Array.from({ length: moves }, (_, value) => value + 1)) {
+              if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms / moves))
+              await mouse(app, "mouseMoved", {
+                x: from.x + ((to.x - from.x) * index) / moves,
+                y: from.y + ((to.y - from.y) * index) / moves,
+              })
+            }
+            return { text: await press(app, to, button, false) }
+          }
           return {
             text: await call(
               `[OcPlay]::Drag(${app.hwnd}, ${from.x}, ${from.y}, ${to.x}, ${to.y}, ${psString(button)}, ${moves}, ${ms})`,
@@ -596,25 +732,28 @@ export const Plugin = {
           const dx = Math.round(step.dx ?? 0)
           const dy = Math.round(step.dy ?? 0)
           if (!app.real) app.cursor = { x: app.cursor.x + dx, y: app.cursor.y + dy }
+          if (devtools(app)) return { text: await mouse(app, "mouseMoved", app.cursor) }
           return { text: await call(`[OcPlay]::Look(${app.hwnd}, ${dx}, ${dy}, ${app.cursor.x}, ${app.cursor.y})`) }
         }
         case "scroll": {
           app.cursor = point(app, step.x, step.y)
+          if (devtools(app))
+            return { text: await mouse(app, "mouseWheel", app.cursor, { deltaX: 0, deltaY: Math.round(step.amount ?? 3) * 100 }) }
           return {
             text: await call(`[OcPlay]::Wheel(${app.hwnd}, ${app.cursor.x}, ${app.cursor.y}, ${Math.round(step.amount ?? 3)})`),
           }
         }
         case "key": {
           if (!step.keys) throw new Error("key needs keys, e.g. space or ctrl+s")
-          const { modifiers, key } = virtualKeys(step.keys)
           const hold = Math.min(Math.max(Math.round(step.ms ?? 0), 0), 10_000)
-          const press = { tap: 0, down: 1, up: 2 }[step.press ?? "tap"]
-          return {
-            text: await call(`[OcPlay]::Key(${app.hwnd}, [int[]]@(${modifiers.join(",")}), ${key}, ${hold}, ${press})`),
-          }
+          return { text: await keyPress(app, step.keys, hold, step.press ?? "tap") }
         }
         case "type":
           if (!step.text) throw new Error("type needs text")
+          if (devtools(app)) {
+            await app.cdp.send("Input.insertText", { text: step.text })
+            return { text: `${step.text.length} characters` }
+          }
           return { text: await call(`[OcPlay]::Type(${app.hwnd}, ${psString(step.text)})`) }
         case "wait_change": {
           const ms = Math.min(Math.max(Math.round(step.ms ?? 3_000), 0), 25_000)
@@ -633,6 +772,9 @@ export const Plugin = {
           if (!step.width || !step.height) throw new Error("resize needs width and height")
           const reply = await call(`[OcPlay]::Resize(${app.hwnd}, ${Math.round(step.width)}, ${Math.round(step.height)})`)
           app.scale = { x: 1, y: 1 }
+          const [width = 0, height = 0] = reply.split("x").map(Number)
+          app.size = { width, height }
+          if (app.cdp) await measure(app)
           return { text: `client is ${reply} now` }
         }
         case "read": {
@@ -649,14 +791,14 @@ export const Plugin = {
         }
         case "click_text": {
           if (!step.text) throw new Error("click_text needs text")
-          const found = await words(app, step.region)
+          const found = await words(app, step.region, step.text)
           const hit = locate(found, step.text)
           if (!hit)
             throw new Error(
               `No "${step.text}" on screen. Text there: ${[...new Set(found.map((word) => word.text))].slice(0, 40).join(" ") || "none"}`,
             )
           app.cursor = { x: Math.round(hit.x + hit.w / 2), y: Math.round(hit.y + hit.h / 2) }
-          await call(`[OcPlay]::Click(${app.hwnd}, ${app.cursor.x}, ${app.cursor.y}, ${psString(button)}, $${step.double === true})`)
+          await clickAt(app, app.cursor, button, step.double === true)
           const seen = hit.text === step.text ? "" : ` (read as "${hit.text}")`
           return { text: `clicked "${step.text}"${seen} at ${shown(app, app.cursor.x, app.cursor.y)}` }
         }
@@ -665,7 +807,7 @@ export const Plugin = {
           const ms = Math.min(Math.max(Math.round(step.ms ?? 10_000), 0), 25_000)
           const started = Date.now()
           for (;;) {
-            const found = await words(app, step.region)
+            const found = await words(app, step.region, step.text)
             const hit = locate(found, step.text)
             if (hit)
               return {
@@ -687,11 +829,11 @@ export const Plugin = {
           const limit = Math.min(Math.max(Math.round(step.count ?? 6), 1), 20)
           const deadline = Date.now() + Math.min(Math.max(Math.round(step.ms ?? 12_000), 500), 25_000)
           const center = { x: Math.round(app.size.width / 2), y: Math.round(app.size.height / 2) }
-          const tries: [string, string][] = [
-            ["click", `[OcPlay]::Click(${app.hwnd}, ${center.x}, ${center.y}, 'left', $false)`],
-            ["space", `[OcPlay]::Key(${app.hwnd}, [int[]]@(), 32, 0, 0)`],
-            ["enter", `[OcPlay]::Key(${app.hwnd}, [int[]]@(), 13, 0, 0)`],
-            ["esc", `[OcPlay]::Key(${app.hwnd}, [int[]]@(), 27, 0, 0)`],
+          const tries: [string, () => Promise<string>][] = [
+            ["click", () => clickAt(app, center, "left", false)],
+            ["space", () => keyPress(app, "space", 0, "tap")],
+            ["enter", () => keyPress(app, "enter", 0, "tap")],
+            ["esc", () => keyPress(app, "esc", 0, "tap")],
           ]
           const skipped: string[] = []
           // A playing video changes by itself, so a skip has to change the frame clearly more than that.
@@ -703,10 +845,10 @@ export const Plugin = {
             const reacted = await (async () => {
               // The input that skipped the last screen usually skips the next one too.
               const order = tries.toSorted((a, b) => Number(b[0] === app.skipWith) - Number(a[0] === app.skipWith))
-              for (const [label, script] of order) {
+              for (const [label, act] of order) {
                 if (Date.now() >= deadline) return undefined
                 await call(`[OcPlay]::Diff(${app.hwnd})`)
-                await call(script)
+                await act()
                 const changed = await call(`[OcPlay]::WaitChange(${app.hwnd}, 400, ${needed})`).catch(() => undefined)
                 if (changed) {
                   app.skipWith = label
@@ -731,6 +873,7 @@ export const Plugin = {
           return { text: text.trim() ? `\n${text.trim().split("\n").slice(-40).join("\n")}` : "the log is empty" }
         }
         case "close": {
+          app.cdp?.close()
           if (app.owned) await kill(app)
           else await call(`[OcPlay]::Close(${app.hwnd})`)
           apps.delete(app.id)
@@ -922,9 +1065,135 @@ export function locate(words: readonly Word[], wanted: string) {
   }
 }
 
-// Off-screen Chromium and Electron windows stop drawing unless told not to track occlusion.
-export function chromiumArgs(target: string, args: readonly string[], cwd: string, hidden: boolean) {
-  if (!hidden) return [...args]
+type Button = "left" | "right" | "middle"
+const BUTTONS: Record<Button, number> = { left: 1, right: 2, middle: 4 }
+
+type Cdp = { send: (method: string, params?: object) => Promise<unknown>; close: () => void }
+
+// A minimal Chrome DevTools Protocol client over the page's WebSocket.
+async function connect(port: number): Promise<Cdp> {
+  const deadline = Date.now() + 6_000
+  const target = await (async () => {
+    for (;;) {
+      const pages = await fetch(`http://127.0.0.1:${port}/json/list`)
+        .then((response) => response.json() as Promise<{ type: string; url: string; webSocketDebuggerUrl?: string }[]>)
+        .catch(() => [])
+      const page = pages.find(
+        (item) => item.type === "page" && item.webSocketDebuggerUrl && !/^(devtools|chrome-extension):/.test(item.url),
+      )
+      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl
+      if (Date.now() > deadline) throw new Error("No DevTools page")
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  })()
+  const socket = new WebSocket(target)
+  await new Promise<void>((resolve, reject) => {
+    socket.addEventListener("open", () => resolve())
+    socket.addEventListener("error", () => reject(new Error("DevTools connection failed")))
+  })
+  const waiting = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data)) as { id?: number; result?: unknown; error?: { message: string } }
+    const pending = message.id === undefined ? undefined : waiting.get(message.id)
+    if (!pending || message.id === undefined) return
+    waiting.delete(message.id)
+    if (message.error) pending.reject(new Error(message.error.message))
+    else pending.resolve(message.result)
+  })
+  socket.addEventListener("close", () => {
+    for (const pending of waiting.values()) pending.reject(new Error("DevTools connection closed"))
+    waiting.clear()
+  })
+  let next = 0
+  return {
+    send: (method, params = {}) =>
+      new Promise((resolve, reject) => {
+        next += 1
+        const id = next
+        const timer = setTimeout(() => {
+          waiting.delete(id)
+          reject(new Error(`DevTools ${method} timed out`))
+        }, 10_000)
+        waiting.set(id, {
+          resolve: (value) => {
+            clearTimeout(timer)
+            resolve(value)
+          },
+          reject: (error) => {
+            clearTimeout(timer)
+            reject(error)
+          },
+        })
+        socket.send(JSON.stringify({ id, method, params }))
+      }),
+    close: () => socket.close(),
+  }
+}
+
+function freePort() {
+  return new Promise<number>((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      server.close(() => (typeof address === "object" && address ? resolve(address.port) : reject(new Error("No port"))))
+    })
+  })
+}
+
+const KEY_NAMES: Record<number, [string, string]> = {
+  0x08: ["Backspace", "Backspace"],
+  0x09: ["Tab", "Tab"],
+  0x0d: ["Enter", "Enter"],
+  0x10: ["Shift", "ShiftLeft"],
+  0x11: ["Control", "ControlLeft"],
+  0x12: ["Alt", "AltLeft"],
+  0x13: ["Pause", "Pause"],
+  0x14: ["CapsLock", "CapsLock"],
+  0x1b: ["Escape", "Escape"],
+  0x20: [" ", "Space"],
+  0x21: ["PageUp", "PageUp"],
+  0x22: ["PageDown", "PageDown"],
+  0x23: ["End", "End"],
+  0x24: ["Home", "Home"],
+  0x25: ["ArrowLeft", "ArrowLeft"],
+  0x26: ["ArrowUp", "ArrowUp"],
+  0x27: ["ArrowRight", "ArrowRight"],
+  0x28: ["ArrowDown", "ArrowDown"],
+  0x2d: ["Insert", "Insert"],
+  0x2e: ["Delete", "Delete"],
+  0x5b: ["Meta", "MetaLeft"],
+  0xba: [";", "Semicolon"],
+  0xbb: ["=", "Equal"],
+  0xbc: [",", "Comma"],
+  0xbd: ["-", "Minus"],
+  0xbe: [".", "Period"],
+  0xbf: ["/", "Slash"],
+  0xc0: ["`", "Backquote"],
+  0xdb: ["[", "BracketLeft"],
+  0xdc: ["\\", "Backslash"],
+  0xdd: ["]", "BracketRight"],
+  0xde: ["'", "Quote"],
+}
+
+// DOM key and code for a Windows virtual key, and the text it types.
+export function keyInfo(vk: number, shift: boolean) {
+  if (vk >= 0x41 && vk <= 0x5a) {
+    const letter = String.fromCharCode(vk)
+    const key = shift ? letter : letter.toLowerCase()
+    return { key, code: `Key${letter}`, text: key }
+  }
+  if (vk >= 0x30 && vk <= 0x39) return { key: String(vk - 0x30), code: `Digit${vk - 0x30}`, text: String(vk - 0x30) }
+  if (vk >= 0x60 && vk <= 0x69) return { key: String(vk - 0x60), code: `Numpad${vk - 0x60}`, text: String(vk - 0x60) }
+  if (vk >= 0x70 && vk <= 0x87) return { key: `F${vk - 0x6f}`, code: `F${vk - 0x6f}`, text: undefined }
+  const [key = String.fromCharCode(vk), code = key] = KEY_NAMES[vk] ?? []
+  const text = vk === 0x0d ? "\r" : key.length === 1 ? key : undefined
+  return { key, code, text }
+}
+
+// Which Chromium launch this is: a Chromium binary or build run directly, or an Electron
+// project started through its package manager (arguments after -- reach electron).
+export function chromiumKind(target: string, args: readonly string[], cwd: string) {
   const name = path.basename(target).toLowerCase()
   const folder = path.dirname(target)
   const direct =
@@ -933,9 +1202,8 @@ export function chromiumArgs(target: string, args: readonly string[], cwd: strin
     // NW.js games (RPG Maker MV/MZ ship it as Game.exe) keep nw.dll or package.nw beside the exe.
     ["nw.dll", "nw_elf.dll", "package.nw"].some((file) => existsSync(path.join(folder, file))) ||
     (/^npx(\.cmd)?$/.test(name) && args.some((arg) => /electron/i.test(arg)))
-  if (direct) return [...args, ...CHROMIUM_FLAGS]
-  // npm start in an Electron project passes arguments after -- on to electron.
-  if (!/^(npm|pnpm|yarn)(\.cmd)?$/.test(name)) return [...args]
+  if (direct) return "direct" as const
+  if (!/^(npm|pnpm|yarn)(\.cmd)?$/.test(name)) return undefined
   const manifest = (() => {
     try {
       return readFileSync(path.join(cwd, "package.json"), "utf8")
@@ -943,8 +1211,17 @@ export function chromiumArgs(target: string, args: readonly string[], cwd: strin
       return ""
     }
   })()
-  if (!/"electron"/.test(manifest)) return [...args]
-  return [...args, ...(args.includes("--") ? [] : ["--"]), ...CHROMIUM_FLAGS]
+  return /"electron"/.test(manifest) ? ("npm" as const) : undefined
+}
+
+// Chromium keeps drawing off-screen with these flags, and the DevTools port gives the
+// playtest its own mouse and keyboard.
+export function chromiumArgs(target: string, args: readonly string[], cwd: string, port?: number) {
+  const kind = chromiumKind(target, args, cwd)
+  if (!kind) return [...args]
+  const flags = [...CHROMIUM_FLAGS, ...(port ? [`--remote-debugging-port=${port}`, "--remote-allow-origins=*"] : [])]
+  if (kind === "direct") return [...args, ...flags]
+  return [...args, ...(args.includes("--") ? [] : ["--"]), ...flags]
 }
 
 // One compiled helper does every step in-process: window lookup, message input, PrintWindow
@@ -1415,7 +1692,7 @@ public static class OcPlay {
   }
 
   // A full-size PNG for OCR, enlarged so small game text is readable.
-  public static string Snap(long handle, string file, double factor) {
+  public static string Snap(long handle, string file, double factor, bool invert) {
     var h = Check(handle);
     using (var bmp = Grab(h)) {
       float ratio = Ratio(h, bmp);
@@ -1423,7 +1700,18 @@ public static class OcPlay {
       using (var big = new Bitmap(w, ht))
       using (var g = Graphics.FromImage(big)) {
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        g.DrawImage(bmp, 0, 0, w, ht);
+        if (!invert) g.DrawImage(bmp, 0, 0, w, ht);
+        else {
+          // Gray, inverted and contrast-stretched: light game text on dark becomes dark on light.
+          float c = 1.8f, gr = -0.30f * c, gg = -0.59f * c, gb = -0.11f * c, o = (c + 1) / 2;
+          var matrix = new ColorMatrix(new float[][] {
+            new float[] { gr, gr, gr, 0, 0 }, new float[] { gg, gg, gg, 0, 0 }, new float[] { gb, gb, gb, 0, 0 },
+            new float[] { 0, 0, 0, 1, 0 }, new float[] { o, o, o, 0, 1 } });
+          using (var attributes = new ImageAttributes()) {
+            attributes.SetColorMatrix(matrix);
+            g.DrawImage(bmp, new Rectangle(0, 0, w, ht), 0, 0, bmp.Width, bmp.Height, GraphicsUnit.Pixel, attributes);
+          }
+        }
         big.Save(file, ImageFormat.Bmp);
       }
       return w + " " + ht;
