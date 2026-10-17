@@ -416,6 +416,8 @@ const ru: Record<string, string> = {
   Banned: "Забанены",
   Unban: "Разбанить",
   "Project groups": "Группы проектов",
+  Groups: "Группы",
+  "+ Group": "+ Группа",
   "Linked projects know each other and may ask each other questions. Requests still wait for a person.": "Связанные проекты знают друг о друге и могут задавать друг другу вопросы. Просьбы по-прежнему ждут решения человека.",
   "No groups yet.": "Групп пока нет.",
   "Link all": "Связать все",

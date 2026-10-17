@@ -20,6 +20,7 @@ import { errorMessage } from "../util/error"
 import { roomListChanged, roomListRevision, sameRoom, useJoinedRooms, type JoinedRoom } from "../util/room"
 import { DialogConnect, DialogHost, DialogMesh, nextMemberRole, ROLE_LABEL } from "./dialog-rooms"
 import { roomClient, tellHostLeft, unlinkRoom } from "../util/room-guest"
+import { DialogGroups } from "./dialog-groups"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
 import { DialogPrompt } from "../ui/dialog-prompt"
@@ -59,6 +60,30 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
   onMount(() => {
     const timer = setInterval(() => void refreshMesh(), 2000)
     onCleanup(() => clearInterval(timer))
+  })
+  // Groups the operator keeps projects in. The dialog changes them, so they are read again as it closes.
+  const [groups, { refetch: refreshGroups }] = createResource(() =>
+    client.api.orchestra.group.list().catch(() => []),
+  )
+  onMount(() => {
+    const timer = setInterval(() => void refreshGroups(), 3000)
+    onCleanup(() => clearInterval(timer))
+  })
+  const [groupClosed, setGroupClosed] = createStore<Record<string, boolean>>({})
+  // Groups first, each with the projects it holds; a project in several groups appears in the first only.
+  // Projects in no group follow without a heading.
+  const sections = createMemo(() => {
+    const seen = new Set<string>()
+    const named = (groups.latest ?? []).map((group) => ({
+      name: group.name as string | undefined,
+      projects: group.projects.flatMap((id) => {
+        const project = projects().find((item) => item.id === id)
+        if (!project || seen.has(id)) return []
+        seen.add(id)
+        return [project]
+      }),
+    }))
+    return [...named, { name: undefined as string | undefined, projects: projects().filter((item) => !seen.has(item.id)) }]
   })
   const [joined, updateJoined] = useJoinedRooms()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
@@ -247,6 +272,21 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     dialog.replace(() => window({ onClose: () => dialog.clear() }), undefined, { size: "large" })
     dialog.setCentered(true)
   }
+  const openGroups = () => {
+    dialog.replace(
+      () => (
+        <DialogGroups
+          onClose={() => {
+            dialog.clear()
+            void refreshGroups()
+          }}
+        />
+      ),
+      undefined,
+      { size: "large" },
+    )
+    dialog.setCentered(true)
+  }
   const openMesh = () => {
     dialog.replace(() => <DialogMesh onClose={() => dialog.clear()} />, undefined, { size: "large" })
     dialog.setCentered(true)
@@ -331,9 +371,41 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
           minHeight={0}
           horizontalScrollbarOptions={{ visible: false }}
         >
-          <For each={projects()}>
-            {(project) => (
-              <box>
+          <For each={sections()}>
+            {(section) => (
+              <>
+                <Show when={section.name}>
+                  <Row
+                    id={`group:${section.name}`}
+                    hover={hover}
+                    setHover={setHover}
+                    onClick={() => setGroupClosed(section.name!, !groupClosed[section.name!])}
+                  >
+                    <text flexShrink={0} fg={theme.text.muted}>
+                      {groupClosed[section.name!] ? "▸ " : "▾ "}
+                    </text>
+                    <box flexGrow={1} minWidth={0}>
+                      <text fg={theme.text.muted} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+                        {section.name}
+                        <span style={{ fg: theme.text.muted }}>{` · ${section.projects.length}`}</span>
+                      </text>
+                    </box>
+                    <HoverAction
+                      id={`group-edit:${section.name}`}
+                      onMouseEnter={() => setHover(`group:${section.name}`)}
+                      onMouseLeave={() => setHover(`group:${section.name}`)}
+                      onClick={openGroups}
+                    >
+                      <text fg={hover() === `group:${section.name}` ? theme.text.action.primary.base : theme.text.muted}>
+                        {" ⚙"}
+                      </text>
+                    </HoverAction>
+                  </Row>
+                </Show>
+                <Show when={!section.name || !groupClosed[section.name]}>
+                  <For each={section.projects}>
+                    {(project) => (
+                      <box paddingLeft={section.name ? 2 : 0}>
                 <Row id={project.id} hover={hover} setHover={setHover} onClick={() => toggle(project.id)}>
                   <text flexShrink={0} fg={theme.text.muted}>
                     {expanded[project.id] ? "▾ " : "▸ "}
@@ -448,9 +520,16 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                     <text fg={theme.text.muted}>{"  " + t("+ New session")}</text>
                   </Row>
                 </Show>
-              </box>
+                      </box>
+                    )}
+                  </For>
+                </Show>
+              </>
             )}
           </For>
+          <Row id="groups:new" hover={hover} setHover={setHover} onClick={openGroups}>
+            <text fg={theme.text.muted}>{"  " + t("+ Group")}</text>
+          </Row>
           <box paddingTop={projects().length > 0 ? 1 : 0}>
             <box flexDirection="row" paddingLeft={1} paddingRight={1}>
               <text flexShrink={0} fg={theme.text.action.secondary.base} attributes={TextAttributes.BOLD}>
