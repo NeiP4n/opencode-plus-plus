@@ -312,11 +312,15 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
  * Put WARP into Local Proxy mode and connect it. A full-device WARP connection that is currently
  * connected is left alone: switching it would cut other applications off their tunnel.
  */
-export async function ensureProxy(port = DEFAULT_PORT): Promise<Status> {
+export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice?: boolean } = {}): Promise<Status> {
   const current = await mode()
   if (current.mode === "device") {
     const state = await status()
-    if (state.state === "connected") {
+    if (state.state === "connected" && options.takeOverDevice) {
+      // The user agreed: drop the device-wide tunnel so only the local proxy remains.
+      await run(["disconnect"])
+      await waitForState("disconnected", 10)
+    } else if (state.state === "connected") {
       throw new WarpError(
         "device-in-use",
         "WARP is currently connected for the whole device. OpenCode will not switch it to Local Proxy mode because other applications would lose their tunnel. Disconnect WARP (or enable Local Proxy yourself) and retry.",

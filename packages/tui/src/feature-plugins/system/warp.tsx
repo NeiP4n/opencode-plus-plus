@@ -318,7 +318,23 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
     ))
   }
   // Local Proxy mode only: verified by the core before OpenCode's own proxy setting is touched.
-  const next = await Warp.ensureProxy()
+  let next: WarpStatus
+  try {
+    next = await Warp.ensureProxy()
+  } catch (cause) {
+    if (!(cause instanceof Warp.WarpError && cause.code === "device-in-use")) throw cause
+    const accepted = await context.ui.dialog.confirm({
+      title: text(context, "WARP is routing the whole device", "WARP сейчас работает на всё устройство"),
+      message: text(
+        context,
+        "WARP is connected for every application. Switch it to Local Proxy so that only OpenCode uses WARP? Other apps will go back to your normal connection.",
+        "WARP подключён для всех программ. Переключить его в Local Proxy, чтобы WARP использовал только OpenCode? Остальные программы вернутся на обычное соединение.",
+      ),
+      label: { confirm: text(context, "Only OpenCode", "Только OpenCode"), cancel: text(context, "Cancel", "Отмена") },
+    })
+    if (!accepted) throw cause
+    next = await Warp.ensureProxy(Warp.DEFAULT_PORT, { takeOverDevice: true })
+  }
   await setOpenCodeProxy(context, true)
   return next
 }
