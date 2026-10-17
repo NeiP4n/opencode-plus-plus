@@ -140,12 +140,12 @@ export function DialogGroups(props: { onClose?: () => void }) {
               <box flexGrow={1} minWidth={0}>
                 <text fg={theme.text.base} wrapMode="none" truncate>
                   <span style={{ bold: true }}>{group.name}</span>
-                  <span style={{ fg: theme.text.muted }}>{` · ${group.projects.map(nameOf).join(", ")}`}</span>
+                  <span style={{ fg: theme.text.muted }}>{` · ${group.projects.map((id, index) => (index === 0 ? "★ " : "") + nameOf(id)).join(", ")}`}</span>
                 </text>
               </box>
               <Button onClick={() => edit(group.name, group.projects)}>{t("Edit")}</Button>
               <Button onClick={() => void startSupervisor(group)}>
-                {opening() === group.name ? t("Starting...") : supervisorOf(group) ? t("Open supervisor") : t("Start supervisor")}
+                {opening() === group.name ? t("Starting...") : supervisorOf(group) ? t("Open AI") : t("Start AI")}
               </Button>
               <Button onClick={() => link(group.name)}>{t("Link all")}</Button>
               <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>
