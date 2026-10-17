@@ -280,7 +280,7 @@ const layer: Layer.Layer<
   | Bus.Service
   | Git.Service
   | Global.Service
-  | CorePermission.Service
+  | CorePermission.DelegateRegistryService
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -291,7 +291,7 @@ const layer: Layer.Layer<
     const bus = yield* Bus.Service
     const git = yield* Git.Service
     const global = yield* Global.Service
-    const permission = yield* CorePermission.Service
+    const permissionDelegates = yield* CorePermission.DelegateRegistryService
     // Serialize task assignment per worker while allowing different workers to run in parallel.
     const dispatchLocks = KeyedMutex.makeUnsafe<SessionID>()
     // Concurrent UI/API opens must converge on one durable main session per project.
@@ -1547,7 +1547,7 @@ const layer: Layer.Layer<
 
     // Register before agents run. Permission.assert calls this delegate before it
     // publishes a UI approval request, so no human approval dialog races the decision.
-    yield* permission.setDelegate(decidePermission)
+    yield* permissionDelegates.set(decidePermission)
 
     return Service.of({
       projects,
@@ -2243,5 +2243,5 @@ function finalText(message: SessionMessage.Info) {
 export const node = makeGlobalNode({
   service: Service,
   layer,
-  deps: [KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, CorePermission.node],
+  deps: [KV.node, Session.node, SessionStore.node, FSUtil.node, Bus.node, Git.node, Global.node, CorePermission.delegateNode],
 })
