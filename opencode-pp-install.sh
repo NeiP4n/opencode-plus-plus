@@ -37,7 +37,7 @@ opencode_dir="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
 room_chat="$opencode_dir/packages/tui/src/component/room-chat.tsx"
 if [ -f "$room_chat" ] && grep -q 'awaitingAI' "$room_chat"; then
   sed -i \
-    -e '/const \\[awaitingAI, setAwaitingAI\\] = createSignal(false)/d' \
+    -e '/const \[awaitingAI, setAwaitingAI\] = createSignal(false)/d' \
     -e '/  const executionEnded = (event: { data: { sessionID: string } }) =>/,/  onCleanup(() => endSubscriptions.forEach((unsubscribe) => unsubscribe()))/d' \
     -e '/setAwaitingAI(/d' \
     -e 's/props.running || awaitingAI() || sending() > 0/props.running || sending() > 0/' \
