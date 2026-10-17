@@ -10,7 +10,7 @@
  */
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { request as httpsRequest } from "node:https"
+import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { createConnection } from "node:net"
 import path from "node:path"
 import { HttpsProxyAgent } from "https-proxy-agent"
@@ -250,7 +250,8 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
   return new Promise((resolve) => {
     const request = httpsRequest(
       TRACE_URL,
-      { method: "GET", timeout, agent: port ? new HttpsProxyAgent(proxyUrl(port)) : undefined },
+      { method: "GET", timeout, // An explicit agent keeps the direct probe off any proxy inherited from the environment.
+      agent: port ? new HttpsProxyAgent(proxyUrl(port)) : new HttpsAgent() },
       (response) => {
         let body = ""
         response.setEncoding("utf8")

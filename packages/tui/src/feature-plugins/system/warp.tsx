@@ -362,6 +362,8 @@ function WarpSidebar(props: {
   status: WarpStatus
   busy: SharedBusy
   proxyEnabled: boolean
+  exitIp: string
+  directIp: string
   open: () => void
   refresh: () => void
 }) {
@@ -378,6 +380,10 @@ function WarpSidebar(props: {
         </text>
       </box>
       <text fg={theme().text.muted} wrapMode="none">{ru() ? `OpenCode через WARP: ${props.proxyEnabled ? "включено" : "выключено"}` : `OpenCode via WARP: ${props.proxyEnabled ? "on" : "off"}`}</text>
+      <text fg={theme().text.muted} wrapMode="none">{(ru() ? "Ваш IP: " : "Your IP: ") + (props.directIp || "…")}</text>
+      {props.proxyEnabled && (
+        <text fg={theme().text.feedback.success.base} wrapMode="none">{"OpenCode: " + (props.exitIp || "…")}</text>
+      )}
       <box flexDirection="row" gap={1}>
         <ActionButton
           context={props.context}
@@ -404,6 +410,7 @@ function WarpPage(props: {
   busy: SharedBusy
   proxyEnabled: boolean
   exitIp: string
+  directIp: string
   run: (action: WarpAction) => void
   onClose: () => void
 }) {
@@ -482,9 +489,11 @@ function WarpPage(props: {
             : props.status.details}
         </text>
         <text fg={theme().text.muted} wrapMode="none">
-          {props.exitIp
-            ? (ru() ? "IP OpenCode: " : "OpenCode IP: ") + props.exitIp
-            : ""}
+          {(ru() ? "Ваш IP: " : "Your IP: ") + (props.directIp || "…")}
+        </text>
+        <text fg={props.exitIp ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">
+          {(ru() ? "IP OpenCode: " : "OpenCode IP: ") +
+            (props.exitIp || (props.proxyEnabled ? "…" : ru() ? "тот же (WARP выключен)" : "same (WARP off)"))}
         </text>
       </box>
 
@@ -583,15 +592,20 @@ export default Plugin.define({
     })
     const [busy, updateBusy] = context.storage.memory<SharedBusy>("busy", { initial: { action: null } })
     const [proxy, updateProxy] = context.storage.memory<{ enabled: boolean }>("proxy", { initial: { enabled: false } })
-    const [exit, updateExit] = context.storage.memory<{ ip: string }>("exit", { initial: { ip: "" } })
+    const [exit, updateExit] = context.storage.memory<{ ip: string; direct: string }>("exit", { initial: { ip: "", direct: "" } })
+
+    const describeIp = (seen: Warp.ExitIp | undefined) =>
+      seen ? seen.ip + (seen.warp ? " · WARP" : "") + (seen.loc ? " · " + seen.loc : "") : ""
 
     const refreshExitIp = async () => {
-      if (!proxy.enabled) {
-        updateExit((draft) => { draft.ip = "" })
-        return
-      }
-      const seen = await Warp.exitIp((await Warp.mode()).port)
-      updateExit((draft) => { draft.ip = seen ? seen.ip + (seen.warp ? " · WARP" : "") + (seen.loc ? " · " + seen.loc : "") : "" })
+      const [direct, viaWarp] = await Promise.all([
+        Warp.exitIp(),
+        proxy.enabled ? Warp.mode().then((current) => Warp.exitIp(current.port ?? Warp.DEFAULT_PORT)) : Promise.resolve(undefined),
+      ])
+      updateExit((draft) => {
+        draft.direct = describeIp(direct)
+        draft.ip = describeIp(viaWarp)
+      })
     }
 
     const refreshProxy = async () => {
@@ -675,6 +689,7 @@ export default Plugin.define({
           busy={busy}
           proxyEnabled={proxy.enabled}
           exitIp={exit.ip}
+          directIp={exit.direct}
           run={(action) => void perform(action)}
           onClose={close}
         />
@@ -717,7 +732,7 @@ export default Plugin.define({
 
     context.ui.slot({
       append: "sidebar.content",
-      render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} open={open} refresh={() => void perform("refresh")} />,
+      render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} exitIp={exit.ip} directIp={exit.direct} open={open} refresh={() => void perform("refresh")} />,
     })
 
     void refresh()
