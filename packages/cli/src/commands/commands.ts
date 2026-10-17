@@ -588,6 +588,18 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
           Flag.withDescription("Listen port (defaults to 8789)"),
           Flag.optional,
         ),
+        upstream: Flag.string("upstream").pipe(
+          Flag.withDescription("OpenAI-compatible Chat Completions URL (HTTPS required except loopback)"),
+          Flag.optional,
+        ),
+        model: Flag.string("model").pipe(
+          Flag.withDescription("Primary upstream model ID"),
+          Flag.optional,
+        ),
+        fallbackModel: Flag.string("fallback-model").pipe(
+          Flag.withDescription("Fallback model ID (repeat for multiple allowed models)"),
+          Flag.atLeast(0),
+        ),
       },
     }),
     Spec.make("serve", {

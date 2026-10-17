@@ -22,7 +22,11 @@ export OPENCODE_GATEWAY_MODEL="glm-4.7-free"
 # Optional comma-separated model allowlist used only as failover targets.
 export OPENCODE_GATEWAY_FALLBACK_MODELS="minimax-m2.1-free,kimi-k2.5-free,qwen-2.5-72b-free,llama-3.3-70b-free"
 
-opencode gateway
+opencode gateway --model glm-4.7-free \
+  --fallback-model minimax-m2.1-free \
+  --fallback-model kimi-k2.5-free \
+  --fallback-model qwen-2.5-72b-free \
+  --fallback-model llama-3.3-70b-free
 ~~~
 
 Defaults:
@@ -43,12 +47,15 @@ Configuration:
 | OPENCODE_GATEWAY_FALLBACK_MODELS | Optional comma-separated fallback model IDs. |
 | OPENCODE_GATEWAY_TIMEOUT_MS | Upstream timeout from 1,000 to 600,000 ms. |
 
+
+The CLI also accepts `--host`, `--port`, `--upstream`, `--model`, and repeatable `--fallback-model` options; command-line values override corresponding environment variables. Secret values are intentionally environment-only, so they are not exposed in process arguments.
+
 ## Use from a LAN device
 
 Start it on the host machine with:
 
 ~~~bash
-opencode gateway --host 0.0.0.0
+opencode gateway --host 0.0.0.0 --model glm-4.7-free
 ~~~
 
 Configure a client with:
@@ -56,7 +63,23 @@ Configure a client with:
 - API key: the value of OPENCODE_GATEWAY_TOKEN
 - Model: one of the IDs returned by GET /v1/models
 
-For Claude Code, set the usual Anthropic base URL and API-key environment variables to those values before launching it. The same endpoint can be used by an Anthropic-compatible SDK or provider.
+For Claude Code on Linux/macOS, set the endpoint and use the gateway token as the Anthropic API key:
+
+~~~bash
+export ANTHROPIC_BASE_URL="http://HOST_LAN_IP:8789"
+export ANTHROPIC_API_KEY="$OPENCODE_GATEWAY_TOKEN"
+claude
+~~~
+
+In PowerShell:
+
+~~~powershell
+$env:ANTHROPIC_BASE_URL = "http://HOST_LAN_IP:8789"
+$env:ANTHROPIC_API_KEY = "paste-the-gateway-token-here"
+claude
+~~~
+
+The same endpoint can be used by an Anthropic-compatible SDK or provider. The upstream provider key remains on the host and is never sent to clients.
 
 **LAN security:** use a firewall to limit port 8789 to your private network, distribute the gateway token only to trusted devices, and do not expose this plain-HTTP listener to the public internet. For traffic across untrusted networks, put it behind a TLS-enabled reverse proxy/VPN. The gateway token is separate from an OpenCode room invitation token and does not currently inherit room membership or role revocations; revoke/rotate it independently.
 
