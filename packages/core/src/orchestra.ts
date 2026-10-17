@@ -1482,18 +1482,14 @@ const layer: Layer.Layer<
       return { project, worker, main }
     })
 
-    const decidePermission = Effect.fn("Orchestra.decidePermission")(function* (request: CorePermission.Request) {
+    const decidePermission: CorePermission.Delegate = Effect.fn("Orchestra.decidePermission")(function* (request) {
       const context = yield* permissionContext(request)
       if (!context) return
-
-      const deny = (reason: string) =>
-        permission
-          .reply({ requestID: request.id, reply: "reject", message: reason })
-          .pipe(Effect.catchCause(() => Effect.void))
-
       if (!context.main) {
-        yield* deny("The project's orchestrator is unavailable; the permission request was denied for safety.")
-        return
+        return {
+          effect: "deny" as const,
+          message: "The project's orchestrator is unavailable; denied by default for safety.",
+        }
       }
 
       const prompt = [
@@ -1532,53 +1528,26 @@ const layer: Layer.Layer<
           ),
         )
       const decision = answer === undefined ? undefined : parsePermissionDecision(answer)
-      const allowed = decision?.decision === "allow"
-      const reason =
-        decision?.reason ??
-        "The project orchestrator did not return a valid allow/deny decision; denied by default for safety."
+      if (!decision) {
+        return {
+          effect: "deny" as const,
+          message: "The project orchestrator did not return a valid allow/deny decision; denied by default for safety.",
+        }
+      }
 
-      const result = allowed
-        ? permission.reply({ requestID: request.id, reply: "once" as const })
-        : permission.reply({ requestID: request.id, reply: "reject" as const, message: reason })
-
-      yield* result.pipe(
-        Effect.catchCause(() =>
-          // The operator may have answered in the UI before the model finished. In that
-          // case Permission.reply returns NotFoundError because the request is already settled.
-          Effect.logDebug("Permission request was already settled before the orchestrator responded", {
-            projectID: context.project.id,
-            sessionID: context.worker.id,
-            requestID: request.id,
-          }),
-        ),
-      )
       yield* Effect.logInfo("Project orchestrator decided an agent permission request", {
         projectID: context.project.id,
         sessionID: context.worker.id,
         requestID: request.id,
         action: request.action,
-        decision: allowed ? "allow" : "deny",
+        decision: decision.decision,
       })
+      return { effect: decision.decision, message: decision.reason }
     })
 
-    // Subscribe before requests arrive and let each decision run independently, so one
-    // slow model response cannot hold up permission requests from other team members.
-    yield* bus.subscribe(CorePermission.Event.Asked).pipe(
-      Stream.runForEach((event) =>
-        decidePermission(event.data).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError("Failed to route an agent permission request to its project orchestrator", {
-              requestID: event.data.id,
-              sessionID: event.data.sessionID,
-              cause,
-            }),
-          ),
-          Effect.forkScoped({ startImmediately: true }),
-          Effect.asVoid,
-        ),
-      ),
-      Effect.forkScoped({ startImmediately: true }),
-    )
+    // Register before agents run. Permission.assert calls this delegate before it
+    // publishes a UI approval request, so no human approval dialog races the decision.
+    yield* permission.setDelegate(decidePermission)
 
     return Service.of({
       projects,
