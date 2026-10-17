@@ -77,3 +77,11 @@ describe("WARP daemon", () => {
     expect(isDaemonDown("Status update: Connected")).toBe(false)
   })
 })
+
+describe("WARP tunnel protocol", () => {
+  test("detects the WireGuard default that breaks proxy mode", async () => {
+    const { usesWireGuard } = await import("@opencode/core/warp")
+    expect(usesWireGuard("(consumer overrides)	WARP tunnel protocol: WireGuard")).toBe(true)
+    expect(usesWireGuard("(network policy)	WARP tunnel protocol: MASQUE")).toBe(false)
+  })
+})

@@ -89,6 +89,11 @@ export function parseMode(settings: string): { mode: Mode; port?: number } {
   return { mode: "unknown" }
 }
 
+/** Local Proxy mode only works over MASQUE; consumer Linux clients default to WireGuard. */
+export function usesWireGuard(settings: string) {
+  return /tunnel protocol:\s*wireguard/i.test(settings)
+}
+
 export function parseTrace(body: string): ExitIp | undefined {
   const fields = new Map<string, string>()
   for (const line of body.split(/\r?\n/)) {
@@ -437,6 +442,11 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
     )
   }
   const effectivePort = confirmed.port ?? port
+  // "Proxy mode only supports MASQUE": with WireGuard, connect says Success and the tunnel silently fails.
+  const settings = await run(["settings"]).catch(() => "")
+  if (usesWireGuard(settings)) {
+    await runAny(["tunnel", "protocol", "set", "MASQUE"], ["set-tunnel-protocol", "masque"])
+  }
   await hideGui()
   // A first connection after registering can take several seconds before the proxy starts listening.
   const connected = await connectUntilUp()
