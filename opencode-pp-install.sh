@@ -16,14 +16,14 @@ curl -fsSL --retry 3 "$BASE_URL" -o "$TMP"
 # compatibility probe can return Bun's "Unknown Error, pidfd_open" even after
 # SIGSYS is converted to ENOSYS. Do not let that probe abort the installation;
 # we replace its preload library with the stronger handler below afterwards.
-awk '
-  index($0, "fail \\"Bun subprocess still fails with the Android seccomp shim; refusing to install a launcher known to crash\\"") {
-    print "        echo \\"WARNING: Bun subprocess probe still reports an Android seccomp/pidfd issue; continuing to install the compatibility launcher.\\" >&2"
-    next
-  }
-  { print }
-' "$TMP" >"$TMP.new"
-mv "$TMP.new" "$TMP"
+# The first shim in the pinned installer advances the PC when handling SIGSYS.
+# On affected Android builds the seccomp signal context already points past svc;
+# advancing it again corrupts the return path and makes pidfd_open report errno=0.
+sed -i 's/uc->uc_mcontext.pc += 4;/\/\* Android SIGSYS context already points past svc; do not advance PC. \*\//' "$TMP"
+# The preliminary check can still report pidfd_open even though the final shim
+# below intercepts signal setup and provides the correct fallback. Let the
+# installer finish; a second probe below decides whether the shim actually works.
+sed -i 's|fail "Bun subprocess still fails with the Android seccomp shim; refusing to install a launcher known to crash"|echo "WARNING: preliminary seccomp probe still fails; applying final shim and rechecking"|' "$TMP"
 
 sh "$TMP"
 
@@ -50,6 +50,9 @@ if [ -n "${PREFIX:-}" ] && [ -d "$PREFIX" ] && command -v clang >/dev/null 2>&1;
 #ifndef ENOSYS
 #define ENOSYS 38
 #endif
+#ifndef __NR_pidfd_open
+#define __NR_pidfd_open 434
+#endif
 #ifndef __NR_close_range
 #define __NR_close_range 436
 #endif
@@ -72,7 +75,7 @@ static void sigsys_handler(int signo, siginfo_t *info, void *context) {
   if (!info || info->si_code != SYS_SECCOMP || !context) _exit(128 + SIGSYS);
 #if defined(__aarch64__)
   ucontext_t *uc = (ucontext_t *)context;
-  uc->uc_mcontext.pc += 4;
+  /* Android SIGSYS context already points past svc; do not advance PC. */
   uc->uc_mcontext.regs[0] = (unsigned long)(long)-ENOSYS;
 #else
   _exit(128 + SIGSYS);
@@ -127,7 +130,8 @@ typedef long (*real_syscall_fn)(long, long, long, long, long, long, long);
 static real_syscall_fn real_syscall_ptr;
 
 long syscall(long number, ...) {
-  if (number == __NR_close_range) {
+  /* Bun can reach these via libc syscall() before/alongside its inline path. */
+  if (number == __NR_pidfd_open || number == __NR_close_range) {
     errno = ENOSYS;
     return -1;
   }
@@ -162,8 +166,20 @@ C_SOURCE
       exit 1
     }
   rm -f "$src"
+
+  echo "Verifying final Android seccomp shim with Bun subprocess probe…"
+  probe_log="$PREFIX/tmp/opencode-pp-final-spawn-probe.log"
+  if ! LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync([process.execPath, "-e", "process.exit(0)"]); if (p.exitCode !== 0) { process.stderr.write(p.stderr); console.error("child Bun exit code:", p.exitCode); process.exit(1) }' >"$probe_log" 2>&1; then
+    cat "$probe_log" >&2
+    echo "opencode-pp: final seccomp shim did not pass Bun's pidfd_open/spawn probe." >&2
+    echo "The installer and OpenTUI are present, but this Android/Bun combination is still incompatible." >&2
+    exit 1
+  fi
+  rm -f "$probe_log"
+  echo "Bun subprocess compatibility check passed with the final seccomp shim."
 else
-  echo "opencode-pp: clang is unavailable; keeping the installer-provided shim" >&2
+  echo "opencode-pp: clang is unavailable; cannot apply Android seccomp compatibility shim" >&2
+  exit 1
 fi
 
 exit 0
