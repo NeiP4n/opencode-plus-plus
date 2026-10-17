@@ -169,6 +169,8 @@ type App = {
   size: { width: number; height: number }
   title: string
   user: string
+  // The input that last skipped a screen, tried first next time.
+  skipWith?: string
   dir: string
   log?: string
   // Image pixels to the window's own client pixels, from the latest screenshot.
@@ -208,6 +210,7 @@ export const Plugin = {
     const apps = new Map<string, App>()
     const latest = new Map<string, string>()
     let counter = 0
+    let warm = false
     // Read from stdin, PowerShell ends a block at a blank line, which would cut the C# source short.
     const host = makeHost(HOST_PRELUDE.replace(/\n\s*\n/g, "\n"), "playtest")
     yield* Effect.addFinalizer(() =>
@@ -241,13 +244,15 @@ export const Plugin = {
       let current = input.app ?? latest.get(context.sessionID)
       let failed = false
       for (const [index, step] of steps.entries()) {
-        const label = `${index + 1}. ${step.action}`
+        const begun = Date.now()
         const result = yield* Effect.promise(() =>
           execute(step, current).then(
             (value) => ({ ok: true as const, value }),
             (error: unknown) => ({ ok: false as const, error }),
           ),
         )
+        // Each step's time, so slow steps are visible to whoever tunes the scenario.
+        const label = `${index + 1}. ${step.action} [${Date.now() - begun} ms]`
         if (!result.ok) {
           lines.push(`${label}: FAIL: ${result.error instanceof Error ? result.error.message : String(result.error)}`)
           const before = steps[index - 1]?.action
@@ -387,18 +392,30 @@ export const Plugin = {
 
     // Text on screen through Windows OCR, in the window's own pixels.
     async function words(app: App, region?: readonly number[]) {
-      const file = path.join(app.dir, "ocr.png")
-      const factor = Math.max(1, Math.min(3, 1600 / Math.max(app.size.width, 1)))
-      await call(`[OcPlay]::Snap(${app.hwnd}, ${psString(file)}, ${factor})`)
-      const reply = await call(`Read-Text ${psString(file)}`)
-      const found = reply
-        .split("\n")
-        .map((line) => line.split("\t"))
-        .filter((parts) => parts.length >= 3)
-        .map(([box = "", line = "0", text = ""]) => {
-          const [x = 0, y = 0, w = 0, h = 0] = box.split(" ").map((value) => Number(value) / factor)
-          return { x, y, w, h, line: Number(line), text: text.trim() }
-        })
+      // An uncompressed bitmap saves and loads far faster than PNG. Windows OCR misses text at
+      // some scales and reads it at others (a 2x frame can come back empty where 1.5x and 3x
+      // read it), and a read takes tens of ms, so an empty read is retried at the next scale.
+      const file = path.join(app.dir, "ocr.bmp")
+      const largest = Math.max(1, Math.min(3, 2400 / Math.max(app.size.width, 1)))
+      const scales = [...new Set([largest, 1.5, 1].filter((scale) => scale <= largest))]
+      const read = async (factor: number) => {
+        await call(`[OcPlay]::Snap(${app.hwnd}, ${psString(file)}, ${factor})`)
+        return (await call(`Read-Text ${psString(file)}`))
+          .split("\n")
+          .map((line) => line.split("\t"))
+          .filter((parts) => parts.length >= 3)
+          .map(([box = "", line = "0", text = ""]) => {
+            const [x = 0, y = 0, w = 0, h = 0] = box.split(" ").map((value) => Number(value) / factor)
+            return { x, y, w, h, line: Number(line), text: text.trim() }
+          })
+      }
+      const found = await scales.reduce<Promise<Word[]>>(
+        async (previous, factor) => {
+          const result = await previous
+          return result.length > 0 ? result : read(factor)
+        },
+        Promise.resolve([]),
+      )
       if (!region || region.length < 4) return found
       const [rx = 0, ry = 0, rw = 0, rh = 0] = region.map((value, index) => value * (index % 2 === 0 ? app.scale.x : app.scale.y))
       return found.filter((word) => word.x + word.w / 2 >= rx && word.x + word.w / 2 <= rx + rw && word.y + word.h / 2 >= ry && word.y + word.h / 2 <= ry + rh)
@@ -451,12 +468,14 @@ export const Plugin = {
         hwnd = (await call(`[OcPlay]::Find(${child?.pid ?? 0}, ${psString(title)})`)).trim()
         if (hwnd !== "0") break
         if (child && child.exitCode !== null && !title) break
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        await new Promise((resolve) => setTimeout(resolve, 50))
       }
       // Engines open a splash or helper window first; keep the best pick once the choice settles.
-      for (const settle = Date.now() + 1_500; hwnd !== "0" && Date.now() < settle; ) {
-        await new Promise((resolve) => setTimeout(resolve, 150))
+      // Done once the same window wins three times in a row (about 250 ms), at most 1.5 s.
+      for (let same = 0, settle = Date.now() + 1_500; hwnd !== "0" && same < 3 && Date.now() < settle; ) {
+        await new Promise((resolve) => setTimeout(resolve, 80))
         const again = (await call(`[OcPlay]::Find(${child?.pid ?? 0}, ${psString(title)})`)).trim()
+        same = again === hwnd ? same + 1 : 0
         if (again !== "0") hwnd = again
       }
       if (hwnd === "0") {
@@ -677,17 +696,22 @@ export const Plugin = {
           const skipped: string[] = []
           // A playing video changes by itself, so a skip has to change the frame clearly more than that.
           await call(`[OcPlay]::Diff(${app.hwnd})`)
-          await new Promise((resolve) => setTimeout(resolve, 250))
+          await new Promise((resolve) => setTimeout(resolve, 150))
           const motion = Number(await call(`[OcPlay]::Diff(${app.hwnd})`)) || 0
           const needed = Math.min(90, Math.max(5, motion * 1.5 + 10))
           while (skipped.length < limit && Date.now() < deadline) {
             const reacted = await (async () => {
-              for (const [label, script] of tries) {
+              // The input that skipped the last screen usually skips the next one too.
+              const order = tries.toSorted((a, b) => Number(b[0] === app.skipWith) - Number(a[0] === app.skipWith))
+              for (const [label, script] of order) {
                 if (Date.now() >= deadline) return undefined
                 await call(`[OcPlay]::Diff(${app.hwnd})`)
                 await call(script)
-                const changed = await call(`[OcPlay]::WaitChange(${app.hwnd}, 700, ${needed})`).catch(() => undefined)
-                if (changed) return `${label} (${changed.split(" changed")[0]})`
+                const changed = await call(`[OcPlay]::WaitChange(${app.hwnd}, 400, ${needed})`).catch(() => undefined)
+                if (changed) {
+                  app.skipWith = label
+                  return `${label} (${changed.split(" changed")[0]})`
+                }
               }
               return undefined
             })()
@@ -731,7 +755,13 @@ export const Plugin = {
 
     yield* ctx.session.hook("context", (event) =>
       Effect.sync(() => {
-        if (event.tools[name]) event.system.push({ type: "text", text: GUIDE })
+        if (!event.tools[name]) return
+        event.system.push({ type: "text", text: GUIDE })
+        // Start and compile the helper while the model thinks, not on its first call.
+        if (process.platform === "win32" && !warm) {
+          warm = true
+          host.call("''").catch(() => (warm = false))
+        }
       }),
     )
   }),
@@ -1394,7 +1424,7 @@ public static class OcPlay {
       using (var g = Graphics.FromImage(big)) {
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.DrawImage(bmp, 0, 0, w, ht);
-        big.Save(file, ImageFormat.Png);
+        big.Save(file, ImageFormat.Bmp);
       }
       return w + " " + ht;
     }
