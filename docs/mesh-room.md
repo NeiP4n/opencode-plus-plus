@@ -79,3 +79,12 @@ Use only a trusted LAN or private VPN; do not port-forward the server to the pub
 ### Current limitations
 
 This is a usable Mesh-room MVP, **not yet the complete remote-AI orchestration experience**. The panel shares message/task entries and displays membership/quorum state; it does not yet dispatch a task entry as an AI prompt to a selected remote worker, advertise model/provider capabilities, stream remote execution progress, or manage returned code changes. Owners can re-open the persistent invitation token after activation and add devices as non-voting workers. The active voting configuration stays fixed: promoting a worker to voter and removing voters are not supported yet. **Leave Mesh** clears the local Mesh state only; it does not remove that device from the other peers' current roster, so leaving an active voter still can reduce quorum. Failover and network-partition behavior still need full integration and failure testing before being relied on for important work.
+
+
+## Optional Anthropic compatibility gateway
+
+The repository also contains a small host-run compatibility bridge in `packages/room-gateway`. It exposes the Anthropic Messages API for Claude Code and other compatible clients, converts requests to OpenAI Chat Completions, and can try explicitly configured fallback models on HTTP 429 or selected gateway errors. The upstream API key stays on the host.
+
+See [packages/room-gateway/README.md](../packages/room-gateway/README.md) for setup, the model allowlist, test commands, and LAN firewall guidance.
+
+This is an optional local gateway, **not yet the Mesh distributed worker broker** described above. It does not dispatch requests to the best available peer, inherit the Mesh roster/quorum, or automatically revoke access when a Mesh member is removed. Its gateway token is separate from a Mesh invitation token and must be shared/rotated independently. Keep it bound to loopback unless you deliberately enable trusted-LAN access; do not expose the plain-HTTP listener to the public internet.
