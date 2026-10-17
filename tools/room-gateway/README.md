@@ -22,7 +22,7 @@ export OPENCODE_GATEWAY_MODEL="space-bunny-free"
 # Optional comma-separated model allowlist used only as failover targets.
 export OPENCODE_GATEWAY_FALLBACK_MODELS="mimo-v2.6-flash-free,ling-3.1-flash-fin-free"
 
-bun run --cwd packages/room-gateway start
+bun run --cwd tools/room-gateway start
 ~~~
 
 Defaults:
@@ -49,7 +49,7 @@ Start it on the host machine with:
 
 ~~~bash
 export OPENCODE_GATEWAY_HOST=0.0.0.0
-bun run --cwd packages/room-gateway start
+bun run --cwd tools/room-gateway start
 ~~~
 
 Configure a client with:
@@ -70,6 +70,6 @@ Fallback models can have different capabilities, output quality, tool-call behav
 ## Test
 
 ~~~bash
-bun run --cwd packages/room-gateway test
-bun run --cwd packages/room-gateway typecheck
+bun run --cwd tools/room-gateway test
+bun run --cwd tools/room-gateway typecheck
 ~~~

@@ -83,8 +83,8 @@ This is a usable Mesh-room MVP, **not yet the complete remote-AI orchestration e
 
 ## Optional Anthropic compatibility gateway
 
-The repository also contains a small host-run compatibility bridge in `packages/room-gateway`. It exposes the Anthropic Messages API for Claude Code and other compatible clients, converts requests to OpenAI Chat Completions, and can try explicitly configured fallback models on HTTP 429 or selected gateway errors. The upstream API key stays on the host.
+The repository also contains a small host-run compatibility bridge in `tools/room-gateway`. It exposes the Anthropic Messages API for Claude Code and other compatible clients, converts requests to OpenAI Chat Completions, and can try explicitly configured fallback models on HTTP 429 or selected gateway errors. The upstream API key stays on the host.
 
-See [packages/room-gateway/README.md](../packages/room-gateway/README.md) for setup, the model allowlist, test commands, and LAN firewall guidance.
+See [packages/room-gateway/README.md](../tools/room-gateway/README.md) for setup, the model allowlist, test commands, and LAN firewall guidance.
 
 This is an optional local gateway, **not yet the Mesh distributed worker broker** described above. It does not dispatch requests to the best available peer, inherit the Mesh roster/quorum, or automatically revoke access when a Mesh member is removed. Its gateway token is separate from a Mesh invitation token and must be shared/rotated independently. Keep it bound to loopback unless you deliberately enable trusted-LAN access; do not expose the plain-HTTP listener to the public internet.
