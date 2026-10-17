@@ -27,6 +27,7 @@ import { openTeamEditor } from "./dialog-teams"
 import { useProjects } from "../context/projects"
 import { DialogExperiments } from "./dialog-experiments"
 import { DialogIdeaBank } from "./dialog-idea-bank"
+import { ProjectFacts, useProjectFacts } from "./project-facts"
 import { usePromptRef } from "../context/prompt"
 import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
@@ -55,6 +56,7 @@ export function DevToolsBar() {
   const themes = useThemes()
   const keymap = Keymap.use()
   const t = useT()
+  const [facts, updateFacts] = useProjectFacts()
   const clipboard = useClipboard()
   const paths = useTuiPaths()
   const renderer = useRenderer()
@@ -294,6 +296,7 @@ export function DevToolsBar() {
       label(`✓ ${t("Server")}`) +
       label(`✦ ${t("Ideas")}`) +
       label(`${t("Language")} EN`) +
+      label(t("Facts")) +
       (projects.loaded() && projects.list().length === 0 ? label(t("+ Project")) : 0)
     const total = fixed + Object.values(widths).reduce((sum, width) => sum + width, 0)
     return Object.keys(widths).reduce(
@@ -593,6 +596,16 @@ export function DevToolsBar() {
         <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />
       </box>
       <BarItem
+        active={facts.open}
+        onClick={() =>
+          void updateFacts((draft) => {
+            draft.open = !draft.open
+          }).catch(toast.error)
+        }
+      >
+        <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}>{t("Facts")}</text>
+      </BarItem>
+      <BarItem
         active={false}
         onClick={() =>
           void config
@@ -605,6 +618,10 @@ export function DevToolsBar() {
         <text fg={theme.text.muted}>{t("Language")}</text>
         <text fg={theme.text.action.primary.base}>{" " + (config.data.language === "ru" ? "RU" : "EN")}</text>
       </BarItem>
+      {/* Like the slot wrapper above: a stable node keeps the window out of the bar's zIndex re-sort. */}
+      <box flexDirection="row">
+        <ProjectFacts />
+      </box>
     </box>
   )
 }

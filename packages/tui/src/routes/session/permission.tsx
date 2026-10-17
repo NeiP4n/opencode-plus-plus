@@ -16,8 +16,20 @@ import { usePathFormatter } from "../../context/path-format"
 import { SimulationSemantics } from "../../simulation/semantics"
 import { PatchDiff } from "../../component/patch-diff"
 import { useToast } from "../../ui/toast"
+import { useClient } from "../../context/client"
+import { Spinner } from "../../component/spinner"
+import { useT } from "../../util/i18n"
 
 type PermissionStage = "permission" | "reject"
+
+// session.generate shows the session's tools but runs no tool loop, so a tool call would come back empty.
+const explainInstructions = (language: string | undefined) =>
+  [
+    "The user must approve or reject the request below and wants to understand it first.",
+    `Explain in ${language === "ru" ? "Russian" : "English"}, in plain words for someone who is not a programmer, what it will do.`,
+    "Use at most three short sentences and no headings. Say whether it only reads something or changes, deletes, installs, or sends something.",
+    "Do not call any tools and do not take any actions.",
+  ].join(" ")
 
 function EditBody(props: { file?: string; diff?: string; patch?: string }) {
   const theme = useTheme()
@@ -112,9 +124,13 @@ function EditBody(props: { file?: string; diff?: string; patch?: string }) {
 
 export function PermissionPrompt(props: { request: PermissionRequest; directory?: string }) {
   const data = useData()
+  const client = useClient()
   const toast = useToast()
+  const t = useT()
+  const config = useConfig().data
   const [store, setStore] = createStore({
     stage: "permission" as PermissionStage,
+    explanation: { status: "idle" as "idle" | "loading" | "done" | "error", text: "" },
   })
   const pathFormatter = usePathFormatter()
   const session = createMemo(() => data.session.get(props.request.sessionID))
@@ -132,6 +148,52 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
   })
 
   const theme = useTheme()
+
+  const current = createMemo(() =>
+    permissionPresentation(
+      {
+        action: props.request.action,
+        resources: props.request.resources,
+        metadata: props.request.metadata,
+        input: source().input,
+        toolMetadata: source().metadata,
+      },
+      pathFormatter.format,
+    ),
+  )
+
+  function explain() {
+    if (store.explanation.status === "loading") return
+    const presentation = current()
+    const subject = [
+      `Action: ${props.request.action}`,
+      presentation.title,
+      ...presentation.lines,
+      presentation.file ? `File: ${presentation.file}` : "",
+      presentation.diff ?? presentation.patch ?? "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 6_000)
+    setStore("explanation", { status: "loading", text: "" })
+    void client.api.session
+      .generate({
+        sessionID: props.request.sessionID,
+        prompt: [explainInstructions(config.language), subject].join("\n\n"),
+      })
+      .then((result) => setStore("explanation", { status: "done", text: result.text.trim() }))
+      .catch((cause: unknown) =>
+        setStore("explanation", { status: "error", text: cause instanceof Error ? cause.message : String(cause) }),
+      )
+  }
+
+  Keymap.createLayer(() => ({
+    mode: "base",
+    commands:
+      store.stage === "permission"
+        ? [{ bind: "?", title: "Explain the permission request", group: "Permission", run: explain }]
+        : [],
+  }))
 
   function reply(value: PermissionReply, message?: string) {
     void data.session.permission
@@ -155,31 +217,21 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
       </Match>
       <Match when={store.stage === "permission"}>
         {(() => {
-          const current = permissionPresentation(
-            {
-              action: props.request.action,
-              resources: props.request.resources,
-              metadata: props.request.metadata,
-              input: source().input,
-              toolMetadata: source().metadata,
-            },
-            pathFormatter.format,
-          )
           const presentationBody = () =>
             props.request.action === "edit" ? (
-              <EditBody file={current.file} diff={current.diff} patch={current.patch} />
+              <EditBody file={current().file} diff={current().diff} patch={current().patch} />
             ) : props.request.action === "external_directory" ? (
-              <Show when={current.lines.length > 0}>
+              <Show when={current().lines.length > 0}>
                 <box paddingLeft={1} gap={1}>
                   <text fg={theme.text.muted}>Patterns</text>
                   <box>
-                    <For each={current.lines}>{(line) => <text fg={theme.text.base}>{line}</text>}</For>
+                    <For each={current().lines}>{(line) => <text fg={theme.text.base}>{line}</text>}</For>
                   </box>
                 </box>
               </Show>
             ) : (
               <box paddingLeft={1}>
-                <For each={current.lines}>
+                <For each={current().lines}>
                   {(line) => (
                     <text
                       fg={
@@ -201,14 +253,14 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             <box flexDirection="column" gap={0}>
               <box flexDirection="row" gap={1} flexShrink={0}>
                 <text fg={theme.text.feedback.warning.base}>{"△"}</text>
-                <text fg={theme.text.base}>Permission required</text>
+                <text fg={theme.text.base}>{t("Permission required")}</text>
               </box>
-              <Show when={props.request.action !== "shell" && current.title}>
+              <Show when={props.request.action !== "shell" && current().title}>
                 <box flexDirection="row" gap={1} paddingLeft={2} flexShrink={0}>
                   <text fg={theme.text.muted} flexShrink={0}>
-                    {current.icon}
+                    {current().icon}
                   </text>
-                  <text fg={theme.text.base}>{current.title}</text>
+                  <text fg={theme.text.base}>{current().title}</text>
                 </box>
               </Show>
             </box>
@@ -216,8 +268,8 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
 
           const body = (
             <SessionQuestion
-              title="Permission required"
-              semanticLabel={permissionSemanticLabel(props.request.action, current.title)}
+              title={t("Permission required")}
+              semanticLabel={permissionSemanticLabel(props.request.action, current().title)}
               instance={props.request.id}
               header={header()}
               body={(option) => (
@@ -232,11 +284,18 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               options={
                 props.request.save?.length
                   ? {
-                      once: permissionOptionLabel("once"),
-                      always: permissionOptionLabel("always"),
-                      reject: permissionOptionLabel("reject"),
+                      once: t(permissionOptionLabel("once")),
+                      always: t(permissionOptionLabel("always")),
+                      reject: t(permissionOptionLabel("reject")),
                     }
-                  : { once: permissionOptionLabel("once"), reject: permissionOptionLabel("reject") }
+                  : { once: t(permissionOptionLabel("once")), reject: t(permissionOptionLabel("reject")) }
+              }
+              actions={
+                <box flexDirection="row" flexShrink={0} onMouseUp={explain}>
+                  <text fg={theme.text.base}>
+                    ? <span style={{ fg: theme.text.action.primary.base }}>{t("explain")}</span>
+                  </text>
+                </box>
               }
               escapeKey="reject"
               fullscreen
@@ -258,7 +317,43 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             />
           )
 
-          return body
+          return (
+            <box flexDirection="column" flexShrink={0}>
+              <Show when={store.explanation.status !== "idle"}>
+                <box
+                  id="session.permission.explanation"
+                  flexShrink={0}
+                  maxHeight={8}
+                  marginBottom={1}
+                  paddingLeft={2}
+                  paddingRight={3}
+                  paddingTop={1}
+                  paddingBottom={1}
+                  backgroundColor={theme.background.raised.base}
+                  border={["left"]}
+                  borderColor={theme.background.action.primary.focused}
+                  customBorderChars={SplitBorder.customBorderChars}
+                >
+                  <Switch>
+                    <Match when={store.explanation.status === "loading"}>
+                      <Spinner color={theme.text.muted}>{t("Explaining the command…")}</Spinner>
+                    </Match>
+                    <Match when={store.explanation.status === "error"}>
+                      <text fg={theme.text.feedback.error.base} wrapMode="word">
+                        {t("Could not explain: {error}", { error: store.explanation.text })}
+                      </text>
+                    </Match>
+                    <Match when={store.explanation.status === "done"}>
+                      <text fg={theme.text.base} wrapMode="word">
+                        {store.explanation.text}
+                      </text>
+                    </Match>
+                  </Switch>
+                </box>
+              </Show>
+              {body}
+            </box>
+          )
         })()}
       </Match>
     </Switch>
@@ -416,9 +511,12 @@ export function SessionQuestion<const T extends Record<string, string>>(props: {
   options: T
   escapeKey?: keyof T
   fullscreen?: boolean
+  /** Extra controls shown first among the hints on the right of the choices. */
+  actions?: JSX.Element
   onSelect: (option: keyof T) => void
 }) {
   const theme = useTheme()
+  const t = useT()
   const dimensions = useTerminalDimensions()
   const keys = Object.keys(props.options) as (keyof T)[]
   const [store, setStore] = createStore({
@@ -495,7 +593,7 @@ export function SessionQuestion<const T extends Record<string, string>>(props: {
     bindings: [...(props.escapeKey ? ["app.exit"] : []), ...(props.fullscreen ? ["permission.prompt.fullscreen"] : [])],
   }))
 
-  const hint = createMemo(() => (store.expanded ? "minimize" : "fullscreen"))
+  const hint = createMemo(() => t(store.expanded ? "minimize" : "fullscreen"))
   useRenderer()
 
   const content = () => (
@@ -596,6 +694,7 @@ export function SessionQuestion<const T extends Record<string, string>>(props: {
           </For>
         </box>
         <box flexDirection="row" gap={2} flexShrink={0}>
+          {props.actions}
           <Show when={props.fullscreen}>
             <text fg={theme.text.base}>
               {shortcuts.get("permission.prompt.fullscreen")} <span style={{ fg: theme.text.muted }}>{hint()}</span>
@@ -603,11 +702,11 @@ export function SessionQuestion<const T extends Record<string, string>>(props: {
           </Show>
           <Show when={keys.length > 1}>
             <text fg={theme.text.base}>
-              {"⇆"} <span style={{ fg: theme.text.muted }}>select</span>
+              {"⇆"} <span style={{ fg: theme.text.muted }}>{t("choose")}</span>
             </text>
           </Show>
           <text fg={theme.text.base}>
-            enter <span style={{ fg: theme.text.muted }}>confirm</span>
+            enter <span style={{ fg: theme.text.muted }}>{t("confirm")}</span>
           </text>
         </box>
       </box>

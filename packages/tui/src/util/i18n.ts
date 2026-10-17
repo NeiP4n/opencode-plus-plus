@@ -1010,6 +1010,23 @@ const ru: Record<string, string> = {
   "Project has {name} settings that need trust": "В проекте есть настройки {name}, которым нужно доверие",
   "Hooks, MCP servers and allow rules stay off until you trust them.":
     "Хуки, MCP-серверы и разрешающие правила выключены, пока ты им не доверишь.",
+  // Permission prompt
+  "Permission required": "Нужно разрешение",
+  Reject: "Отклонить",
+  choose: "выбрать",
+  confirm: "подтвердить",
+  fullscreen: "во весь экран",
+  minimize: "свернуть",
+  explain: "объяснить",
+  "Explaining the command…": "Объясняю команду…",
+  "Could not explain: {error}": "Не удалось объяснить: {error}",
+  // Project facts
+  Facts: "Факты",
+  "Project facts": "Факты о проекте",
+  refresh: "обновить",
+  "Collecting project facts…": "Собираю факты о проекте…",
+  "Could not collect facts: {error}": "Не удалось собрать факты: {error}",
+  "Open a session in this project to collect its facts.": "Открой сессию в этом проекте, чтобы собрать факты.",
 }
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {
