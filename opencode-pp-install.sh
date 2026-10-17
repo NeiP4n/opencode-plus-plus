@@ -1,7 +1,7 @@
 #!/bin/sh
 # Termux installer wrapper for OpenCode++.
 # Revision marker helps diagnose stale raw.githubusercontent.com responses.
-INSTALLER_WRAPPER_REV="termux-room-client-fix-2026-10-17-d"
+INSTALLER_WRAPPER_REV="termux-opentui-client-fix-2026-10-17-e"
 echo "opencode-pp: installer revision $INSTALLER_WRAPPER_REV"
 set -eu
 
