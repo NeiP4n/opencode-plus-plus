@@ -12,6 +12,7 @@ import { Session } from "@opencode/core/session"
 import { SessionEvent } from "@opencode/schema/session-event"
 import { Model } from "@opencode/core/model"
 import { Agent } from "@opencode/core/agent"
+import { Mcp } from "@opencode/core/mcp/index"
 import { Command } from "@opencode/core/command"
 import { AbsolutePath } from "@opencode/core/schema"
 import { Orchestra } from "@opencode/schema/orchestra"
@@ -940,6 +941,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Agent.Service.use((agents) => agents.list()),
             ),
           }
+        }),
+      )
+      .handle(
+        "room.guest.mcp.list",
+        Effect.fn(function* (ctx) {
+          const joined = yield* guestOf(ctx.params.roomID)
+          const servers = yield* atRoom(
+            joined.room,
+            Mcp.Service.use((mcp) => mcp.servers()),
+          )
+          return { data: servers.map((server) => ({ name: server.name, status: server.status.status })) }
         }),
       )
       .handle(

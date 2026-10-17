@@ -28,6 +28,7 @@ const GUEST_PATHS = [
   "/api/room/room_1/guest/model",
   "/api/room/room_1/guest/agent",
   "/api/room/room_1/guest/command",
+  "/api/room/room_1/guest/mcp",
   "/api/room/room_1/guest/log",
   "/api/room/room_1/guest/message",
   "/api/room/room_1/guest/note",
@@ -607,6 +608,19 @@ it.live("only cohosts switch the model and agent or run commands; a single-sessi
       body: { role: "cohost" },
     })
     expect((yield* agent()).status).toBe(204)
+  }).pipe(Effect.scoped),
+)
+
+it.live("a guest reads the host's MCP servers by name and state only", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
+    const listed = yield* call(`/api/room/${room.id}/guest/mcp`, {
+      headers: { authorization: `Bearer ${joined.token}` },
+    })
+    expect(listed.status).toBe(200)
+    expect(Array.isArray(listed.body.data)).toBe(true)
+    expect((yield* call(`/api/room/${room.id}/guest/mcp`)).status).toBe(401)
   }).pipe(Effect.scoped),
 )
 

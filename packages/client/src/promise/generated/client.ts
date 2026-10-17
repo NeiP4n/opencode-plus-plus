@@ -287,20 +287,6 @@ import type {
   ConfigCompatibilityGetOutput,
   ConfigCompatibilityUpdateInput,
   ConfigCompatibilityUpdateOutput,
-  RoomMeshStatusOutput,
-  RoomMeshInviteOutput,
-  RoomMeshCreateInput,
-  RoomMeshCreateOutput,
-  RoomMeshJoinInput,
-  RoomMeshJoinOutput,
-  RoomMeshLeaveOutput,
-  RoomMeshActivateOutput,
-  RoomMeshAppendInput,
-  RoomMeshAppendOutput,
-  RoomMeshFeedInput,
-  RoomMeshFeedOutput,
-  RoomMeshRpcInput,
-  RoomMeshRpcOutput,
   RoomListOutput,
   RoomCreateInput,
   RoomCreateOutput,
@@ -350,6 +336,8 @@ import type {
   RoomGuestModelListOutput,
   RoomGuestAgentListInput,
   RoomGuestAgentListOutput,
+  RoomGuestMcpListInput,
+  RoomGuestMcpListOutput,
   RoomGuestCommandListInput,
   RoomGuestCommandListOutput,
   RoomGuestSessionModelInput,
@@ -382,6 +370,20 @@ import type {
   RoomGuestPermissionListOutput,
   RoomGuestPermissionReplyInput,
   RoomGuestPermissionReplyOutput,
+  RoomMeshStatusOutput,
+  RoomMeshInviteOutput,
+  RoomMeshCreateInput,
+  RoomMeshCreateOutput,
+  RoomMeshJoinInput,
+  RoomMeshJoinOutput,
+  RoomMeshLeaveOutput,
+  RoomMeshActivateOutput,
+  RoomMeshAppendInput,
+  RoomMeshAppendOutput,
+  RoomMeshFeedInput,
+  RoomMeshFeedOutput,
+  RoomMeshRpcInput,
+  RoomMeshRpcOutput,
   OrchestraProjectListOutput,
   OrchestraTemplateListOutput,
   OrchestraTemplateCreateInput,
@@ -2547,6 +2549,7 @@ export function make(options: ClientOptions) {
             body: {
               sessionID: input["sessionID"],
               name: input["name"],
+              hostName: input["hostName"],
               ai: input["ai"],
               guestApprovals: input["guestApprovals"],
               defaultRole: input["defaultRole"],
@@ -2566,6 +2569,7 @@ export function make(options: ClientOptions) {
             path: `/api/room/${encodeURIComponent(input.roomID)}`,
             body: {
               name: input["name"],
+              hostName: input["hostName"],
               ai: input["ai"],
               guestApprovals: input["guestApprovals"],
               defaultRole: input["defaultRole"],
@@ -2653,112 +2657,6 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
-      mesh: {
-        status: (requestOptions?: RequestOptions) =>
-          request<RoomMeshStatusOutput>(
-            {
-              method: "GET",
-              path: "/api/room/mesh",
-              successStatus: 200,
-              declaredStatuses: [400, 401],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        invite: (requestOptions?: RequestOptions) =>
-          request<RoomMeshInviteOutput>(
-            {
-              method: "GET",
-              path: "/api/room/mesh/invite",
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        create: (input: RoomMeshCreateInput, requestOptions?: RequestOptions) =>
-          request<RoomMeshCreateOutput>(
-            {
-              method: "POST",
-              path: "/api/room/mesh",
-              body: { url: input["url"], name: input["name"], directory: input["directory"] },
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        join: (input: RoomMeshJoinInput, requestOptions?: RequestOptions) =>
-          request<RoomMeshJoinOutput>(
-            {
-              method: "POST",
-              path: "/api/room/mesh/join",
-              body: { seedURL: input["seedURL"], token: input["token"], url: input["url"], name: input["name"], directory: input["directory"] },
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        leave: (requestOptions?: RequestOptions) =>
-          request<RoomMeshLeaveOutput>(
-            {
-              method: "POST",
-              path: "/api/room/mesh/leave",
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        activate: (requestOptions?: RequestOptions) =>
-          request<RoomMeshActivateOutput>(
-            {
-              method: "POST",
-              path: "/api/room/mesh/activate",
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        append: (input: RoomMeshAppendInput, requestOptions?: RequestOptions) =>
-          request<RoomMeshAppendOutput>(
-            {
-              method: "POST",
-              path: "/api/room/mesh/append",
-              body: { id: input["id"], kind: input["kind"], payload: input["payload"] },
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        feed: (input: RoomMeshFeedInput, requestOptions?: RequestOptions) =>
-          request<RoomMeshFeedOutput>(
-            {
-              method: "GET",
-              path: "/api/room/mesh/feed",
-              query: { after: input["after"] },
-              successStatus: 200,
-              declaredStatuses: [400, 401, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-        rpc: (input: RoomMeshRpcInput, requestOptions?: RequestOptions) =>
-          request<RoomMeshRpcOutput>(
-            {
-              method: "POST",
-              path: "/api/room/mesh/rpc",
-              body: input,
-              successStatus: 200,
-              declaredStatuses: [400, 401, 403, 503],
-              empty: false,
-            },
-            requestOptions,
-          ),
-      },
       guest: {
         get: (input: RoomGuestGetInput, requestOptions?: RequestOptions) =>
           request<RoomGuestGetOutput>(
@@ -2967,6 +2865,19 @@ export function make(options: ClientOptions) {
               requestOptions,
             ).then((value) => value.data),
         },
+        mcp: {
+          list: (input: RoomGuestMcpListInput, requestOptions?: RequestOptions) =>
+            request<{ readonly data: RoomGuestMcpListOutput }>(
+              {
+                method: "GET",
+                path: `/api/room/${encodeURIComponent(input.roomID)}/guest/mcp`,
+                successStatus: 200,
+                declaredStatuses: [400, 401, 404],
+                empty: false,
+              },
+              requestOptions,
+            ).then((value) => value.data),
+        },
         command: {
           list: (input: RoomGuestCommandListInput, requestOptions?: RequestOptions) =>
             request<{ readonly data: RoomGuestCommandListOutput }>(
@@ -3159,6 +3070,118 @@ export function make(options: ClientOptions) {
               successStatus: 204,
               declaredStatuses: [400, 401, 404],
               empty: true,
+            },
+            requestOptions,
+          ),
+      },
+      mesh: {
+        status: (requestOptions?: RequestOptions) =>
+          request<RoomMeshStatusOutput>(
+            {
+              method: "GET",
+              path: `/api/room/mesh`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        invite: (requestOptions?: RequestOptions) =>
+          request<RoomMeshInviteOutput>(
+            {
+              method: "GET",
+              path: `/api/room/mesh/invite`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        create: (input: RoomMeshCreateInput, requestOptions?: RequestOptions) =>
+          request<RoomMeshCreateOutput>(
+            {
+              method: "POST",
+              path: `/api/room/mesh`,
+              body: { url: input["url"], name: input["name"], directory: input["directory"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        join: (input: RoomMeshJoinInput, requestOptions?: RequestOptions) =>
+          request<RoomMeshJoinOutput>(
+            {
+              method: "POST",
+              path: `/api/room/mesh/join`,
+              body: {
+                seedURL: input["seedURL"],
+                token: input["token"],
+                url: input["url"],
+                name: input["name"],
+                directory: input["directory"],
+              },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        leave: (requestOptions?: RequestOptions) =>
+          request<RoomMeshLeaveOutput>(
+            {
+              method: "POST",
+              path: `/api/room/mesh/leave`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        activate: (requestOptions?: RequestOptions) =>
+          request<RoomMeshActivateOutput>(
+            {
+              method: "POST",
+              path: `/api/room/mesh/activate`,
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        append: (input: RoomMeshAppendInput, requestOptions?: RequestOptions) =>
+          request<RoomMeshAppendOutput>(
+            {
+              method: "POST",
+              path: `/api/room/mesh/append`,
+              body: { id: input["id"], kind: input["kind"], payload: input["payload"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        feed: (input?: RoomMeshFeedInput, requestOptions?: RequestOptions) =>
+          request<RoomMeshFeedOutput>(
+            {
+              method: "GET",
+              path: `/api/room/mesh/feed`,
+              query: { after: input?.["after"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        rpc: (input: RoomMeshRpcInput, requestOptions?: RequestOptions) =>
+          request<RoomMeshRpcOutput>(
+            {
+              method: "POST",
+              path: `/api/room/mesh/rpc`,
+              body: input["payload"],
+              successStatus: 200,
+              declaredStatuses: [400, 401, 403, 503],
+              empty: false,
             },
             requestOptions,
           ),

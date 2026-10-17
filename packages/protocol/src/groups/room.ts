@@ -59,6 +59,8 @@ const GUEST_PATHS = [
   /^\/api\/room\/[^/]+\/guest\/agent$/,
   // room.guest.command.list
   /^\/api\/room\/[^/]+\/guest\/command$/,
+  // room.guest.mcp.list
+  /^\/api\/room\/[^/]+\/guest\/mcp$/,
   // room.guest.log
   /^\/api\/room\/[^/]+\/guest\/log$/,
   // room.guest.messages
@@ -243,7 +245,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
           name: Schema.String,
           ownerURL: Schema.String,
           isOwner: Schema.Boolean,
-          memberCount: Schema.Number,
+          memberCount: Schema.Int,
         }).pipe(Schema.optional),
       }),
     }).annotateMerge(
@@ -517,6 +519,27 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         identifier: "room.guest.agent.list",
         summary: "List the host's agents",
         description: "The agents the host can run in this room's sessions.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("room.guest.mcp.list", "/api/room/:roomID/guest/mcp", {
+      params: { roomID: Room.ID },
+      // Names and states only: a failure's message can carry the host's paths and settings.
+      success: Schema.Struct({
+        data: Schema.Array(
+          Schema.Struct({
+            name: Schema.String,
+            status: Schema.Literals(["connected", "pending", "disabled", "failed", "needs_auth"]),
+          }),
+        ),
+      }),
+      error: [UnauthorizedError, RoomNotFoundError, SessionNotFoundError],
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "room.guest.mcp.list",
+        summary: "List the host's MCP servers",
+        description: "The MCP servers the host's model can use in this room's sessions, with their state.",
       }),
     ),
   )

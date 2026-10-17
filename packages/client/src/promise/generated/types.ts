@@ -494,6 +494,7 @@ export type RoomInfo = {
   id: string
   sessionID: string
   name: string
+  hostName?: string | undefined
   ai: "linked" | "discovered"
   guestApprovals: boolean
   defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -536,6 +537,7 @@ export type RoomInfo1 = {
   id: string
   sessionID: string
   name: string
+  hostName?: string | null
   ai: "linked" | "discovered"
   guestApprovals: boolean
   defaultRole?: "viewer" | "member" | "helper" | "cohost" | null
@@ -596,7 +598,7 @@ export type RoomMessage = {
 }
 
 export type RoomMeshNode = { id: string; url: string; name: string; joined: number; directory?: string | undefined }
-export type RoomMeshStatus = "unconfigured" | "forming" | "active"
+
 export type RoomMeshEntry = {
   id: string
   index: number
@@ -605,83 +607,6 @@ export type RoomMeshEntry = {
   payload: JsonValue
   originID: string
   created: number
-}
-export type RoomMeshSnapshot = {
-  nodeID: string
-  status: RoomMeshStatus
-  clusterID?: string | undefined
-  ownerNodeID?: string | undefined
-  currentTerm: number
-  leaderID?: string | undefined
-  members: Array<RoomMeshNode>
-  voters: Array<string>
-  voter: boolean
-  logIndex: number
-  commitIndex: number
-  quorum: number
-  leader: boolean
-  writable: boolean
-}
-export type RoomMeshFeed = { data: Array<RoomMeshEntry>; commitIndex: number }
-export type RoomMeshRpcRequest =
-  | { type: "enroll"; node: RoomMeshNode }
-  | { type: "add-learner"; clusterID: string; fromNodeID: string; node: RoomMeshNode }
-  | { type: "remove-learner"; clusterID: string; fromNodeID: string; nodeID: string }
-  | { type: "prepare"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
-  | { type: "activate"; clusterID: string; fromNodeID: string; members: Array<RoomMeshNode> }
-  | {
-      type: "request-vote"
-      clusterID: string
-      fromNodeID: string
-      term: number
-      lastLogIndex: number
-      lastLogTerm: number
-    }
-  | {
-      type: "append-entries"
-      clusterID: string
-      fromNodeID: string
-      term: number
-      leaderID: string
-      prevLogIndex: number
-      prevLogTerm: number
-      entries: Array<RoomMeshEntry>
-      leaderCommit: number
-    }
-  | {
-      type: "propose"
-      clusterID: string
-      fromNodeID: string
-      entry: { id: string; kind: "message" | "task"; payload: JsonValue }
-    }
-  | {
-      type: "run-ai"
-      clusterID: string
-      fromNodeID: string
-      targetNodeID: string
-      requestID: string
-      prompt: string
-      directory: string
-      agent?: string
-      providerID?: string
-      modelID?: string
-    }
-export type RoomMeshRpcResponse = {
-  ok: boolean
-  currentTerm?: number | undefined
-  granted?: boolean | undefined
-  success?: boolean | undefined
-  matchIndex?: number | undefined
-  clusterID?: string | undefined
-  ownerNodeID?: string | undefined
-  leaderID?: string | undefined
-  status?: RoomMeshStatus | undefined
-  voters?: Array<string> | undefined
-  members?: Array<RoomMeshNode> | undefined
-  entry?: RoomMeshEntry | undefined
-  commitIndex?: number | undefined
-  text?: string | undefined
-  message?: string | undefined
 }
 
 export type OrchestraSandboxIsolation = "environment" | "strict"
@@ -1992,6 +1917,43 @@ export type RoomJoined = {
   guest: RoomGuest
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   room: RoomInfo
+}
+
+export type RoomMeshSnapshot = {
+  nodeID: string
+  status: "unconfigured" | "forming" | "active"
+  clusterID?: string | undefined
+  ownerNodeID?: string | undefined
+  currentTerm: number
+  leaderID?: string | undefined
+  members: Array<RoomMeshNode>
+  voters: Array<string>
+  voter: boolean
+  logIndex: number
+  commitIndex: number
+  quorum: number
+  leader: boolean
+  writable: boolean
+}
+
+export type RoomMeshFeed = { data: Array<RoomMeshEntry>; commitIndex: number }
+
+export type RoomMeshRpcResponse = {
+  ok: boolean
+  currentTerm?: number | undefined
+  granted?: boolean | undefined
+  success?: boolean | undefined
+  matchIndex?: number | undefined
+  clusterID?: string | undefined
+  ownerNodeID?: string | undefined
+  leaderID?: string | undefined
+  status?: "unconfigured" | "forming" | "active" | undefined
+  voters?: Array<string> | undefined
+  members?: Array<RoomMeshNode> | undefined
+  entry?: RoomMeshEntry | undefined
+  commitIndex?: number | undefined
+  text?: string | undefined
+  message?: string | undefined
 }
 
 export type OrchestraSandbox = { source: string; home: string; isolation: OrchestraSandboxIsolation }
@@ -7480,6 +7442,7 @@ export type RoomCreateInput = {
   readonly sessionID: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7489,15 +7452,27 @@ export type RoomCreateInput = {
   readonly name?: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
     readonly directory?: string | undefined
   }["name"]
+  readonly hostName?: {
+    readonly sessionID: string
+    readonly name?: string | undefined
+    readonly hostName?: string | undefined
+    readonly ai?: "linked" | "discovered" | undefined
+    readonly guestApprovals?: boolean | undefined
+    readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
+    readonly open?: boolean | undefined
+    readonly directory?: string | undefined
+  }["hostName"]
   readonly ai?: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7507,6 +7482,7 @@ export type RoomCreateInput = {
   readonly guestApprovals?: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7516,6 +7492,7 @@ export type RoomCreateInput = {
   readonly defaultRole?: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7525,6 +7502,7 @@ export type RoomCreateInput = {
   readonly open?: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7534,6 +7512,7 @@ export type RoomCreateInput = {
   readonly directory?: {
     readonly sessionID: string
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7548,13 +7527,23 @@ export type RoomUpdateInput = {
   readonly roomID: { readonly roomID: string }["roomID"]
   readonly name?: {
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
   }["name"]
+  readonly hostName?: {
+    readonly name?: string | undefined
+    readonly hostName?: string | undefined
+    readonly ai?: "linked" | "discovered" | undefined
+    readonly guestApprovals?: boolean | undefined
+    readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
+    readonly open?: boolean | undefined
+  }["hostName"]
   readonly ai?: {
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7562,6 +7551,7 @@ export type RoomUpdateInput = {
   }["ai"]
   readonly guestApprovals?: {
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7569,6 +7559,7 @@ export type RoomUpdateInput = {
   }["guestApprovals"]
   readonly defaultRole?: {
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7576,6 +7567,7 @@ export type RoomUpdateInput = {
   }["defaultRole"]
   readonly open?: {
     readonly name?: string | undefined
+    readonly hostName?: string | undefined
     readonly ai?: "linked" | "discovered" | undefined
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -7615,7 +7607,14 @@ export type RoomCodeOutput = RoomJoinCode
 export type RoomPublicOutput = {
   host: string
   rooms: Array<{ id: string; name?: string; open: boolean }>
-  mesh?: { clusterID: string; status: "forming" | "active"; name: string; ownerURL: string; isOwner: boolean; memberCount: number }
+  mesh?: {
+    clusterID: string
+    status: "forming" | "active"
+    name: string
+    ownerURL: string
+    isOwner: boolean
+    memberCount: number
+  } | null
 }
 
 export type RoomJoinInput = {
@@ -7916,6 +7915,12 @@ export type RoomGuestAgentListInput = { readonly roomID: { readonly roomID: stri
 
 export type RoomGuestAgentListOutput = { data: Array<AgentInfo> }["data"]
 
+export type RoomGuestMcpListInput = { readonly roomID: { readonly roomID: string }["roomID"] }
+
+export type RoomGuestMcpListOutput = {
+  data: Array<{ name: string; status: "connected" | "pending" | "disabled" | "failed" | "needs_auth" }>
+}["data"]
+
 export type RoomGuestCommandListInput = { readonly roomID: { readonly roomID: string }["roomID"] }
 
 export type RoomGuestCommandListOutput = { data: Array<CommandInfo> }["data"]
@@ -8083,18 +8088,198 @@ export type RoomGuestPermissionReplyInput = {
 export type RoomGuestPermissionReplyOutput = void
 
 export type RoomMeshStatusOutput = RoomMeshSnapshot
+
 export type RoomMeshInviteOutput = { token: string }
-export type RoomMeshCreateInput = { url: string; name?: string | undefined; directory?: string | undefined }
+
+export type RoomMeshCreateInput = {
+  readonly url: {
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["url"]
+  readonly name?: {
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["name"]
+  readonly directory?: {
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["directory"]
+}
+
 export type RoomMeshCreateOutput = { data: RoomMeshSnapshot; token: string }
-export type RoomMeshJoinInput = { seedURL: string; token: string; url: string; name?: string | undefined; directory?: string | undefined }
+
+export type RoomMeshJoinInput = {
+  readonly seedURL: {
+    readonly seedURL: string
+    readonly token: string
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["seedURL"]
+  readonly token: {
+    readonly seedURL: string
+    readonly token: string
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["token"]
+  readonly url: {
+    readonly seedURL: string
+    readonly token: string
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["url"]
+  readonly name?: {
+    readonly seedURL: string
+    readonly token: string
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["name"]
+  readonly directory?: {
+    readonly seedURL: string
+    readonly token: string
+    readonly url: string
+    readonly name?: string | undefined
+    readonly directory?: string | undefined
+  }["directory"]
+}
+
 export type RoomMeshJoinOutput = RoomMeshSnapshot
+
 export type RoomMeshLeaveOutput = RoomMeshSnapshot
+
 export type RoomMeshActivateOutput = RoomMeshSnapshot
-export type RoomMeshAppendInput = { id?: string | undefined; kind: "message" | "task"; payload: JsonValue }
+
+export type RoomMeshAppendInput = {
+  readonly id?: {
+    readonly id?: string | undefined
+    readonly kind: "message" | "task"
+    readonly payload: JsonValue
+  }["id"]
+  readonly kind: {
+    readonly id?: string | undefined
+    readonly kind: "message" | "task"
+    readonly payload: JsonValue
+  }["kind"]
+  readonly payload: {
+    readonly id?: string | undefined
+    readonly kind: "message" | "task"
+    readonly payload: JsonValue
+  }["payload"]
+}
+
 export type RoomMeshAppendOutput = RoomMeshEntry
-export type RoomMeshFeedInput = { after?: number | undefined }
+
+export type RoomMeshFeedInput = { readonly after?: { readonly after?: number | undefined }["after"] }
+
 export type RoomMeshFeedOutput = RoomMeshFeed
-export type RoomMeshRpcInput = RoomMeshRpcRequest
+
+export type RoomMeshRpcInput = {
+  readonly payload:
+    | {
+        readonly type: "enroll"
+        readonly node: {
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }
+      }
+    | {
+        readonly type: "add-learner"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly node: {
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }
+      }
+    | {
+        readonly type: "remove-learner"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly nodeID: string
+      }
+    | {
+        readonly type: "prepare"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly members: ReadonlyArray<{
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }>
+      }
+    | {
+        readonly type: "activate"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly members: ReadonlyArray<{
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }>
+      }
+    | {
+        readonly type: "request-vote"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly term: number
+        readonly lastLogIndex: number
+        readonly lastLogTerm: number
+      }
+    | {
+        readonly type: "append-entries"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly term: number
+        readonly leaderID: string
+        readonly prevLogIndex: number
+        readonly prevLogTerm: number
+        readonly entries: ReadonlyArray<{
+          readonly id: string
+          readonly index: number
+          readonly term: number
+          readonly kind: "message" | "task"
+          readonly payload: JsonValue
+          readonly originID: string
+          readonly created: number
+        }>
+        readonly leaderCommit: number
+      }
+    | {
+        readonly type: "propose"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly entry: { readonly id: string; readonly kind: "message" | "task"; readonly payload: JsonValue }
+      }
+    | {
+        readonly type: "run-ai"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly targetNodeID: string
+        readonly requestID: string
+        readonly prompt: string
+        readonly directory: string
+        readonly agent?: string | undefined
+        readonly providerID?: string | undefined
+        readonly modelID?: string | undefined
+      }
+}
+
 export type RoomMeshRpcOutput = RoomMeshRpcResponse
 
 export type OrchestraProjectListOutput = Array<OrchestraProject>

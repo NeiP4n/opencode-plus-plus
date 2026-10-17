@@ -40,7 +40,6 @@ import type { Note } from "@opencode/schema/note"
 import type { WebSearch } from "@opencode/schema/websearch"
 import type { Config } from "@opencode/schema/config"
 import type { Room } from "@opencode/schema/room"
-import type { RoomMesh } from "@opencode/schema/room-mesh"
 import type { Orchestra } from "@opencode/schema/orchestra"
 
 export type ServerInfoOutput = {
@@ -2569,6 +2568,7 @@ export type RoomListOperation<E = never> = () => Effect.Effect<RoomListOutput, E
 export type RoomCreateInput = {
   readonly sessionID: Session.ID
   readonly name?: string | undefined
+  readonly hostName?: string | undefined
   readonly ai?: "linked" | "discovered" | undefined
   readonly guestApprovals?: boolean | undefined
   readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -2581,6 +2581,7 @@ export type RoomCreateOperation<E = never> = (input: RoomCreateInput) => Effect.
 export type RoomUpdateInput = {
   readonly roomID: Room.ID
   readonly name?: string | undefined
+  readonly hostName?: string | undefined
   readonly ai?: "linked" | "discovered" | undefined
   readonly guestApprovals?: boolean | undefined
   readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
@@ -2642,7 +2643,7 @@ export type RoomGuestGetInput = { readonly roomID: Room.ID; readonly sessionID?:
 export type RoomGuestGetOutput = {
   readonly room: Room.Info
   readonly guest: Room.Guest
-  readonly role: "viewer" | "member" | "helper" | "cohost"
+  readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   readonly session: Session.Info
 }
 export type RoomGuestGetOperation<E = never> = (input: RoomGuestGetInput) => Effect.Effect<RoomGuestGetOutput, E>
@@ -2780,6 +2781,15 @@ export type RoomGuestAgentListOperation<E = never> = (
   input: RoomGuestAgentListInput,
 ) => Effect.Effect<RoomGuestAgentListOutput, E>
 
+export type RoomGuestMcpListInput = { readonly roomID: Room.ID }
+export type RoomGuestMcpListOutput = ReadonlyArray<{
+  readonly name: string
+  readonly status: "connected" | "pending" | "disabled" | "failed" | "needs_auth"
+}>
+export type RoomGuestMcpListOperation<E = never> = (
+  input: RoomGuestMcpListInput,
+) => Effect.Effect<RoomGuestMcpListOutput, E>
+
 export type RoomGuestCommandListInput = { readonly roomID: Room.ID }
 export type RoomGuestCommandListOutput = ReadonlyArray<Command.Info>
 export type RoomGuestCommandListOperation<E = never> = (
@@ -2824,7 +2834,7 @@ export type RoomMemberListOperation<E = never> = (input: RoomMemberListInput) =>
 export type RoomMemberUpdateInput = {
   readonly roomID: Room.ID
   readonly guestID: string
-  readonly role: "viewer" | "member" | "helper" | "cohost"
+  readonly role: "viewer" | "member" | "helper" | "cohost" | "trusted"
 }
 export type RoomMemberUpdateOutput = Room.Member
 export type RoomMemberUpdateOperation<E = never> = (
@@ -3987,6 +3997,312 @@ export type RoomGuestPermissionReplyOperation<E = never> = (
   input: RoomGuestPermissionReplyInput,
 ) => Effect.Effect<RoomGuestPermissionReplyOutput, E>
 
+export type RoomMeshStatusOutput = {
+  readonly nodeID: string
+  readonly status: "unconfigured" | "forming" | "active"
+  readonly clusterID?: string | undefined
+  readonly ownerNodeID?: string | undefined
+  readonly currentTerm: number
+  readonly leaderID?: string | undefined
+  readonly members: ReadonlyArray<{
+    readonly id: string
+    readonly url: string
+    readonly name: string
+    readonly joined: number
+    readonly directory?: string | undefined
+  }>
+  readonly voters: ReadonlyArray<string>
+  readonly voter: boolean
+  readonly logIndex: number
+  readonly commitIndex: number
+  readonly quorum: number
+  readonly leader: boolean
+  readonly writable: boolean
+}
+export type RoomMeshStatusOperation<E = never> = () => Effect.Effect<RoomMeshStatusOutput, E>
+
+export type RoomMeshInviteOutput = { readonly token: string }
+export type RoomMeshInviteOperation<E = never> = () => Effect.Effect<RoomMeshInviteOutput, E>
+
+export type RoomMeshCreateInput = {
+  readonly url: string
+  readonly name?: string | undefined
+  readonly directory?: string | undefined
+}
+export type RoomMeshCreateOutput = {
+  readonly data: {
+    readonly nodeID: string
+    readonly status: "unconfigured" | "forming" | "active"
+    readonly clusterID?: string | undefined
+    readonly ownerNodeID?: string | undefined
+    readonly currentTerm: number
+    readonly leaderID?: string | undefined
+    readonly members: ReadonlyArray<{
+      readonly id: string
+      readonly url: string
+      readonly name: string
+      readonly joined: number
+      readonly directory?: string | undefined
+    }>
+    readonly voters: ReadonlyArray<string>
+    readonly voter: boolean
+    readonly logIndex: number
+    readonly commitIndex: number
+    readonly quorum: number
+    readonly leader: boolean
+    readonly writable: boolean
+  }
+  readonly token: string
+}
+export type RoomMeshCreateOperation<E = never> = (input: RoomMeshCreateInput) => Effect.Effect<RoomMeshCreateOutput, E>
+
+export type RoomMeshJoinInput = {
+  readonly seedURL: string
+  readonly token: string
+  readonly url: string
+  readonly name?: string | undefined
+  readonly directory?: string | undefined
+}
+export type RoomMeshJoinOutput = {
+  readonly nodeID: string
+  readonly status: "unconfigured" | "forming" | "active"
+  readonly clusterID?: string | undefined
+  readonly ownerNodeID?: string | undefined
+  readonly currentTerm: number
+  readonly leaderID?: string | undefined
+  readonly members: ReadonlyArray<{
+    readonly id: string
+    readonly url: string
+    readonly name: string
+    readonly joined: number
+    readonly directory?: string | undefined
+  }>
+  readonly voters: ReadonlyArray<string>
+  readonly voter: boolean
+  readonly logIndex: number
+  readonly commitIndex: number
+  readonly quorum: number
+  readonly leader: boolean
+  readonly writable: boolean
+}
+export type RoomMeshJoinOperation<E = never> = (input: RoomMeshJoinInput) => Effect.Effect<RoomMeshJoinOutput, E>
+
+export type RoomMeshLeaveOutput = {
+  readonly nodeID: string
+  readonly status: "unconfigured" | "forming" | "active"
+  readonly clusterID?: string | undefined
+  readonly ownerNodeID?: string | undefined
+  readonly currentTerm: number
+  readonly leaderID?: string | undefined
+  readonly members: ReadonlyArray<{
+    readonly id: string
+    readonly url: string
+    readonly name: string
+    readonly joined: number
+    readonly directory?: string | undefined
+  }>
+  readonly voters: ReadonlyArray<string>
+  readonly voter: boolean
+  readonly logIndex: number
+  readonly commitIndex: number
+  readonly quorum: number
+  readonly leader: boolean
+  readonly writable: boolean
+}
+export type RoomMeshLeaveOperation<E = never> = () => Effect.Effect<RoomMeshLeaveOutput, E>
+
+export type RoomMeshActivateOutput = {
+  readonly nodeID: string
+  readonly status: "unconfigured" | "forming" | "active"
+  readonly clusterID?: string | undefined
+  readonly ownerNodeID?: string | undefined
+  readonly currentTerm: number
+  readonly leaderID?: string | undefined
+  readonly members: ReadonlyArray<{
+    readonly id: string
+    readonly url: string
+    readonly name: string
+    readonly joined: number
+    readonly directory?: string | undefined
+  }>
+  readonly voters: ReadonlyArray<string>
+  readonly voter: boolean
+  readonly logIndex: number
+  readonly commitIndex: number
+  readonly quorum: number
+  readonly leader: boolean
+  readonly writable: boolean
+}
+export type RoomMeshActivateOperation<E = never> = () => Effect.Effect<RoomMeshActivateOutput, E>
+
+export type RoomMeshAppendInput = {
+  readonly id?: string | undefined
+  readonly kind: "message" | "task"
+  readonly payload: Schema.Json
+}
+export type RoomMeshAppendOutput = {
+  readonly id: string
+  readonly index: number
+  readonly term: number
+  readonly kind: "message" | "task"
+  readonly payload: Schema.Json
+  readonly originID: string
+  readonly created: number
+}
+export type RoomMeshAppendOperation<E = never> = (input: RoomMeshAppendInput) => Effect.Effect<RoomMeshAppendOutput, E>
+
+export type RoomMeshFeedInput = { readonly after?: number | undefined }
+export type RoomMeshFeedOutput = {
+  readonly data: ReadonlyArray<{
+    readonly id: string
+    readonly index: number
+    readonly term: number
+    readonly kind: "message" | "task"
+    readonly payload: Schema.Json
+    readonly originID: string
+    readonly created: number
+  }>
+  readonly commitIndex: number
+}
+export type RoomMeshFeedOperation<E = never> = (input?: RoomMeshFeedInput) => Effect.Effect<RoomMeshFeedOutput, E>
+
+export type RoomMeshRpcInput = {
+  readonly payload:
+    | {
+        readonly type: "enroll"
+        readonly node: {
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }
+      }
+    | {
+        readonly type: "add-learner"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly node: {
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }
+      }
+    | {
+        readonly type: "remove-learner"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly nodeID: string
+      }
+    | {
+        readonly type: "prepare"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly members: ReadonlyArray<{
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }>
+      }
+    | {
+        readonly type: "activate"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly members: ReadonlyArray<{
+          readonly id: string
+          readonly url: string
+          readonly name: string
+          readonly joined: number
+          readonly directory?: string | undefined
+        }>
+      }
+    | {
+        readonly type: "request-vote"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly term: number
+        readonly lastLogIndex: number
+        readonly lastLogTerm: number
+      }
+    | {
+        readonly type: "append-entries"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly term: number
+        readonly leaderID: string
+        readonly prevLogIndex: number
+        readonly prevLogTerm: number
+        readonly entries: ReadonlyArray<{
+          readonly id: string
+          readonly index: number
+          readonly term: number
+          readonly kind: "message" | "task"
+          readonly payload: Schema.Json
+          readonly originID: string
+          readonly created: number
+        }>
+        readonly leaderCommit: number
+      }
+    | {
+        readonly type: "propose"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly entry: { readonly id: string; readonly kind: "message" | "task"; readonly payload: Schema.Json }
+      }
+    | {
+        readonly type: "run-ai"
+        readonly clusterID: string
+        readonly fromNodeID: string
+        readonly targetNodeID: string
+        readonly requestID: string
+        readonly prompt: string
+        readonly directory: string
+        readonly agent?: string | undefined
+        readonly providerID?: string | undefined
+        readonly modelID?: string | undefined
+      }
+}
+export type RoomMeshRpcOutput = {
+  readonly ok: boolean
+  readonly currentTerm?: number | undefined
+  readonly granted?: boolean | undefined
+  readonly success?: boolean | undefined
+  readonly matchIndex?: number | undefined
+  readonly clusterID?: string | undefined
+  readonly ownerNodeID?: string | undefined
+  readonly leaderID?: string | undefined
+  readonly status?: "unconfigured" | "forming" | "active" | undefined
+  readonly voters?: ReadonlyArray<string> | undefined
+  readonly members?:
+    | ReadonlyArray<{
+        readonly id: string
+        readonly url: string
+        readonly name: string
+        readonly joined: number
+        readonly directory?: string | undefined
+      }>
+    | undefined
+  readonly entry?:
+    | {
+        readonly id: string
+        readonly index: number
+        readonly term: number
+        readonly kind: "message" | "task"
+        readonly payload: Schema.Json
+        readonly originID: string
+        readonly created: number
+      }
+    | undefined
+  readonly commitIndex?: number | undefined
+  readonly text?: string | undefined
+  readonly message?: string | undefined
+}
+export type RoomMeshRpcOperation<E = never> = (input: RoomMeshRpcInput) => Effect.Effect<RoomMeshRpcOutput, E>
+
 export interface RoomApi<E = never> {
   readonly list: RoomListOperation<E>
   readonly create: RoomCreateOperation<E>
@@ -3997,17 +4313,6 @@ export interface RoomApi<E = never> {
   readonly code: RoomCodeOperation<E>
   readonly public: RoomPublicOperation<E>
   readonly join: RoomJoinOperation<E>
-  readonly mesh: {
-    readonly status: RoomMeshStatusOperation<E>
-    readonly invite: RoomMeshInviteOperation<E>
-    readonly create: RoomMeshCreateOperation<E>
-    readonly join: RoomMeshJoinOperation<E>
-    readonly leave: RoomMeshLeaveOperation<E>
-    readonly activate: RoomMeshActivateOperation<E>
-    readonly append: RoomMeshAppendOperation<E>
-    readonly feed: RoomMeshFeedOperation<E>
-    readonly rpc: RoomMeshRpcOperation<E>
-  }
   readonly guest: {
     readonly get: RoomGuestGetOperation<E>
     readonly session: {
@@ -4029,6 +4334,7 @@ export interface RoomApi<E = never> {
     readonly leave: RoomGuestLeaveOperation<E>
     readonly model: { readonly list: RoomGuestModelListOperation<E> }
     readonly agent: { readonly list: RoomGuestAgentListOperation<E> }
+    readonly mcp: { readonly list: RoomGuestMcpListOperation<E> }
     readonly command: { readonly list: RoomGuestCommandListOperation<E> }
     readonly log: RoomGuestLogOperation<E>
     readonly messages: RoomGuestMessagesOperation<E>
@@ -4051,31 +4357,18 @@ export interface RoomApi<E = never> {
     readonly ban: RoomMemberBanOperation<E>
   }
   readonly ban: { readonly list: RoomBanListOperation<E>; readonly remove: RoomBanRemoveOperation<E> }
+  readonly mesh: {
+    readonly status: RoomMeshStatusOperation<E>
+    readonly invite: RoomMeshInviteOperation<E>
+    readonly create: RoomMeshCreateOperation<E>
+    readonly join: RoomMeshJoinOperation<E>
+    readonly leave: RoomMeshLeaveOperation<E>
+    readonly activate: RoomMeshActivateOperation<E>
+    readonly append: RoomMeshAppendOperation<E>
+    readonly feed: RoomMeshFeedOperation<E>
+    readonly rpc: RoomMeshRpcOperation<E>
+  }
 }
-
-export type RoomMeshStatusOutput = RoomMesh.Snapshot
-export type RoomMeshStatusOperation<E = never> = () => Effect.Effect<RoomMeshStatusOutput, E>
-export type RoomMeshInviteOutput = { readonly token: string }
-export type RoomMeshInviteOperation<E = never> = () => Effect.Effect<RoomMeshInviteOutput, E>
-export type RoomMeshCreateInput = RoomMesh.CreateInput
-export type RoomMeshCreateOutput = { readonly data: RoomMesh.Snapshot; readonly token: string }
-export type RoomMeshCreateOperation<E = never> = (input: RoomMeshCreateInput) => Effect.Effect<RoomMeshCreateOutput, E>
-export type RoomMeshJoinInput = RoomMesh.JoinInput
-export type RoomMeshJoinOutput = RoomMesh.Snapshot
-export type RoomMeshJoinOperation<E = never> = (input: RoomMeshJoinInput) => Effect.Effect<RoomMeshJoinOutput, E>
-export type RoomMeshLeaveOutput = RoomMesh.Snapshot
-export type RoomMeshLeaveOperation<E = never> = () => Effect.Effect<RoomMeshLeaveOutput, E>
-export type RoomMeshActivateOutput = RoomMesh.Snapshot
-export type RoomMeshActivateOperation<E = never> = () => Effect.Effect<RoomMeshActivateOutput, E>
-export type RoomMeshAppendInput = RoomMesh.AppendInput
-export type RoomMeshAppendOutput = RoomMesh.Entry
-export type RoomMeshAppendOperation<E = never> = (input: RoomMeshAppendInput) => Effect.Effect<RoomMeshAppendOutput, E>
-export type RoomMeshFeedInput = { readonly after?: number | undefined }
-export type RoomMeshFeedOutput = RoomMesh.Feed
-export type RoomMeshFeedOperation<E = never> = (input: RoomMeshFeedInput) => Effect.Effect<RoomMeshFeedOutput, E>
-export type RoomMeshRpcInput = RoomMesh.RpcRequest
-export type RoomMeshRpcOutput = RoomMesh.RpcResponse
-export type RoomMeshRpcOperation<E = never> = (input: RoomMeshRpcInput) => Effect.Effect<RoomMeshRpcOutput, E>
 
 export type OrchestraProjectListOutput = ReadonlyArray<Orchestra.Project>
 export type OrchestraProjectListOperation<E = never> = () => Effect.Effect<OrchestraProjectListOutput, E>

@@ -289,20 +289,6 @@ import type {
   ConfigCompatibilityGetOutput,
   ConfigCompatibilityUpdateInput,
   ConfigCompatibilityUpdateOutput,
-  RoomMeshStatusOutput,
-  RoomMeshInviteOutput,
-  RoomMeshCreateInput,
-  RoomMeshCreateOutput,
-  RoomMeshJoinInput,
-  RoomMeshJoinOutput,
-  RoomMeshLeaveOutput,
-  RoomMeshActivateOutput,
-  RoomMeshAppendInput,
-  RoomMeshAppendOutput,
-  RoomMeshFeedInput,
-  RoomMeshFeedOutput,
-  RoomMeshRpcInput,
-  RoomMeshRpcOutput,
   RoomListOutput,
   RoomCreateInput,
   RoomCreateOutput,
@@ -352,6 +338,8 @@ import type {
   RoomGuestModelListOutput,
   RoomGuestAgentListInput,
   RoomGuestAgentListOutput,
+  RoomGuestMcpListInput,
+  RoomGuestMcpListOutput,
   RoomGuestCommandListInput,
   RoomGuestCommandListOutput,
   RoomGuestSessionModelInput,
@@ -384,6 +372,20 @@ import type {
   RoomGuestPermissionListOutput,
   RoomGuestPermissionReplyInput,
   RoomGuestPermissionReplyOutput,
+  RoomMeshStatusOutput,
+  RoomMeshInviteOutput,
+  RoomMeshCreateInput,
+  RoomMeshCreateOutput,
+  RoomMeshJoinInput,
+  RoomMeshJoinOutput,
+  RoomMeshLeaveOutput,
+  RoomMeshActivateOutput,
+  RoomMeshAppendInput,
+  RoomMeshAppendOutput,
+  RoomMeshFeedInput,
+  RoomMeshFeedOutput,
+  RoomMeshRpcInput,
+  RoomMeshRpcOutput,
   OrchestraProjectListOutput,
   OrchestraTemplateListOutput,
   OrchestraTemplateCreateInput,
@@ -1864,6 +1866,7 @@ const EndpointRoomCreate = (raw: RawClient["server.room"]) => (input: RoomCreate
       payload: {
         sessionID: input["sessionID"],
         name: input["name"],
+        hostName: input["hostName"],
         ai: input["ai"],
         guestApprovals: input["guestApprovals"],
         defaultRole: input["defaultRole"],
@@ -1882,6 +1885,7 @@ const EndpointRoomUpdate = (raw: RawClient["server.room"]) => (input: RoomUpdate
       params: { roomID: input["roomID"] },
       payload: {
         name: input["name"],
+        hostName: input["hostName"],
         ai: input["ai"],
         guestApprovals: input["guestApprovals"],
         defaultRole: input["defaultRole"],
@@ -1932,127 +1936,6 @@ const EndpointRoomJoin = (raw: RawClient["server.room"]) => (input: RoomJoinInpu
       payload: { code: input["code"], roomID: input["roomID"], name: input["name"], device: input["device"] },
     }).pipe(Effect.mapError(mapClientError)),
   )
-
-const EndpointRoomMeshStatus = (raw: RawClient["server.room"]) => () =>
-  preserveEffect<RoomMeshStatusOutput>()(raw["room.mesh.status"]({}).pipe(Effect.mapError(mapClientError)))
-
-const EndpointRoomMeshInvite = (raw: RawClient["server.room"]) => () =>
-  preserveEffect<RoomMeshInviteOutput>()(raw["room.mesh.invite"]({}).pipe(Effect.mapError(mapClientError)))
-
-const EndpointRoomMeshCreate = (raw: RawClient["server.room"]) => (input: RoomMeshCreateInput) =>
-  preserveEffect<RoomMeshCreateOutput>()(
-    raw["room.mesh.create"]({ payload: { url: input.url, name: input.name, directory: input.directory } }).pipe(Effect.mapError(mapClientError)),
-  )
-
-const EndpointRoomMeshJoin = (raw: RawClient["server.room"]) => (input: RoomMeshJoinInput) =>
-  preserveEffect<RoomMeshJoinOutput>()(
-    raw["room.mesh.join"]({
-      payload: { seedURL: input.seedURL, token: input.token, url: input.url, name: input.name, directory: input.directory },
-    }).pipe(Effect.mapError(mapClientError)),
-  )
-
-const EndpointRoomMeshLeave = (raw: RawClient["server.room"]) => () =>
-  preserveEffect<RoomMeshLeaveOutput>()(raw["room.mesh.leave"]({}).pipe(Effect.mapError(mapClientError)))
-
-const EndpointRoomMeshActivate = (raw: RawClient["server.room"]) => () =>
-  preserveEffect<RoomMeshActivateOutput>()(raw["room.mesh.activate"]({}).pipe(Effect.mapError(mapClientError)))
-
-const EndpointRoomMeshAppend = (raw: RawClient["server.room"]) => (input: RoomMeshAppendInput) =>
-  preserveEffect<RoomMeshAppendOutput>()(
-    raw["room.mesh.append"]({
-      payload: { id: input.id, kind: input.kind, payload: input.payload },
-    }).pipe(Effect.mapError(mapClientError)),
-  )
-
-const EndpointRoomMeshFeed = (raw: RawClient["server.room"]) => (input: RoomMeshFeedInput) =>
-  preserveEffect<RoomMeshFeedOutput>()(
-    raw["room.mesh.feed"]({ query: { after: input.after } }).pipe(Effect.mapError(mapClientError)),
-  )
-
-const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshRpcInput) => {
-  const request = (() => {
-    switch (input.type) {
-      case "enroll":
-        return raw["room.mesh.rpc"]({ payload: { type: "enroll", node: input.node } })
-      case "add-learner":
-        return raw["room.mesh.rpc"]({
-          payload: { type: "add-learner", clusterID: input.clusterID, fromNodeID: input.fromNodeID, node: input.node },
-        })
-      case "remove-learner":
-        return raw["room.mesh.rpc"]({
-          payload: { type: "remove-learner", clusterID: input.clusterID, fromNodeID: input.fromNodeID, nodeID: input.nodeID },
-        })
-      case "prepare":
-        return raw["room.mesh.rpc"]({
-          payload: {
-            type: "prepare",
-            clusterID: input.clusterID,
-            fromNodeID: input.fromNodeID,
-            members: input.members,
-          },
-        })
-      case "activate":
-        return raw["room.mesh.rpc"]({
-          payload: {
-            type: "activate",
-            clusterID: input.clusterID,
-            fromNodeID: input.fromNodeID,
-            members: input.members,
-          },
-        })
-      case "request-vote":
-        return raw["room.mesh.rpc"]({
-          payload: {
-            type: "request-vote",
-            clusterID: input.clusterID,
-            fromNodeID: input.fromNodeID,
-            term: input.term,
-            lastLogIndex: input.lastLogIndex,
-            lastLogTerm: input.lastLogTerm,
-          },
-        })
-      case "append-entries":
-        return raw["room.mesh.rpc"]({
-          payload: {
-            type: "append-entries",
-            clusterID: input.clusterID,
-            fromNodeID: input.fromNodeID,
-            term: input.term,
-            leaderID: input.leaderID,
-            prevLogIndex: input.prevLogIndex,
-            prevLogTerm: input.prevLogTerm,
-            entries: input.entries,
-            leaderCommit: input.leaderCommit,
-          },
-        })
-      case "propose":
-        return raw["room.mesh.rpc"]({
-          payload: {
-            type: "propose",
-            clusterID: input.clusterID,
-            fromNodeID: input.fromNodeID,
-            entry: input.entry,
-          },
-        })
-      case "run-ai":
-        return raw["room.mesh.rpc"]({
-          payload: {
-            type: "run-ai",
-            clusterID: input.clusterID,
-            fromNodeID: input.fromNodeID,
-            targetNodeID: input.targetNodeID,
-            requestID: input.requestID,
-            prompt: input.prompt,
-            directory: input.directory,
-            agent: input.agent,
-            providerID: input.providerID,
-            modelID: input.modelID,
-          },
-        })
-    }
-  })()
-  return preserveEffect<RoomMeshRpcOutput>()(request.pipe(Effect.mapError(mapClientError)))
-}
 
 const EndpointRoomGuestGet = (raw: RawClient["server.room"]) => (input: RoomGuestGetInput) =>
   preserveEffect<RoomGuestGetOutput>()(
@@ -2181,6 +2064,14 @@ const EndpointRoomGuestModelList = (raw: RawClient["server.room"]) => (input: Ro
 const EndpointRoomGuestAgentList = (raw: RawClient["server.room"]) => (input: RoomGuestAgentListInput) =>
   preserveEffect<RoomGuestAgentListOutput>()(
     raw["room.guest.agent.list"]({ params: { roomID: input["roomID"] } }).pipe(
+      Effect.mapError(mapClientError),
+      Effect.map((value) => value.data),
+    ),
+  )
+
+const EndpointRoomGuestMcpList = (raw: RawClient["server.room"]) => (input: RoomGuestMcpListInput) =>
+  preserveEffect<RoomGuestMcpListOutput>()(
+    raw["room.guest.mcp.list"]({ params: { roomID: input["roomID"] } }).pipe(
       Effect.mapError(mapClientError),
       Effect.map((value) => value.data),
     ),
@@ -2325,6 +2216,56 @@ const EndpointRoomGuestPermissionReply = (raw: RawClient["server.room"]) => (inp
     }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointRoomMeshStatus = (raw: RawClient["server.room"]) => () =>
+  preserveEffect<RoomMeshStatusOutput>()(raw["room.mesh.status"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointRoomMeshInvite = (raw: RawClient["server.room"]) => () =>
+  preserveEffect<RoomMeshInviteOutput>()(raw["room.mesh.invite"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointRoomMeshCreate = (raw: RawClient["server.room"]) => (input: RoomMeshCreateInput) =>
+  preserveEffect<RoomMeshCreateOutput>()(
+    raw["room.mesh.create"]({
+      payload: { url: input["url"], name: input["name"], directory: input["directory"] },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointRoomMeshJoin = (raw: RawClient["server.room"]) => (input: RoomMeshJoinInput) =>
+  preserveEffect<RoomMeshJoinOutput>()(
+    raw["room.mesh.join"]({
+      payload: {
+        seedURL: input["seedURL"],
+        token: input["token"],
+        url: input["url"],
+        name: input["name"],
+        directory: input["directory"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointRoomMeshLeave = (raw: RawClient["server.room"]) => () =>
+  preserveEffect<RoomMeshLeaveOutput>()(raw["room.mesh.leave"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointRoomMeshActivate = (raw: RawClient["server.room"]) => () =>
+  preserveEffect<RoomMeshActivateOutput>()(raw["room.mesh.activate"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointRoomMeshAppend = (raw: RawClient["server.room"]) => (input: RoomMeshAppendInput) =>
+  preserveEffect<RoomMeshAppendOutput>()(
+    raw["room.mesh.append"]({ payload: { id: input["id"], kind: input["kind"], payload: input["payload"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointRoomMeshFeed = (raw: RawClient["server.room"]) => (input?: RoomMeshFeedInput) =>
+  preserveEffect<RoomMeshFeedOutput>()(
+    raw["room.mesh.feed"]({ query: { after: input?.["after"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+type RoomMeshRpcRequest = Parameters<RawClient["server.room"]["room.mesh.rpc"]>[0]
+const EndpointRoomMeshRpc = (raw: RawClient["server.room"]) => (input: RoomMeshRpcInput) =>
+  preserveEffect<RoomMeshRpcOutput>()(
+    raw["room.mesh.rpc"]({ payload: input["payload"] } as RoomMeshRpcRequest).pipe(Effect.mapError(mapClientError)),
+  )
+
 const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   list: EndpointRoomList(raw),
   create: EndpointRoomCreate(raw),
@@ -2335,17 +2276,6 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
   code: EndpointRoomCode(raw),
   public: EndpointRoomPublic(raw),
   join: EndpointRoomJoin(raw),
-  mesh: {
-    status: EndpointRoomMeshStatus(raw),
-    invite: EndpointRoomMeshInvite(raw),
-    create: EndpointRoomMeshCreate(raw),
-    join: EndpointRoomMeshJoin(raw),
-    leave: EndpointRoomMeshLeave(raw),
-    activate: EndpointRoomMeshActivate(raw),
-    append: EndpointRoomMeshAppend(raw),
-    feed: EndpointRoomMeshFeed(raw),
-    rpc: EndpointRoomMeshRpc(raw),
-  },
   guest: {
     get: EndpointRoomGuestGet(raw),
     session: {
@@ -2367,6 +2297,7 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
     leave: EndpointRoomGuestLeave(raw),
     model: { list: EndpointRoomGuestModelList(raw) },
     agent: { list: EndpointRoomGuestAgentList(raw) },
+    mcp: { list: EndpointRoomGuestMcpList(raw) },
     command: { list: EndpointRoomGuestCommandList(raw) },
     log: EndpointRoomGuestLog(raw),
     messages: EndpointRoomGuestMessages(raw),
@@ -2382,6 +2313,17 @@ const adaptGroupRoom = (raw: RawClient["server.room"]) => ({
     ban: EndpointRoomMemberBan(raw),
   },
   ban: { list: EndpointRoomBanList(raw), remove: EndpointRoomBanRemove(raw) },
+  mesh: {
+    status: EndpointRoomMeshStatus(raw),
+    invite: EndpointRoomMeshInvite(raw),
+    create: EndpointRoomMeshCreate(raw),
+    join: EndpointRoomMeshJoin(raw),
+    leave: EndpointRoomMeshLeave(raw),
+    activate: EndpointRoomMeshActivate(raw),
+    append: EndpointRoomMeshAppend(raw),
+    feed: EndpointRoomMeshFeed(raw),
+    rpc: EndpointRoomMeshRpc(raw),
+  },
 })
 
 const EndpointOrchestraProjectList = (raw: RawClient["server.orchestra"]) => () =>
