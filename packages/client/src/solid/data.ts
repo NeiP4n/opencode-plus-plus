@@ -1650,6 +1650,13 @@ export function createData(config: CreateDataInput) {
             )
             const messages = local.length === 0 ? fetched : [...fetched, ...local]
             batch(() => {
+              // Delivery consumes the inbox row and projects the message together, so a fetched
+              // message proves its input was delivered even when the delivered echo never arrives.
+              const delivered = (store.session.pending[sessionID] ?? []).filter((item) => ids.has(item.id))
+              delivered.forEach((item) => {
+                outbox.delete(item.id)
+                removePending(sessionID, item.id)
+              })
               messageIndex.set(sessionID, new Map(messages.map((message, index) => [message.id, index])))
               setStore("session", "message", sessionID, reconcile(messages))
               setStore("session", "messageCursor", sessionID, response.cursor.next ?? undefined)

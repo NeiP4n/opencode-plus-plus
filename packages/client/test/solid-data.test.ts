@@ -1124,3 +1124,30 @@ async function wait(check: () => boolean) {
     await Bun.sleep(10)
   }
 }
+
+test("a fetched message settles its prompt when the delivered echo never arrives", async () => {
+  const api = OpenCode.make({
+    baseUrl: "http://opencode.local",
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (request.method === "POST") return Response.json({ data: {} })
+      return Response.json({
+        data: [{ id: "msg_guest", type: "user", text: "Hi", time: { created: 1 } }],
+        cursor: {},
+      })
+    },
+  })
+  const setup = createRoot((dispose) => ({
+    data: createData({ api: () => api, directory: "/project", event: { on: () => () => {}, listen: () => () => {} } }),
+    dispose,
+  }))
+  try {
+    await setup.data.session.prompt({ sessionID: "ses_room", id: "msg_guest", text: "Hi" })
+    expect(setup.data.session.input.has("ses_room", "msg_guest")).toBe(true)
+    await setup.data.session.message.sync("ses_room")
+    expect(setup.data.session.input.has("ses_room", "msg_guest")).toBe(false)
+    expect(setup.data.session.message.list("ses_room").map((message) => message.id)).toEqual(["msg_guest"])
+  } finally {
+    setup.dispose()
+  }
+})

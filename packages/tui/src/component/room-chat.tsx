@@ -96,6 +96,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
               room={props.room}
               sessionID={id}
               role={joined()?.role ?? "viewer"}
+              guest={joined()?.guest}
               host={new URL(props.room.url).host}
               error={error() ? errorMessage(error()) : undefined}
               note={note()}
@@ -120,6 +121,7 @@ function RoomView(props: {
   room: JoinedRoom
   sessionID: string
   role: keyof typeof ROLE
+  guest?: { id: string; name: string }
   host: string
   error?: string
   note?: { name: string; title: string }
@@ -218,7 +220,13 @@ function RoomView(props: {
             name: command[1],
             text: command[2],
           })
-        : data.session.prompt({ sessionID: props.sessionID, text })
+        : data.session.prompt({
+            sessionID: props.sessionID,
+            text,
+            // Only the shown row carries it, so the message is signed before the host echoes it;
+            // the host stamps the real author from the room token.
+            metadata: props.guest && { room: { id: props.room.roomID, guest: props.guest } },
+          })
     )
       .then(() => {
         setFailure()
