@@ -1,9 +1,11 @@
 export * as Federation from "./federation.js"
 
-import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema, Stream } from "effect"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { Federation } from "@opencode/schema/federation"
+import { SessionEvent } from "@opencode/schema/session-event"
 import { KV } from "./kv.js"
+import { Bus } from "./bus.js"
 import { Orchestra } from "./orchestra.js"
 import { Session } from "./session.js"
 import { SessionMessage } from "./session/message.js"
@@ -93,12 +95,13 @@ function quote(text: string, limit: number) {
 const live = (ticket: Ticket, now: number): Ticket =>
   ticket.status === "pending" && ticket.created + EXPIRES < now ? { ...ticket, status: "expired" } : ticket
 
-const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Session.Service> = Layer.effect(
+const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Session.Service | Bus.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const kv = yield* KV.Service
     const orchestra = yield* Orchestra.Service
     const sessions = yield* Session.Service
+    const bus = yield* Bus.Service
 
     const policy = Effect.fn("Federation.policy")(function* (project: Orchestra.ProjectID) {
       return Option.getOrElse(decodePolicy(yield* kv.get(POLICY + project)), () => Federation.defaultPolicy(project))
@@ -216,6 +219,60 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
           .pipe(Effect.ignore)
       }
     })
+
+    // Follow project Orchestrator and worker run transitions. This wakes the dedicated supervisor
+    // when work starts or finishes even if no federation ticket was exchanged.
+    const notifySupervisorActivity = Effect.fnUntraced(function* (
+      projectID: Orchestra.ProjectID,
+      sessionID: string,
+      transition: string,
+    ) {
+      const allGroups = yield* groups()
+      for (const group of allGroups) {
+        if (!group.supervisor || group.supervisor === sessionID || !group.projects.includes(projectID)) continue
+        yield* sessions
+          .prompt({
+            sessionID: group.supervisor,
+            id: SessionMessage.ID.make("msg_group_activity_" + sessionID + "_" + transition.replace(/[^a-z0-9]+/gi, "_") + "_" + Date.now().toString(36)),
+            delivery: "queue",
+            text: [
+              '<orchestrator-activity group="' + quote(group.name, 80) + '" project="' + projectID + '" session="' + sessionID + '" state="' + transition + '">',
+              "A session belonging to a project in your federation group changed execution state: " + transition + ".",
+              "Call group_status to inspect current main Orchestrator state, worker activity, latest outcomes and federated tickets. Compare the result with previous reports and surface blockers or conflicts.",
+              "This notification is telemetry, not a permission grant. Continue to respect the receiving project's approvals and policy.",
+              "</orchestrator-activity>",
+            ].join("\n"),
+            metadata: { federation: { group: group.name, project: projectID, session: sessionID, state: transition } },
+          })
+          .pipe(Effect.ignore)
+      }
+    })
+
+    const executionEvents = bus.subscribe([
+      SessionEvent.Execution.Started,
+      SessionEvent.Execution.Succeeded,
+      SessionEvent.Execution.Failed,
+      SessionEvent.Execution.Interrupted,
+    ])
+    yield* Stream.runForEach(
+      executionEvents,
+      Effect.fnUntraced(function* (event) {
+        const allProjects = yield* orchestra.projects()
+        const owners = yield* orchestra.owners()
+        const projectID =
+          owners[event.sessionID] ?? allProjects.find((item) => item.main === event.sessionID)?.id
+        if (!projectID) return
+        const transition =
+          event.type === "session.execution.started"
+            ? "started"
+            : event.type === "session.execution.succeeded"
+              ? "succeeded"
+              : event.type === "session.execution.failed"
+                ? "failed"
+                : "interrupted"
+        yield* notifySupervisorActivity(projectID, event.sessionID, transition)
+      }),
+    ).pipe(Effect.forkScoped({ startImmediately: true }))
 
     return Service.of({
       policy,
@@ -344,4 +401,4 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
   }),
 )
 
-export const node = makeGlobalNode({ service: Service, layer, deps: [KV.node, Orchestra.node, Session.node] })
+export const node = makeGlobalNode({ service: Service, layer, deps: [KV.node, Orchestra.node, Session.node, Bus.node] })
