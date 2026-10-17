@@ -201,8 +201,15 @@ C_SOURCE
   rm -f "$probe_log"
   echo "Bun subprocess compatibility check passed with the final seccomp shim."
 else
-  echo "opencode-pp: clang is unavailable; cannot apply Android seccomp compatibility shim" >&2
-  exit 1
+  case "${PREFIX:-}" in
+    */com.termux/*)
+      echo "opencode-pp: clang is unavailable; cannot apply Android seccomp compatibility shim" >&2
+      exit 1
+      ;;
+    *)
+      echo "opencode-pp: skipping Android seccomp shim outside Termux"
+      ;;
+  esac
 fi
 
 exit 0
