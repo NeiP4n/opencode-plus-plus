@@ -315,6 +315,21 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   return true
 }
 
+/** Diagnostic only: which config documents define a proxy, so a lost setting can be traced. */
+async function describeProxyEntries(context: Plugin.Context) {
+  try {
+    const entries = await context.client.config.get()
+    const proxies = entries.flatMap((entry, index) =>
+      entry.type === "document" && entry.info.proxy !== undefined
+        ? [`#${index}=${entry.info.proxy === null ? "null" : String(entry.info.proxy.http ?? "-")}`]
+        : [],
+    )
+    return `documents=${entries.length} proxies=[${proxies.join(", ")}]`
+  } catch (cause) {
+    return `read failed: ${messageOf(cause).slice(0, 120)}`
+  }
+}
+
 /** `undefined` means the config could not be read right now (for example mid-write by another tool). */
 async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean | undefined> {
   try {
@@ -677,7 +692,9 @@ export default Plugin.define({
     process.once("SIGTERM", onTerm)
     const refreshProxy = async () => {
       const enabled = await readOpenCodeProxyEnabled(context)
-      if (enabled !== proxy.enabled) Warp.log(`opencode proxy flag: stored=${proxy.enabled} read=${String(enabled)} offReads=${offReads}`)
+      if (enabled !== proxy.enabled) {
+        Warp.log(`opencode proxy flag: stored=${proxy.enabled} read=${String(enabled)} offReads=${offReads} ${await describeProxyEntries(context)}`)
+      }
       if (enabled === undefined) return
       if (Date.now() < trustUntil && enabled !== proxy.enabled) return
       offReads = enabled ? 0 : offReads + 1
