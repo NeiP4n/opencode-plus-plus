@@ -980,8 +980,11 @@ export function DialogConnect(props: { onClose?: () => void }) {
 
   // A joined room opens where a session would and stays in the left panel under Multiplayer.
   const open = (room: Pick<JoinedRoom, "url" | "roomID">) => {
+    const current = route.data
+    const returnTo =
+      current.type === "session" ? current.sessionID : current.type === "room" ? current.returnTo : undefined
     dialog.clear()
-    route.navigate({ type: "room", url: room.url, roomID: room.roomID })
+    route.navigate({ type: "room", url: room.url, roomID: room.roomID, ...(returnTo ? { returnTo } : {}) })
   }
 
   const leave = (room: JoinedRoom) => {

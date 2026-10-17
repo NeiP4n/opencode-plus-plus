@@ -31,6 +31,8 @@ export type RoomRoute = {
   type: "room"
   url: string
   roomID: string
+  // The local session to return to when this room view is minimized.
+  returnTo?: string
   // A session of a project room; the room's own session when absent.
   sessionID?: string
 }

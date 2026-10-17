@@ -4,6 +4,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { Predicate } from "effect"
 import type { NoteInfo, PermissionRequest } from "@opencode/client"
 import { useConfig } from "../config"
+import { useRoute } from "../context/route"
 import { ClientProvider } from "../context/client"
 import { DataProvider, useData } from "../context/data"
 import { useDialog } from "../ui/dialog"
@@ -27,6 +28,12 @@ const ROLE = { viewer: "Viewer", member: "Member", helper: "Helper", cohost: "Co
 // follows the role the host gave it: viewers read, members write, helpers also answer
 // the host model's permission requests.
 export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
+  const route = useRoute()
+  const minimize = () => {
+    const current = route.data
+    if (current.type !== "room") return
+    route.navigate(current.returnTo ? { type: "session", sessionID: current.returnTo } : { type: "home" })
+  }
   const remote = roomClient(props.room)
   const roomID = props.room.roomID
   const target = props.sessionID
@@ -64,7 +71,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   })
 
   return (
-    <Show when={sessionID()} fallback={<RoomProblem room={props.room} error={error()} />} keyed>
+    <Show when={sessionID()} fallback={<RoomProblem room={props.room} error={error()} onMinimize={minimize} />} keyed>
       {(id) => (
         <ClientProvider api={guestApi(props.room, id, () => live?.())}>
           <DataProvider directory={joined()?.session.location.directory ?? ""} onError={ignoreGuestUnavailable}>
@@ -76,6 +83,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
               error={error() ? errorMessage(error()) : undefined}
               note={note()}
               onLive={(reload) => (live = reload)}
+              onMinimize={minimize}
             />
           </DataProvider>
         </ClientProvider>
@@ -98,6 +106,7 @@ function RoomView(props: {
   error?: string
   note?: { name: string; title: string }
   onLive: (reload: () => void) => void
+  onMinimize: () => void
 }) {
   const theme = useTheme()
   const data = useData()
@@ -191,6 +200,14 @@ function RoomView(props: {
             <span style={{ fg: theme.text.muted }}>{` · ${t("host {host}", { host: props.host })}`}</span>
           </text>
           <box flexGrow={1} />
+          <text
+            fg={theme.text.action.secondary.base}
+            flexShrink={0}
+            selectable={false}
+            onMouseUp={props.onMinimize}
+          >
+            {t("↓ Minimize")}
+          </text>
           <text fg={theme.text.formfield.base} flexShrink={0}>{`[${t(ROLE[props.role])}]`}</text>
         </box>
         <Show when={props.note}>
@@ -449,7 +466,7 @@ function RoomSidebar(props: { room: JoinedRoom; sessionID: string; role: keyof t
 }
 
 // Shown until the host answers, or when it refuses this guest.
-function RoomProblem(props: { room: JoinedRoom; error: unknown }) {
+function RoomProblem(props: { room: JoinedRoom; error: unknown; onMinimize: () => void }) {
   const theme = useTheme()
   const t = useT()
   return (
@@ -460,6 +477,9 @@ function RoomProblem(props: { room: JoinedRoom; error: unknown }) {
       </text>
       <text fg={props.error ? theme.text.feedback.error.base : theme.text.muted} wrapMode="word">
         {props.error ? errorMessage(props.error) : t("Connecting to the host…")}
+      </text>
+      <text fg={theme.text.action.secondary.base} selectable={false} onMouseUp={props.onMinimize}>
+        {t("↓ Minimize")}
       </text>
     </box>
   )
