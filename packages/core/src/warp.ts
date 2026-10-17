@@ -31,6 +31,7 @@ export class WarpError extends Error {
   constructor(
     readonly code:
       | "cli-missing"
+      | "daemon-down"
       | "not-proxy-mode"
       | "device-in-use"
       | "proxy-unreachable"
@@ -105,6 +106,11 @@ export function isManagedRegistration(registration: string) {
   return /\b(organi[sz]ation|zero\s*trust|teams?\b|team\s*name)/i.test(registration)
 }
 
+/** warp-cli cannot reach warp-svc: "Unable to connect to the CloudflareWARP daemon ... Maybe the daemon is not running?" */
+export function isDaemonDown(message: string) {
+  return /daemon is not running|unable to connect to the .*daemon|os error 2|connection refused/i.test(message)
+}
+
 export function isMissingCli(message: string) {
   return /\bENOENT\b|not recognized as an internal or external command|executable file not found|could not find.*warp-cli/i.test(
     message,
@@ -176,7 +182,59 @@ export async function run(args: readonly string[]): Promise<string> {
       resolvedCli = undefined
       throw new WarpError("cli-missing", message)
     }
+    if (isDaemonDown(message)) throw new WarpError("daemon-down", message)
     throw new WarpError("command-failed", message)
+  }
+}
+
+function startCommands(platform: NodeJS.Platform): Array<[string, string[]]> {
+  if (platform === "win32") {
+    return [
+      ["sc.exe", ["start", "CloudflareWARP"]],
+      // Elevated retry: shows the normal Windows UAC prompt for the service start only.
+      [
+        "powershell.exe",
+        ["-NoProfile", "-WindowStyle", "Hidden", "-Command", "Start-Process sc.exe -ArgumentList 'start','CloudflareWARP' -Verb RunAs -WindowStyle Hidden -Wait"],
+      ],
+    ]
+  }
+  if (platform === "linux") {
+    return [
+      ["systemctl", ["start", "warp-svc"]],
+      ["pkexec", ["systemctl", "start", "warp-svc"]],
+    ]
+  }
+  return []
+}
+
+/** Start the WARP background service (warp-svc) when it is stopped. Resolves true once warp-cli can talk to it. */
+export async function startDaemon(platform: NodeJS.Platform = process.platform): Promise<boolean> {
+  for (const [command, args] of startCommands(platform)) {
+    await quiet(command, args)
+    for (let index = 0; index < 15; index++) {
+      try {
+        await run(["status"])
+        return true
+      } catch (cause) {
+        if (!(cause instanceof WarpError && cause.code === "daemon-down")) return true
+        await wait(500)
+      }
+    }
+  }
+  return false
+}
+
+async function ensureDaemon() {
+  try {
+    await run(["status"])
+  } catch (cause) {
+    if (!(cause instanceof WarpError && cause.code === "daemon-down")) return
+    if (!(await startDaemon())) {
+      throw new WarpError(
+        "daemon-down",
+        "The WARP background service is not running and could not be started. Start the \"Cloudflare WARP\" service (or reinstall WARP) and retry.",
+      )
+    }
   }
 }
 
@@ -326,6 +384,7 @@ export function exitIp(port?: number, timeout = 8_000): Promise<ExitIp | undefin
  * connected is left alone: switching it would cut other applications off their tunnel.
  */
 export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice?: boolean } = {}): Promise<Status> {
+  await ensureDaemon()
   const current = await mode()
   if (current.mode === "device") {
     const state = await status()

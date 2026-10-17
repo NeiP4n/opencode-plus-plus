@@ -69,3 +69,11 @@ describe("OpenCode-only proxy", () => {
     expect(isMissingCli("Error: daemon not running")).toBe(false)
   })
 })
+
+describe("WARP daemon", () => {
+  test("recognizes a stopped service", async () => {
+    const { isDaemonDown } = await import("@opencode/core/warp")
+    expect(isDaemonDown("Unable to connect to the CloudflareWARP daemon: os error 2\nMaybe the daemon is not running?")).toBe(true)
+    expect(isDaemonDown("Status update: Connected")).toBe(false)
+  })
+})

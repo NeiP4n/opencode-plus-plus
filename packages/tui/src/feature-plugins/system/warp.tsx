@@ -55,6 +55,12 @@ function describe(context: Plugin.Context, cause: unknown) {
     switch (cause.code) {
       case "cli-missing":
         return text(context, "Cloudflare WARP CLI was not found. Install WARP first.", "Cloudflare WARP CLI не найден. Сначала установи WARP.")
+      case "daemon-down":
+        return text(
+          context,
+          "The WARP background service is not running. Press \"Route only OpenCode through WARP\" to start it (Windows may ask for confirmation).",
+          "Фоновая служба WARP не запущена. Нажми «Только OpenCode через WARP…», чтобы запустить её (Windows может попросить подтверждение).",
+        )
       case "not-proxy-mode":
         return text(
           context,
