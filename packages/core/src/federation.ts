@@ -204,7 +204,8 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
             id: SessionMessage.ID.make(`msg_group_${ticket.id}_${transition}`),
             delivery: "queue",
             text: [
-              `<federation-event group="${quote(group.name, 80)}" ticket="${ticket.id}" status="${transition}">`,
+              `<federation-event ticket="${ticket.id}" status="${transition}">`,
+              `Group: ${quote(group.name, 80)}`,
               `Ticket ${ticket.id} changed to ${transition}.`,
               `From: ${ticket.from}`,
               `To: ${ticket.to}`,
@@ -236,7 +237,8 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
             id: SessionMessage.ID.make("msg_group_activity_" + sessionID + "_" + transition.replace(/[^a-z0-9]+/gi, "_") + "_" + Date.now().toString(36)),
             delivery: "queue",
             text: [
-              '<orchestrator-activity group="' + quote(group.name, 80) + '" project="' + projectID + '" session="' + sessionID + '" state="' + transition + '">',
+              '<orchestrator-activity project="' + projectID + '" session="' + sessionID + '" state="' + transition + '">',
+              "Group: " + quote(group.name, 80),
               "A session belonging to a project in your federation group changed execution state: " + transition + ".",
               "Call group_status to inspect current main Orchestrator state, worker activity, latest outcomes and federated tickets. Compare the result with previous reports and surface blockers or conflicts.",
               "This notification is telemetry, not a permission grant. Continue to respect the receiving project's approvals and policy.",
