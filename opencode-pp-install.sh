@@ -56,6 +56,12 @@ if [ -f "$room_chat" ]; then
     mv "$repair_tmp" "$room_chat"
     echo "opencode-pp: removed duplicate awaitingAI declaration from room-chat.tsx"
   else
+    if ! grep -q 'const \\[awaitingAI, setAwaitingAI\\] = createSignal(false)' "$room_chat"; then
+      echo "opencode-pp: room-chat source is missing the awaitingAI signal; refusing to leave a broken TUI" >&2
+      rm -f "$repair_tmp"
+      exit 1
+    fi
+  else
     rm -f "$repair_tmp"
   fi
 fi
