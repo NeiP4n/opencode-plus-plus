@@ -208,12 +208,26 @@ export const Plugin = {
                         .map(([sessionID, value]) => ({ sessionID, outcome: value.outcome, created: value.created }))
                         .toSorted((a, b) => b.created - a.created)
                         .slice(0, 5)
+                      const workerSessions = members
+                        .toSorted((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)))
+                        .slice(0, 20)
+                        .map((item) => ({
+                          sessionID: item.id,
+                          title: item.title ?? item.id,
+                          agent: item.agent ?? null,
+                          state: active.has(item.id) ? "running" : "idle",
+                          outcome: item.outcome ?? null,
+                        }))
                       return {
                         id,
                         name: known.name,
                         availability: "local",
                         main,
-                        workers: { total: members.length, running: members.filter((item) => active.has(item.id)).length },
+                        workers: {
+                          total: members.length,
+                          running: members.filter((item) => active.has(item.id)).length,
+                          sessions: workerSessions,
+                        },
                         outcomes,
                       }
                     }),
