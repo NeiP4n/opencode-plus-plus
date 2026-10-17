@@ -23,6 +23,7 @@ Then run `opencode-pp`. A regular opencode keeps the `opencode` command; setting
 
 - **LAN rooms** — host a session and let others on the network join with a code: members, roles, bans and a shared DoD. Works between Windows and Linux.
 - **AI teams** — an orchestrator hands tasks to roles (architect, developer, tester, reviewer, …). Ready-made templates, your own in `/teams`.
+- **Federated groups** — a dedicated Group Orchestrator monitors project orchestrators and workers, summarizes progress and tickets, and receives execution start/finish events. Open Groups and press `Start AI`; the first project is the coordinator. Cross-project requests still follow each receiving project’s own approvals and rules.
 - **Project DoD board** — `.opencode/dod.yaml` as a progress panel: what is done, in progress and blocked.
 - **Idea Bank** — private ideas from your sessions and an opt-in shared global catalogue with search.
 - **Notes** — project notes in Markdown; the AI writes into the selected note.
