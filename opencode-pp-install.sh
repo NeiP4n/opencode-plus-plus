@@ -214,11 +214,11 @@ termux() {
   echo "Checking Bun subprocess compatibility…"
   spawn_probe_log="$PREFIX/tmp/opencode-pp-bun-spawn-probe.log"
   status=0
-  "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync(["/system/bin/sh", "-c", "exit 0"]); if (p.exitCode !== 0) process.exit(p.exitCode ?? 1)' >"$spawn_probe_log" 2>&1 || status=$?
+  "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync([process.execPath, "-e", "process.exit(0)"]); if (p.exitCode !== 0) { process.stderr.write(p.stderr); console.error("child Bun exit code:", p.exitCode); process.exit(1) }' >"$spawn_probe_log" 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then
     cat "$spawn_probe_log" >&2
     rm -f "$spawn_probe_log"
-    fail "patched Bun failed the subprocess test (Android seccomp/SIGSYS is a possible cause); this device/runtime combination is not compatible"
+    fail "patched Bun could not start a child Bun process; Android seccomp/SIGSYS may be blocking subprocesses"
   fi
   rm -f "$spawn_probe_log"
 
