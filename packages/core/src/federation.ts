@@ -259,9 +259,12 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
       Effect.fnUntraced(function* (event) {
         const allProjects = yield* orchestra.projects()
         const owners = yield* orchestra.owners()
-        const projectID =
-          owners[event.sessionID] ?? allProjects.find((item) => item.main === event.sessionID)?.id
+        const mainProject = allProjects.find((item) => item.main === event.sessionID)
+        const projectID = owners[event.sessionID] ?? mainProject?.id
         if (!projectID) return
+        // Worker starts are reflected when their project Orchestrator dispatches work; only terminal worker
+        // events wake the supervisor, avoiding a duplicate model turn for every worker start.
+        if (event.type === "session.execution.started" && !mainProject) return
         const transition =
           event.type === "session.execution.started"
             ? "started"
