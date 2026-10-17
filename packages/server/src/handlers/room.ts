@@ -84,6 +84,34 @@ const HOST_ONLY = new Set(["room.run", "room.check"])
 const RoomLiveEvent = Schema.Union([
   Permission.Event.Asked,
   Permission.Event.Replied,
+  SessionEvent.AgentSelected,
+  SessionEvent.ModelSelected,
+  SessionEvent.Renamed,
+  SessionEvent.Execution.Started,
+  SessionEvent.Execution.Succeeded,
+  SessionEvent.Execution.Failed,
+  SessionEvent.Execution.Interrupted,
+  SessionEvent.Step.Started,
+  SessionEvent.Step.Streamed,
+  SessionEvent.Step.Ended,
+  SessionEvent.Step.Failed,
+  SessionEvent.Text.Started,
+  SessionEvent.Text.Ended,
+  SessionEvent.Reasoning.Started,
+  SessionEvent.Reasoning.Ended,
+  SessionEvent.Tool.Input.Started,
+  SessionEvent.Tool.Input.Ended,
+  SessionEvent.Tool.Called,
+  SessionEvent.Tool.Success,
+  SessionEvent.Tool.Failed,
+  SessionEvent.RetryScheduled,
+  SessionEvent.Compaction.Started,
+  SessionEvent.Compaction.Ended,
+  SessionEvent.Compaction.Failed,
+  SessionEvent.Shell.Started,
+  SessionEvent.Shell.Ended,
+  SessionEvent.Synthetic,
+  SessionEvent.Skill.Activated,
   ...SessionEvent.EphemeralDefinitions,
 ])
 const decodeRoomLiveEvent = Schema.decodeUnknownOption(RoomLiveEvent)
@@ -515,11 +543,25 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                   Option.filter(
                     decodeRoomLiveEvent(
                       JSON.parse(
-                        JSON.stringify({ id: event.id, created: event.created, type: event.type, data: event.data }),
+                        JSON.stringify({
+                        id: event.id,
+                        created: event.created,
+                        type: event.type,
+                        data: event.data,
+                        ...("durable" in event && event.durable ? { durable: event.durable } : {}),
+                      }),
                       ),
                     ),
                     (item) => item.data.sessionID === session.id,
-                  ).pipe(Option.map((item) => Queue.offerUnsafe(queue, item))),
+                  ).pipe(
+                    Option.map((item) =>
+                      Queue.offerUnsafe(queue, {
+                        ...item,
+                        // Guests distinguish live boundaries from durable history replay.
+                        metadata: { ...(item.metadata ?? {}), __opencodeRoomLive: true },
+                      }),
+                    ),
+                  ),
                 ),
               ),
               (unsubscribe) => unsubscribe,
