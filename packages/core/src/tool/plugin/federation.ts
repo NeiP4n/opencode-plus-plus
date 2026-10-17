@@ -189,49 +189,32 @@ export const Plugin = {
                       return yield* new ToolFailure({ message: "This Group Orchestrator is no longer registered for that group." })
                   } else if (group.projects[0] !== project.id) {
                     return yield* new ToolFailure({
-                      message: "Only the first project's Orchestrator (" + group.projects[0] + ") or the registered Group Orchestrator may inspect this group's full status.",
+                      message: "Only the first project's Orchestrator (" + group.projects[0] + ") or the registered Group Orchestrator may inspect this group's status.",
                     })
                   }
 
-                  const allProjects = yield* orchestra.projects()
-                  const active = yield* sessions.active
-                  const rows = yield* Effect.forEach(group.projects, (id) =>
-                    Effect.gen(function* () {
-                      const known = allProjects.find((item) => item.id === id)
-                      if (!known) return { id, name: id, availability: "not-on-this-device", main: { state: "unknown" }, workers: { total: 0, running: 0 }, outcomes: [] }
-                      const main = known.main
-                        ? { sessionID: known.main, state: active.has(known.main) ? "running" : "idle" }
-                        : { state: "not-created" }
-                      const members = yield* orchestra.sessions(id).pipe(Effect.catchAll(() => Effect.succeed([])))
-                      const outcomeMap = yield* orchestra.outcomes(id).pipe(Effect.catchAll(() => Effect.succeed({})))
-                      const outcomes = Object.entries(outcomeMap)
-                        .map(([sessionID, value]) => ({ sessionID, outcome: value.outcome, created: value.created }))
-                        .toSorted((a, b) => b.created - a.created)
-                        .slice(0, 5)
-                      const workerSessions = members
-                        .toSorted((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)))
-                        .slice(0, 20)
-                        .map((item) => ({
-                          sessionID: item.id,
-                          title: item.title ?? item.id,
-                          agent: item.agent ?? null,
-                          state: active.has(item.id) ? "running" : "idle",
-                          outcome: item.outcome ?? null,
-                        }))
-                      return {
-                        id,
-                        name: known.name,
-                        availability: "local",
-                        main,
-                        workers: {
-                          total: members.length,
-                          running: members.filter((item) => active.has(item.id)).length,
-                          sessions: workerSessions,
-                        },
-                        outcomes,
-                      }
-                    }),
-                  )
+                  // Cross-project status is deliberately limited to sanitized activity signals and ticket metadata.
+                  // Do not query Orchestra.sessions(), foreign outcomes or active session IDs here.
+                  const activity = yield* federation.activity(group.name)
+                  const coordinatorID = group.projects[0]
+                  const linked = coordinatorID ? yield* federation.linked(coordinatorID) : []
+                  const linkedIDs = new Set([coordinatorID, ...linked.map((item) => item.id)])
+                  const rows = group.projects.map((id) => {
+                    const orchestrator = activity.find((item) => item.project === id && item.scope === "orchestrator")
+                    const worker = activity.find((item) => item.project === id && item.scope === "worker")
+                    return {
+                      id,
+                      role: id === coordinatorID ? "coordinator" : "member",
+                      linkedToCoordinator: linkedIDs.has(id),
+                      orchestrator: orchestrator
+                        ? { state: orchestrator.transition, updated: orchestrator.updated }
+                        : { state: "not-observed" },
+                      workerActivity: worker
+                        ? { lastTransition: worker.transition, updated: worker.updated }
+                        : { state: "not-observed" },
+                    }
+                  })
+
                   const ticketMap = new Map<string, Federation.Ticket>()
                   for (const id of group.projects) {
                     const inbox = yield* federation.inbox(id)
@@ -253,10 +236,11 @@ export const Plugin = {
                   return {
                     output: JSON.stringify({
                       group: group.name,
-                      coordinator: { id: group.projects[0], name: allProjects.find((item) => item.id === group.projects[0])?.name ?? group.projects[0] },
+                      coordinator: coordinatorID,
                       supervisor: group.supervisor ?? null,
                       projects: rows,
                       recentTickets,
+                      privacy: "Project session IDs, worker names, transcripts and files are not exposed to the Group Orchestrator. Status is based on sanitized activity transitions and federation ticket metadata.",
                     }, null, 2),
                   }
                 }
