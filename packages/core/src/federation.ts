@@ -224,11 +224,11 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
     // Follow project Orchestrator and worker run transitions. This wakes the dedicated supervisor
     // when work starts or finishes even if no federation ticket was exchanged.
     const notifySupervisorActivity = Effect.fnUntraced(function* (
+      allGroups: ReadonlyArray<Group>,
       projectID: Orchestra.ProjectID,
       sessionID: string,
       transition: string,
     ) {
-      const allGroups = yield* groups()
       for (const group of allGroups) {
         if (!group.supervisor || group.supervisor === sessionID || !group.projects.includes(projectID)) continue
         yield* sessions
@@ -258,25 +258,28 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
     ])
     yield* Stream.runForEach(
       executionEvents,
-      Effect.fnUntraced(function* (event) {
-        const allProjects = yield* orchestra.projects()
-        const owners = yield* orchestra.owners()
-        const mainProject = allProjects.find((item) => item.main === event.sessionID)
-        const projectID = owners[event.sessionID] ?? mainProject?.id
-        if (!projectID) return
-        // Worker starts are reflected when their project Orchestrator dispatches work; only terminal worker
-        // events wake the supervisor, avoiding a duplicate model turn for every worker start.
-        if (event.type === "session.execution.started" && !mainProject) return
-        const transition =
-          event.type === "session.execution.started"
-            ? "started"
-            : event.type === "session.execution.succeeded"
-              ? "succeeded"
-              : event.type === "session.execution.failed"
-                ? "failed"
-                : "interrupted"
-        yield* notifySupervisorActivity(projectID, event.sessionID, transition)
-      }),
+      (event) =>
+        Effect.gen(function* () {
+          const allGroups = yield* groups()
+          if (!allGroups.some((group) => group.supervisor)) return
+          const allProjects = yield* orchestra.projects()
+          const owners = yield* orchestra.owners()
+          const mainProject = allProjects.find((item) => item.main === event.sessionID)
+          const projectID = owners[event.sessionID] ?? mainProject?.id
+          if (!projectID) return
+          // Worker starts are reflected when their project Orchestrator dispatches work; only terminal worker
+          // events wake the supervisor, avoiding a duplicate model turn for every worker start.
+          if (event.type === "session.execution.started" && !mainProject) return
+          const transition =
+            event.type === "session.execution.started"
+              ? "started"
+              : event.type === "session.execution.succeeded"
+                ? "succeeded"
+                : event.type === "session.execution.failed"
+                  ? "failed"
+                  : "interrupted"
+          yield* notifySupervisorActivity(allGroups, projectID, event.sessionID, transition)
+        }).pipe(Effect.catchCause((cause) => Effect.logError("federation group monitor failed", { cause }))),
     ).pipe(Effect.forkScoped({ startImmediately: true }))
 
     return Service.of({
