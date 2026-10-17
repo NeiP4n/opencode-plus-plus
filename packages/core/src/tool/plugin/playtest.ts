@@ -18,7 +18,7 @@ export const DIRECTORY = path.join(".opencode", "playtest")
 
 const description = [
   "Test a game or any windowed app with a virtual mouse and keyboard, without touching the real ones.",
-  "launch starts the app hidden off-screen (hidden: false keeps it on screen); the user's cursor, keyboard and focus stay theirs.",
+  "mode on launch/attach: auto (default) starts the app hidden and, only if it draws nothing there, moves it behind the user's windows invisibly, then on screen under them, then on top, never taking the user's keyboard. hidden keeps it invisible, behind runs it invisible behind the user's windows, visible shows it normally.",
   "Input goes straight into the app's window as messages, so it runs at full speed and works while the window is off-screen or in the background.",
   "Screenshots are taken from the window itself and show the virtual cursor; x/y are pixels of the latest screenshot of that app (client pixels before the first one).",
   "Steps run in order in one call. A failing step (an app that does not start, a pixel that does not match, wait_change that sees nothing) stops the run and reports FAIL.",
@@ -66,9 +66,11 @@ const Step = Schema.Struct({
   title: Schema.optionalKey(Schema.String).annotate({
     description: "launch/attach: part of the window title to pick, needed when a launcher opens the window",
   }),
-  hidden: Schema.optionalKey(Schema.Boolean).annotate({
-    description: "launch/attach: keep the window off-screen and out of the taskbar (launch default true)",
+  mode: Schema.optionalKey(Schema.Literals(["auto", "hidden", "behind", "visible"])).annotate({
+    description:
+      "launch/attach: auto (launch default) hides the app and shows it only as far as it needs to draw; hidden, behind (invisible behind the user's windows) or visible (attach default) fix it",
   }),
+  hidden: Schema.optionalKey(Schema.Boolean).annotate({ description: "launch/attach: true is mode hidden, false is mode visible" }),
   input: Schema.optionalKey(Schema.Literals(["message", "real"])).annotate({
     description:
       "launch/attach: message (default) sends input to the window in the background; real uses the hardware path (scan codes, raw mouse) that every game reads, but takes the user's mouse and keyboard during each call",
@@ -131,12 +133,12 @@ const Script = Schema.Union([Schema.Array(Step), Schema.Struct({ steps: Schema.A
 
 const GUIDE = [
   "# Playtesting",
-  "The playtest tool runs a game or app hidden off-screen and drives it with its own virtual mouse and keyboard, so the user keeps their computer. Use it, not shell scripts, to run and test games and apps.",
+  "The playtest tool runs a game or app and drives it with its own virtual mouse and keyboard, so the user keeps their computer. Use it, not shell scripts, to run and test games and apps. Leave mode at auto: it hides the app when it can and shows it only as far as the app needs to draw; pass mode: visible when the user wants to watch.",
   "Play like a fast human tester:",
   "- Get to what you are testing quickly: launch, wait_stable (loading), skip (logos, intros, cutscenes, tutorials, dialogs), then click_text on menu items (Play, New Game, Continue, OK). Skip whatever is not under test.",
   "- Put a whole scenario in one call and check with read, wait_text, pixel, diff and wait_change. Take a screenshot only on a new screen, when a check fails, or to judge visuals; use see: false to keep one on disk.",
   "- Wait on what you expect (wait_text, wait_change, wait_stable), never on fixed sleeps.",
-  "- Input that changes nothing: the game may ignore message input; relaunch with input: real. A black frame: the game is loading, fullscreen-exclusive (start it windowed) or draws only while visible (hidden: false).",
+  "- Input that changes nothing: the game may ignore message input; relaunch with input: real. A black frame that auto mode could not fix (it tries the app's other windows and showing it step by step): the game is still loading (wait_stable) or fullscreen-exclusive (start it windowed).",
   "- Report what you checked, what failed and the saved screenshot paths.",
   `Save a scenario that works as a JSON file and replay it with script; each run's files are in ${DIRECTORY}/<app>/.`,
 ].join("\n")
@@ -150,7 +152,7 @@ const CHROMIUM_FLAGS = [
 ]
 
 const BLACK_HINT =
-  "the frame is black: the app may still be loading (wait_stable or wait_text), run fullscreen-exclusive (start it windowed: Unity -screen-fullscreen 0, Unreal -windowed, Godot --windowed) or draw only while on screen (launch with hidden: false)"
+  "the frame is black: the app may still be loading (wait_stable or wait_text), run fullscreen-exclusive (start it windowed: Unity -screen-fullscreen 0, Unreal -windowed, Godot --windowed); mode auto shows a window as far as it needs to draw"
 
 const MAX_IMAGES = 8
 
@@ -161,10 +163,12 @@ type App = {
   child?: ChildProcess
   owned: boolean
   real: boolean
-  hidden: boolean
-  // Moved on screen behind other windows, fully transparent, after it drew nothing off-screen.
-  behind: boolean
+  // Where the window is now, and how far auto mode may still show it to get a picture.
+  placement: Placement
+  limit: Placement
   size: { width: number; height: number }
+  title: string
+  user: string
   dir: string
   log?: string
   // Image pixels to the window's own client pixels, from the latest screenshot.
@@ -174,6 +178,26 @@ type App = {
 }
 
 type Shot = { file: string; mime: string; text: string }
+
+// From least to most visible: off-screen, invisible behind the user's windows, on screen under
+// them, on top of them. A window only moves up this ladder.
+const PLACEMENTS = ["hidden", "behind", "under", "visible"] as const
+type Placement = (typeof PLACEMENTS)[number]
+
+const RAISE: Record<Exclude<Placement, "hidden">, { script: (hwnd: string) => string; note: string }> = {
+  behind: {
+    script: (hwnd) => `[OcPlay]::Behind(${hwnd})`,
+    note: "it drew nothing off-screen, so it now runs behind your windows, invisible and click-through",
+  },
+  under: {
+    script: (hwnd) => `[OcPlay]::Place(${hwnd}, $false)`,
+    note: "it drew nothing while invisible, so it is now on screen under your windows, without your keyboard",
+  },
+  visible: {
+    script: (hwnd) => `[OcPlay]::Place(${hwnd}, $true)`,
+    note: "it draws only when seen, so it is now on top of your windows, without taking your keyboard",
+  },
+}
 
 export const Plugin = {
   id: "opencode.tool.playtest",
@@ -306,19 +330,55 @@ export const Plugin = {
           .map(Number)
         return { imageWidth, imageHeight, clientWidth, clientHeight, black: bright < 3 }
       }
-      const first = await capture()
       const notes: string[] = []
-      const shot =
-        first.black && app.hidden && !app.behind
-          ? await (async () => {
-              // Many engines stop drawing off-screen; behind the user's windows and fully transparent they keep going.
-              await call(`[OcPlay]::Behind(${app.hwnd})`)
-              app.behind = true
-              await new Promise((resolve) => setTimeout(resolve, 600))
-              notes.push("it drew nothing off-screen, so it now runs behind your windows, invisible and click-through")
-              return capture()
-            })()
-          : first
+      const initial = await capture()
+      const first = initial.black ? await (async () => {
+        // The pick may be a helper window: the first other window of the app that draws wins.
+        const others = (await call(`[OcPlay]::Windows(${app.pid ?? 0}, ${psString(app.pid ? "" : app.title)})`))
+          .split("\n")
+          .map((line) => line.split("\t"))
+          .filter((parts) => parts[0] && parts[0] !== app.hwnd)
+        for (const [hwnd = "", size = "", shown = "", , title = ""] of others) {
+          const previous = app.hwnd
+          app.hwnd = hwnd
+          // A window that was never shown draws nothing; off-screen it can be shown without being seen.
+          const staged = app.placement !== "visible" && shown === "hidden"
+          if (staged) {
+            await call(`[OcPlay]::Stage(${hwnd}, $true, $${app.real}, ${app.user})`)
+            await new Promise((resolve) => setTimeout(resolve, 300))
+          }
+          const attempt = await capture().catch(() => undefined)
+          if (!attempt || attempt.black) {
+            if (staged) await call(`[OcPlay]::Hide(${hwnd})`)
+            app.hwnd = previous
+            continue
+          }
+          {
+            const info = (
+              await call(`[OcPlay]::Stage(${hwnd}, $${app.placement !== "visible"}, $${app.real}, ${app.user})`)
+            ).split("\t")
+            if (app.placement !== "hidden") await call(RAISE[app.placement].script(hwnd))
+            const [width = 0, height = 0] = (info[0] ?? "").split(" ").map(Number)
+            app.size = { width, height }
+            app.cursor = { x: Math.round(width / 2), y: Math.round(height / 2) }
+            notes.push(`switched to the app's window "${title}" (${size}) that actually draws`)
+            return capture()
+          }
+        }
+        return initial
+      })() : initial
+      // Many engines stop drawing off-screen, some while invisible, some unless seen: show the
+      // window one step at a time, only as far as it takes to get a picture.
+      const ladder = PLACEMENTS.slice(PLACEMENTS.indexOf(app.placement) + 1, PLACEMENTS.indexOf(app.limit) + 1)
+      const shot = await ladder.reduce<Promise<typeof first>>(async (previous, placement) => {
+        const result = await previous
+        if (!result.black || placement === "hidden") return result
+        await call(RAISE[placement].script(app.hwnd))
+        app.placement = placement
+        await new Promise((resolve) => setTimeout(resolve, 600))
+        notes.push(RAISE[placement].note)
+        return capture()
+      }, Promise.resolve(first))
       if (shot.black) notes.push(BLACK_HINT)
       if (!rw && shot.imageWidth > 0 && shot.imageHeight > 0)
         app.scale = { x: shot.clientWidth / shot.imageWidth, y: shot.clientHeight / shot.imageHeight }
@@ -353,8 +413,13 @@ export const Plugin = {
       const dir = path.join(root, DIRECTORY, `${id}-${new Date().toISOString().replace(/[:.]/g, "-")}`)
       await mkdir(dir, { recursive: true })
       const real = step.input === "real"
-      // Real clicks land where the window is on screen, so real input keeps it visible unless asked otherwise.
-      const hidden = step.hidden ?? (!attach && !real)
+      // Real clicks land where the window is on screen, so real input and attached windows start visible.
+      const mode =
+        step.mode ??
+        (step.hidden === true ? "hidden" : step.hidden === false || real || attach ? "visible" : "auto")
+      const start: Placement = mode === "auto" ? "hidden" : mode
+      const limit: Placement = mode === "auto" ? "visible" : mode === "hidden" ? "behind" : start
+      const hidden = start !== "visible"
       const title = step.title ?? ""
       // The window the user works in, given back if the app grabs the foreground.
       const user = (await call("[OcPlay]::User()")).trim() || "0"
@@ -388,6 +453,12 @@ export const Plugin = {
         if (child && child.exitCode !== null && !title) break
         await new Promise((resolve) => setTimeout(resolve, 100))
       }
+      // Engines open a splash or helper window first; keep the best pick once the choice settles.
+      for (const settle = Date.now() + 1_500; hwnd !== "0" && Date.now() < settle; ) {
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        const again = (await call(`[OcPlay]::Find(${child?.pid ?? 0}, ${psString(title)})`)).trim()
+        if (again !== "0") hwnd = again
+      }
       if (hwnd === "0") {
         const tail = log ? (await readFile(log, "utf8").catch(() => "")).trim().split("\n").slice(-15).join("\n") : ""
         if (child) await kill({ child, pid: child.pid })
@@ -403,6 +474,7 @@ export const Plugin = {
         )
       }
       const info = (await call(`[OcPlay]::Stage(${hwnd}, $${hidden}, $${real}, ${user})`)).split("\t")
+      if (start === "behind") await call(RAISE.behind.script(hwnd))
       const [clientWidth = 0, clientHeight = 0] = (info[0] ?? "").split(" ").map(Number)
       const app: App = {
         id,
@@ -411,9 +483,11 @@ export const Plugin = {
         child,
         owned: !attach,
         real,
-        hidden,
-        behind: false,
+        placement: start,
+        limit,
         size: { width: clientWidth, height: clientHeight },
+        title,
+        user,
         dir,
         log,
         scale: { x: 1, y: 1 },
@@ -424,8 +498,8 @@ export const Plugin = {
       return {
         app: id,
         text: `${attach ? "attached" : "launched"} ${id} "${info[1] ?? ""}" ${clientWidth}x${clientHeight}${
-          hidden ? " hidden off-screen" : ""
-        }, ${real ? "real" : "message"} input; files in ${path.relative(root, dir)}`,
+          { hidden: " hidden off-screen", behind: " invisible behind your windows", under: "", visible: " on screen" }[start]
+        }${mode === "auto" ? " (auto: shown only if it draws nothing)" : ""}, ${real ? "real" : "message"} input; files in ${path.relative(root, dir)}`,
       }
     }
 
@@ -822,9 +896,12 @@ export function locate(words: readonly Word[], wanted: string) {
 export function chromiumArgs(target: string, args: readonly string[], cwd: string, hidden: boolean) {
   if (!hidden) return [...args]
   const name = path.basename(target).toLowerCase()
+  const folder = path.dirname(target)
   const direct =
     /^(electron|chrome|chromium|msedge|brave|nw)(\.exe|\.cmd)?$/.test(name) ||
-    existsSync(path.join(path.dirname(target), "resources", "app.asar")) ||
+    existsSync(path.join(folder, "resources", "app.asar")) ||
+    // NW.js games (RPG Maker MV/MZ ship it as Game.exe) keep nw.dll or package.nw beside the exe.
+    ["nw.dll", "nw_elf.dll", "package.nw"].some((file) => existsSync(path.join(folder, file))) ||
     (/^npx(\.cmd)?$/.test(name) && args.some((arg) => /electron/i.test(arg)))
   if (direct) return [...args, ...CHROMIUM_FLAGS]
   // npm start in an Electron project passes arguments after -- on to electron.
@@ -946,8 +1023,24 @@ public static class OcPlay {
 
   // The largest owned top-level window of the process tree, or of any process when only a title is given.
   public static long Find(int pid, string title) {
+    var all = Candidates(pid, title);
+    return all.Count > 0 ? all[0].Key.ToInt64() : 0;
+  }
+
+  // Every window of the app, best first, for when the first pick draws nothing (NW.js and
+  // Chromium keep hidden helper windows next to the real one).
+  public static string Windows(int pid, string title) {
+    var lines = new List<string>();
+    foreach (var item in Candidates(pid, title)) {
+      RECT r; GetClientRect(item.Key, out r);
+      lines.Add(item.Key.ToInt64() + "\t" + (r.R - r.L) + "x" + (r.B - r.T) + "\t" + (IsWindowVisible(item.Key) ? "visible" : "hidden") + "\t" + Class(item.Key) + "\t" + Text(item.Key).Replace("\t", " "));
+    }
+    return string.Join("\\n", lines);
+  }
+
+  static List<KeyValuePair<IntPtr, long>> Candidates(int pid, string title) {
     var pids = Tree((uint)pid);
-    IntPtr best = IntPtr.Zero; long area = 0;
+    var found = new List<KeyValuePair<IntPtr, long>>();
     EnumWindows((h, l) => {
       if (GetWindow(h, 4) != IntPtr.Zero) return true;
       uint owner; GetWindowThreadProcessId(h, out owner);
@@ -962,12 +1055,16 @@ public static class OcPlay {
       RECT r; GetWindowRect(h, out r);
       long a = (long)(r.R - r.L) * (r.B - r.T);
       if (a < 100 * 80) return true;
-      // A shown window beats a hidden helper; launched hidden, the main window is the largest captioned one.
+      // A shown window beats a hidden helper and a captioned one beats a bare one; launched
+      // hidden, the main window is the largest captioned one.
       if (IsWindowVisible(h)) a += 1L << 40;
-      if (a > area) { area = a; best = h; }
+      if ((style & 0xC00000) == 0xC00000) a += 1L << 38;
+      if (Text(h).Length > 0) a += 1L << 36;
+      found.Add(new KeyValuePair<IntPtr, long>(h, a));
       return true;
     }, IntPtr.Zero);
-    return best.ToInt64();
+    found.Sort((x, y) => y.Value.CompareTo(x.Value));
+    return found;
   }
 
   // PowerShell's process DPI mode is fixed by its manifest, so each measurement sets the thread's:
@@ -997,7 +1094,7 @@ public static class OcPlay {
     var h = new IntPtr(handle);
     if (!IsWindow(h)) throw new Exception("The window is gone");
     if (hidden) {
-      owner[handle] = new IntPtr(user);
+      if (user != 0) owner[handle] = new IntPtr(user);
       ShowWindow(h, 0);
       long ex = GetLong(h, -20).ToInt64();
       SetLong(h, -20, new IntPtr((ex | 0x80 | 0x08000000) & ~0x40000L));
@@ -1242,7 +1339,12 @@ public static class OcPlay {
     try {
       // PW_CLIENTONLY | PW_RENDERFULLCONTENT first (DirectX and OpenGL too, off-screen), then plain
       // PrintWindow for GDI apps that ignore the first, then the window's own DC.
-      foreach (int mode in new[] { 3, 1, 0 }) {
+      // The window's DC only holds its picture where it is on screen; elsewhere it is whatever lies there.
+      RECT at; GetWindowRect(h, out at);
+      int vl = GetSystemMetrics(76), vt = GetSystemMetrics(77);
+      bool seen = IsWindowVisible(h) && at.L >= vl && at.T >= vt && at.R <= vl + GetSystemMetrics(78) && at.B <= vt + GetSystemMetrics(79);
+      var modes = seen ? new[] { 3, 1, 0 } : new[] { 3, 1 };
+      foreach (int mode in modes) {
         var bmp = new Bitmap(w, ht, PixelFormat.Format32bppRgb);
         using (var g = Graphics.FromImage(bmp)) {
           var dc = g.GetHdc();
@@ -1251,21 +1353,24 @@ public static class OcPlay {
             else { var src = GetDC(h); BitBlt(dc, 0, 0, w, ht, src, 0, 0, 0x00CC0020 | 0x40000000); ReleaseDC(h, src); }
           } finally { g.ReleaseHdc(dc); }
         }
-        if (mode == 0 || Bright(bmp) >= 3) return bmp;
+        if (mode == modes[modes.Length - 1] || Bright(bmp) >= 3) return bmp;
         bmp.Dispose();
       }
     } finally { SetThreadDpiAwarenessContext(old); }
     throw new Exception("unreachable");
   }
 
-  // Average brightness from a sparse grid: cheap enough to run on every capture.
+  // Average brightness from a sparse grid, cheap enough for every capture; 0 when no sample is
+  // more than near-black, so a blank frame is told apart from a dark scene with detail in it.
   static double Bright(Bitmap b) {
-    double sum = 0; int n = 0;
+    double sum = 0; int n = 0, top = 0;
     for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
-      var c = b.GetPixel(x * (b.Width - 1) / 23, y * (b.Height - 1) / 23);
+      // Inset from the edges, where a border line can survive in an otherwise empty frame.
+      var c = b.GetPixel((b.Width - 1) * (1 + x * 30 / 23) / 32, (b.Height - 1) * (1 + y * 30 / 23) / 32);
       sum += (c.R + c.G + c.B) / 3.0; n++;
+      top = Math.Max(top, Math.Max(c.R, Math.Max(c.G, c.B)));
     }
-    return sum / n;
+    return top < 24 ? 0 : Math.Max(3, sum / n);
   }
 
   // Back on screen under every other window, fully transparent and click-through: engines that
@@ -1471,6 +1576,19 @@ public static class OcPlay {
     var own = Client(h, true);
     return (own.R - own.L) + "x" + (own.B - own.T);
   }
+
+  // Back on screen as a normal, opaque window that still never takes the keyboard: under the
+  // user's windows, or on top of them for apps that draw only when seen.
+  public static string Place(long handle, bool top) {
+    var h = Check(handle);
+    long ex = GetLong(h, -20).ToInt64();
+    SetLong(h, -20, new IntPtr((ex & ~0x80000L & ~0x20L) | 0x08000000));
+    int left = Math.Max(GetSystemMetrics(76), 0) + 40, up = Math.Max(GetSystemMetrics(77), 0) + 40;
+    SetWindowPos(h, new IntPtr(top ? 0 : 1), left, up, 0, 0, 0x1 | 0x10 | 0x40 | 0x20);
+    return "";
+  }
+
+  public static string Hide(long handle) { ShowWindow(new IntPtr(handle), 0); return ""; }
 
   public static string Close(long handle) { PostMessage(new IntPtr(handle), 0x10, IntPtr.Zero, IntPtr.Zero); return ""; }
 }

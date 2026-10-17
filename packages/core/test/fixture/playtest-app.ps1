@@ -1,5 +1,7 @@
 # A tiny "game" for the playtest tool: an intro to skip, a menu with a Play label, then a level
-# whose background shows the last input it received.
+# whose background shows the last input it received. -Decoy adds a bigger black "Loader" window
+# shown off-screen, like the helper windows NW.js and Chromium keep beside the real one.
+param([switch]$Decoy)
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Playtest Fixture'
@@ -50,4 +52,17 @@ $form.Add_KeyDown({
   [Console]::WriteLine("key $($event.KeyCode)")
 })
 $form.Add_KeyPress({ param($sender, $event) [Console]::WriteLine("char $($event.KeyChar)") })
+if ($Decoy) {
+  $loader = New-Object System.Windows.Forms.Form
+  $loader.Text = 'Loader'
+  $loader.ClientSize = New-Object System.Drawing.Size 600, 450
+  $loader.BackColor = [System.Drawing.Color]::Black
+  $loader.StartPosition = 'Manual'
+  $loader.Location = New-Object System.Drawing.Point -6000, -6000
+  # Shown from the message loop, after the main window took the launch's first (hidden) show.
+  $timer = New-Object System.Windows.Forms.Timer
+  $timer.Interval = 50
+  $timer.Add_Tick({ $timer.Stop(); $loader.Show() })
+  $timer.Start()
+}
 [System.Windows.Forms.Application]::Run($form)

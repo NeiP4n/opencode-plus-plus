@@ -95,6 +95,34 @@ describe("PlaytestTool", () => {
   })
 
   ;(process.platform === "win32" ? it.live : it.live.skip)(
+    "moves from a black helper window to the window that draws",
+    () =>
+      withTempDir(({ path: directory }) => {
+        const seen: string[] = []
+        return Effect.gen(function* () {
+          const tools = yield* Tool.Service
+          const result = yield* run(tools, "decoy", {
+            steps: [
+              {
+                action: "launch",
+                path: "powershell.exe",
+                args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fixture, "-Decoy"],
+                title: "Loader",
+              },
+              { action: "screenshot", see: false },
+              { action: "wait_text", text: "STUDIO LOGO", ms: 5000 },
+              { action: "close" },
+            ],
+          })
+          const output = text(result)
+          expect(output).toContain("PASS")
+          expect(output).toContain(`switched to the app's window "Playtest Fixture"`)
+        }).pipe(Effect.provide(harness(directory, seen)))
+      }),
+    60_000,
+  )
+
+  ;(process.platform === "win32" ? it.live : it.live.skip)(
     "drives a hidden app with the virtual mouse and keyboard and sees the result",
     () =>
       withTempDir(({ path: directory }) => {
