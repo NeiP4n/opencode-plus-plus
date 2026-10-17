@@ -1,7 +1,7 @@
 #!/bin/sh
 # Termux installer wrapper for OpenCode++.
 # Revision marker helps diagnose stale raw.githubusercontent.com responses.
-INSTALLER_WRAPPER_REV="termux-seccomp-fix-2026-10-17-b"
+INSTALLER_WRAPPER_REV="termux-room-chat-repair-2026-10-17-c"
 echo "opencode-pp: installer revision $INSTALLER_WRAPPER_REV"
 set -eu
 
