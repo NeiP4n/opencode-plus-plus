@@ -123,8 +123,13 @@ export const Plugin = {
                         : visible.map((peer) => `${peer.id} · ${peer.name} · ${peer.visibility}`).join("\n"),
                   }
                 }
-                case "policy":
-                  return { output: JSON.stringify(yield* federation.policy(project.id), null, 2) }
+                case "policy": {
+                  const policy = yield* federation.policy(project.id)
+                  if (!groupSupervisor) return { output: JSON.stringify(policy, null, 2) }
+                  const group = (yield* federation.groups()).find((item) => item.name === groupSupervisor.name)
+                  const members = new Set(group?.projects ?? [])
+                  return { output: JSON.stringify({ ...policy, grants: policy.grants.filter((grant) => members.has(grant.peer)) }, null, 2) }
+                }
                 case "set_policy": {
                   if (!input.visibility)
                     return yield* new ToolFailure({ message: "set_policy replaces the whole policy: pass visibility and grants." })
@@ -179,7 +184,11 @@ export const Plugin = {
                 }
                 case "linked": {
                   const found = yield* federation.linked(project.id)
-                  return { output: found.map((item) => `${item.id} · ${item.name}`).join("\n") || "No linked projects." }
+                  const allowed = groupSupervisor
+                    ? new Set((yield* federation.groups()).find((group) => group.name === groupSupervisor.name)?.projects ?? [])
+                    : undefined
+                  const visible = allowed ? found.filter((item) => allowed.has(item.id)) : found
+                  return { output: visible.map((item) => `${item.id} · ${item.name}`).join("\n") || "No linked projects in the allowed scope." }
                 }
                 case "groups": {
                   const found = yield* federation.groups()
