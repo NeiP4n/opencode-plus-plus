@@ -752,6 +752,8 @@ export default Plugin.define({
       render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} exitIp={exit.ip} directIp={exit.direct} open={open} refresh={() => void perform("refresh")} />,
     })
 
+    // Everything is driven through warp-cli; keep the WARP desktop window from popping up.
+    void Warp.hideGui()
     void refresh()
     void refreshProxy()
     const timer = setInterval(() => void refresh(), STATUS_REFRESH_MS)

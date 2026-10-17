@@ -211,6 +211,19 @@ export async function hideGui(platform: NodeJS.Platform = process.platform) {
   if (platform === "win32") {
     await quiet("taskkill.exe", ["/F", "/IM", "Cloudflare WARP.exe"])
     await quiet("reg.exe", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Cloudflare WARP", "/f"])
+    // The installer registers "CloudflareWARP" under HKLM\Run, which needs admin to delete. Marking it
+    // disabled in the per-user StartupApproved key stops it from starting for this user without admin.
+    await quiet("reg.exe", [
+      "add",
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+      "/v",
+      "CloudflareWARP",
+      "/t",
+      "REG_BINARY",
+      "/d",
+      "030000000000000000000000",
+      "/f",
+    ])
     return
   }
   if (platform === "linux") {
