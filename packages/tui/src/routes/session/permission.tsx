@@ -19,6 +19,7 @@ import { useToast } from "../../ui/toast"
 import { useClient } from "../../context/client"
 import { Spinner } from "../../component/spinner"
 import { useT } from "../../util/i18n"
+import { modelErrorText, withModelWarmup } from "../../util/model-error"
 
 type PermissionStage = "permission" | "reject"
 
@@ -179,12 +180,14 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
       .join("\n")
       .slice(0, 2_000)
     setStore("explanation", { status: "loading", text: "" })
-    void client.api.generate
-      .text({ prompt: [explainInstructions(config.language), subject].join("\n\n"), model: props.model })
+    void withModelWarmup(() =>
+      client.api.generate.text({
+        prompt: [explainInstructions(config.language), subject].join("\n\n"),
+        model: props.model,
+      }),
+    )
       .then((result) => setStore("explanation", { status: "done", text: result.text.trim() }))
-      .catch((cause: unknown) =>
-        setStore("explanation", { status: "error", text: cause instanceof Error ? cause.message : String(cause) }),
-      )
+      .catch((cause: unknown) => setStore("explanation", { status: "error", text: modelErrorText(cause, t) }))
   }
 
   Keymap.createLayer(() => ({
@@ -340,7 +343,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                     </Match>
                     <Match when={store.explanation.status === "error"}>
                       <text fg={theme.text.feedback.error.base} wrapMode="word">
-                        {t("Could not explain: {error}", { error: store.explanation.text })}
+                        {store.explanation.text}
                       </text>
                     </Match>
                     <Match when={store.explanation.status === "done"}>

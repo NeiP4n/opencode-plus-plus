@@ -1017,15 +1017,20 @@ const ru: Record<string, string> = {
   minimize: "свернуть",
   explain: "объяснить",
   "Explaining the command…": "Объясняю команду…",
-  "Could not explain: {error}": "Не удалось объяснить: {error}",
   // Project facts
   Facts: "Факты",
   "Project facts": "Факты о проекте",
   refresh: "обновить",
   "Collecting project facts…": "Собираю факты о проекте…",
-  "Could not collect facts: {error}": "Не удалось собрать факты: {error}",
   "Open a project to collect its facts.": "Открой проект, чтобы собрать факты.",
   "Nothing in this folder to learn from.": "В этой папке не из чего узнать о проекте.",
+  "The chosen model has run out of its usage limit. Pick another model in the prompt and refresh.":
+    "У выбранной модели кончился лимит. Выбери другую модель в строке ввода и нажми «обновить».",
+  "The chosen model is not available yet. Refresh in a few seconds.":
+    "Выбранная модель пока недоступна. Нажми «обновить» через несколько секунд.",
+  "The free model rejected the request. Pick another model and refresh.":
+    "Бесплатная модель отклонила запрос. Выбери другую модель и нажми «обновить».",
+  "The model could not answer: {error}": "Модель не смогла ответить: {error}",
 }
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {

@@ -10,7 +10,7 @@ import { useRoute } from "../context/route"
 import { useStorage } from "../context/storage"
 import { useTheme, useThemes } from "../context/theme"
 import { SplitBorder } from "../ui/border"
-import { errorMessage } from "../util/error"
+import { modelErrorText, withModelWarmup } from "../util/model-error"
 import { useT } from "../util/i18n"
 import { getScrollAcceleration } from "../util/scroll"
 import { Spinner } from "./spinner"
@@ -129,14 +129,13 @@ function FactsWindow() {
           setEmpty(true)
           return undefined
         }
-        return client.api.generate.text({
-          prompt: instructions(lang, sources.join("\n\n")),
-          model: selected && {
-            providerID: selected.providerID,
-            id: selected.modelID,
-            variant: local.model.variant.current(),
-          },
-        })
+        const variant = local.model.variant.current()
+        return withModelWarmup(() =>
+          client.api.generate.text({
+            prompt: instructions(lang, sources.join("\n\n")),
+            model: selected && { providerID: selected.providerID, id: selected.modelID, variant },
+          }),
+        )
       })
       .then((result) => {
         if (result === undefined) return
@@ -144,7 +143,7 @@ function FactsWindow() {
           draft.projects[dir] = { text: result.text.trim(), language: lang, time: Date.now(), format: FORMAT }
         })
       })
-      .catch((cause: unknown) => setError(errorMessage(cause)))
+      .catch((cause: unknown) => setError(modelErrorText(cause, t)))
       .finally(() => setLoading(false))
   }
 
@@ -213,7 +212,7 @@ function FactsWindow() {
           <Match when={error()}>
             {(message) => (
               <text fg={theme.text.feedback.error.base} wrapMode="word">
-                {t("Could not collect facts: {error}", { error: message() })}
+                {message()}
               </text>
             )}
           </Match>
