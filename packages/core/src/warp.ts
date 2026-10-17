@@ -8,9 +8,9 @@
  *
  * Nothing here runs a shell: warp-cli is always spawned with a fixed argument vector.
  */
-import { execFile } from "node:child_process"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { execFile, execFileSync } from "node:child_process"
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { createConnection } from "node:net"
 import path from "node:path"
@@ -526,4 +526,55 @@ async function waitForExit(port: number, attempts = 6) {
     await wait(700)
   }
   return undefined
+}
+
+// ---------- shut WARP down with the last OpenCode ----------
+
+const usersDir = () => path.join(tmpdir(), "opencode-warp-users")
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (cause) {
+    // EPERM still means the process exists.
+    return (cause as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
+/** Record that this OpenCode process relies on the local WARP proxy. */
+export function markInUse() {
+  try {
+    mkdirSync(usersDir(), { recursive: true })
+    writeFileSync(path.join(usersDir(), String(process.pid)), "")
+  } catch {}
+}
+
+/**
+ * Called when this OpenCode process stops using WARP (exit or proxy turned off). Synchronous so it can run in
+ * an `exit` handler. WARP is disconnected only when no other live OpenCode still depends on it and it is in
+ * Local Proxy mode, so a device-wide WARP connection or another app's proxy is never touched.
+ */
+export function releaseSync(options: { disconnect: boolean } = { disconnect: true }) {
+  try {
+    rmSync(path.join(usersDir(), String(process.pid)), { force: true })
+  } catch {}
+  if (!options.disconnect) return
+  let others = 0
+  try {
+    for (const name of readdirSync(usersDir())) {
+      const pid = Number(name)
+      if (!Number.isInteger(pid) || pid === process.pid) continue
+      if (alive(pid)) others++
+      else rmSync(path.join(usersDir(), name), { force: true })
+    }
+  } catch {}
+  if (others > 0) return
+  const cli = resolveCli()
+  if (!cli) return
+  try {
+    const settings = execFileSync(cli, ["--accept-tos", "settings"], { encoding: "utf8", windowsHide: true, timeout: 5_000 })
+    if (parseMode(settings).mode !== "proxy") return
+    execFileSync(cli, ["--accept-tos", "disconnect"], { windowsHide: true, timeout: 8_000, stdio: "ignore" })
+  } catch {}
 }

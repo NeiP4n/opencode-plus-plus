@@ -648,11 +648,31 @@ export default Plugin.define({
     // The global config is rewritten by other tools too, so a single "off" read is not trusted:
     // the indicator only flips off after two consecutive reads agree.
     let offReads = 0
+    let leaving = false
+    // Turn WARP off together with the last OpenCode that uses it (and only if this one was routed through it).
+    const leave = () => {
+      if (leaving) return
+      leaving = true
+      Warp.releaseSync({ disconnect: proxy.enabled })
+    }
+    const onSignal = (code: number) => () => {
+      leave()
+      process.exit(code)
+    }
+    const onHup = onSignal(129)
+    const onTerm = onSignal(143)
+    process.once("exit", leave)
+    process.once("SIGHUP", onHup)
+    process.once("SIGTERM", onTerm)
     const refreshProxy = async () => {
       const enabled = await readOpenCodeProxyEnabled(context)
       if (enabled === undefined) return
       offReads = enabled ? 0 : offReads + 1
       if (enabled || offReads >= 2) updateProxy((draft) => { draft.enabled = enabled })
+      if (enabled) {
+        leaving = false
+        Warp.markInUse()
+      }
     }
 
     const refresh = async () => {
@@ -683,6 +703,7 @@ export default Plugin.define({
         } else if (action === "disableProxy") {
           await setOpenCodeProxy(context, false)
           updateProxy((draft) => { draft.enabled = false })
+          Warp.releaseSync({ disconnect: false })
           next = await readWarpStatus()
           actionMessage = text(context, "OpenCode proxy disabled; its previous proxy environment is restored.", "Прокси OpenCode отключён; прежние настройки прокси восстановлены.")
         } else if (action === "changeIp") {
@@ -771,6 +792,24 @@ export default Plugin.define({
     void refreshProxy()
     const timer = setInterval(() => void refresh(), STATUS_REFRESH_MS)
 
-    return () => clearInterval(timer)
+    // OpenCode's proxy setting is on but WARP is down (we shut it off on the last exit): bring it back up.
+    void (async () => {
+      if (!(await readOpenCodeProxyEnabled(context))) return
+      const current = await readWarpStatus()
+      if (current.state !== "disconnected") return
+      if ((await Warp.mode()).mode !== "proxy") return
+      try {
+        setSharedStatus(updateStatus, await Warp.connect())
+        await refreshExitIp()
+      } catch {}
+    })()
+
+    return () => {
+      clearInterval(timer)
+      process.off("exit", leave)
+      process.off("SIGHUP", onHup)
+      process.off("SIGTERM", onTerm)
+      leave()
+    }
   },
 })
