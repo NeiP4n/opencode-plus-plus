@@ -726,9 +726,11 @@ const layer = Layer.effect(
         state = { ...state, currentTerm: term, votedFor: state.nodeID, leaderID: undefined }
         yield* save(state)
         resetElection(state.clusterID)
+        // The callbacks below run after `state` was reassigned, so they read this snapshot instead.
+        const candidate = state
         const requests = yield* Effect.all(
-          state.members.filter((member) => member.id !== state.nodeID).map((member) =>
-            callRPC(member.url, state.secret, { type: "request-vote", clusterID: state.clusterID, fromNodeID: state.nodeID, term, lastLogIndex: lastIndex(state), lastLogTerm: lastTerm(state) }).pipe(
+          candidate.members.filter((member) => member.id !== candidate.nodeID).map((member) =>
+            callRPC(member.url, candidate.secret, { type: "request-vote", clusterID: candidate.clusterID, fromNodeID: candidate.nodeID, term, lastLogIndex: lastIndex(candidate), lastLogTerm: lastTerm(candidate) }).pipe(
               Effect.match({ onFailure: () => ({ member, reply: undefined }), onSuccess: (reply) => ({ member, reply }) }),
             ),
           ),
