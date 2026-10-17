@@ -1034,6 +1034,18 @@ const ru: Record<string, string> = {
   "Collecting project facts…": "Собираю факты о проекте…",
   "Open a project to collect its facts.": "Открой проект, чтобы собрать факты.",
   "Nothing in this folder to learn from.": "В этой папке не из чего узнать о проекте.",
+  // Quick help windows
+  Essence: "Суть",
+  Chat: "Чат",
+  "Explain selection": "Объяснение выделенного",
+  "Project essence": "Суть проекта",
+  "Quick chat": "Быстрый чат",
+  clear: "очистить",
+  "Thinking…": "Думаю…",
+  "Ask anything quick. The answer does not go into the main chat.":
+    "Спроси что угодно — ответ не попадёт в основной чат.",
+  "Select text in the chat, then press Explain.": "Выдели текст в чате и нажми «Объяснить».",
+  "Ask a question and press Enter": "Задай вопрос и нажми Enter",
   "The chosen model has run out of its usage limit. Pick another model in the prompt and refresh.":
     "У выбранной модели кончился лимит. Выбери другую модель в строке ввода и нажми «обновить».",
   "The chosen model is not available yet. Refresh in a few seconds.":

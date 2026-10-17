@@ -28,6 +28,7 @@ import { useProjects } from "../context/projects"
 import { DialogExperiments } from "./dialog-experiments"
 import { DialogIdeaBank } from "./dialog-idea-bank"
 import { ProjectFacts, useProjectFacts } from "./project-facts"
+import { explainSelection, QuickHelp, quickMode, setQuickMode, type QuickMode } from "./quick-help"
 import { usePromptRef } from "../context/prompt"
 import { usePlugin } from "../plugin/context"
 import { errorMessage } from "../util/error"
@@ -129,6 +130,22 @@ export function DevToolsBar() {
   const onDebugOverlayToggle = (enabled: boolean) => setDebugOverlay(enabled)
   renderer.on(CliRenderEvents.DEBUG_OVERLAY_TOGGLE, onDebugOverlayToggle)
   onCleanup(() => renderer.off(CliRenderEvents.DEBUG_OVERLAY_TOGGLE, onDebugOverlayToggle))
+
+  // Pressing Explain starts a new (empty) selection on the bar, so the last non-empty one is kept here.
+  let selected = ""
+  const onSelection = (selection: { getSelectedText(): string } | null) => {
+    const text = selection?.getSelectedText() ?? ""
+    if (text.trim()) selected = text
+  }
+  renderer.on(CliRenderEvents.SELECTION, onSelection)
+  onCleanup(() => renderer.off(CliRenderEvents.SELECTION, onSelection))
+  // The windows share the corner above the bar, so opening one closes the others.
+  const toggleQuick = (next: QuickMode) => {
+    if (quickMode() === next) return setQuickMode()
+    if (facts.open) void updateFacts((draft) => void (draft.open = false)).catch(toast.error)
+    if (next === "explain") return explainSelection(renderer.getSelection()?.getSelectedText() || selected)
+    setQuickMode(next)
+  }
 
   onMount(() => {
     const eventLoop = monitorEventLoopDelay({ resolution: 20 })
@@ -297,6 +314,9 @@ export function DevToolsBar() {
       label(`✦ ${t("Ideas")}`) +
       label(`${t("Language")} EN`) +
       label(t("Facts")) +
+      label(t("Explain")) +
+      label(t("Essence")) +
+      label(t("Chat")) +
       (projects.loaded() && projects.list().length === 0 ? label(t("+ Project")) : 0)
     const total = fixed + Object.values(widths).reduce((sum, width) => sum + width, 0)
     return Object.keys(widths).reduce(
@@ -595,13 +615,23 @@ export function DevToolsBar() {
       <box flexGrow={1} minWidth={0}>
         <TimeToFirstDraw visible={timing()} width="100%" fg={theme.text.muted} label="Time to first draw" />
       </box>
+      <BarItem active={quickMode() === "explain"} onClick={() => toggleQuick("explain")} selecting>
+        <text fg={quickMode() === "explain" ? theme.text.action.primary.focused : theme.text.muted}>{t("Explain")}</text>
+      </BarItem>
+      <BarItem active={quickMode() === "essence"} onClick={() => toggleQuick("essence")}>
+        <text fg={quickMode() === "essence" ? theme.text.action.primary.focused : theme.text.muted}>{t("Essence")}</text>
+      </BarItem>
+      <BarItem active={quickMode() === "chat"} onClick={() => toggleQuick("chat")}>
+        <text fg={quickMode() === "chat" ? theme.text.action.primary.focused : theme.text.muted}>{t("Chat")}</text>
+      </BarItem>
       <BarItem
         active={facts.open}
-        onClick={() =>
+        onClick={() => {
+          if (!facts.open) setQuickMode()
           void updateFacts((draft) => {
             draft.open = !draft.open
           }).catch(toast.error)
-        }
+        }}
       >
         <text fg={facts.open ? theme.text.action.primary.focused : theme.text.muted}>{t("Facts")}</text>
       </BarItem>
@@ -621,12 +651,14 @@ export function DevToolsBar() {
       {/* Like the slot wrapper above: a stable node keeps the window out of the bar's zIndex re-sort. */}
       <box flexDirection="row">
         <ProjectFacts />
+        <QuickHelp />
       </box>
     </box>
   )
 }
 
-function BarItem(props: ParentProps<{ active: boolean; onClick: () => void; hidden?: boolean }>) {
+// `selecting` items act on the text selected in the chat, so a live selection does not swallow their click.
+function BarItem(props: ParentProps<{ active: boolean; onClick: () => void; hidden?: boolean; selecting?: boolean }>) {
   const theme = useTheme()
   const renderer = useRenderer()
   const [hovered, setHovered] = createSignal(false)
@@ -649,7 +681,7 @@ function BarItem(props: ParentProps<{ active: boolean; onClick: () => void; hidd
       onMouseOver={() => setHovered(true)}
       onMouseOut={() => setHovered(false)}
       onMouseUp={() => {
-        if (renderer.getSelection()?.getSelectedText()) return
+        if (!props.selecting && renderer.getSelection()?.getSelectedText()) return
         props.onClick()
       }}
     >

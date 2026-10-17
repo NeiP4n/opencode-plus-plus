@@ -49,6 +49,33 @@ const SOURCE_LIMIT = 1_200
 const SOURCE_COUNT = 5
 const LISTING_LIMIT = 60
 
+/** Short excerpts of the first few describing files that exist plus the top-level file list. */
+export function readProjectSources(client: ReturnType<typeof useClient>, directory: string) {
+  return Promise.all([
+    ...SOURCES.map((path) =>
+      client.api.file
+        .read({ path, location: { directory } })
+        .then((bytes) => `--- ${path} ---\n${new TextDecoder().decode(bytes).slice(0, SOURCE_LIMIT)}`)
+        .catch(() => undefined),
+    ),
+    client.api.file
+      .list({ location: { directory } })
+      .then((listing) =>
+        listing.data.length === 0
+          ? undefined
+          : `--- top-level files ---\n${listing.data
+              .slice(0, LISTING_LIMIT)
+              .map((entry) => (entry.type === "directory" ? `${entry.path}/` : entry.path))
+              .join("\n")}`,
+      )
+      .catch(() => undefined),
+  ]).then((found) =>
+    [...found.slice(0, -1).filter((excerpt) => excerpt !== undefined).slice(0, SOURCE_COUNT), found.at(-1)].filter(
+      (excerpt) => excerpt !== undefined,
+    ),
+  )
+}
+
 const instructions = (language: string, sources: string) =>
   [
     "Below are excerpts of a software project's files and its top-level file list. The person working on it wants a short cheat sheet so they keep understanding what the project is about.",
@@ -109,28 +136,8 @@ function FactsWindow() {
     setLoading(true)
     setError(undefined)
     setEmpty(false)
-    void Promise.all([
-      ...SOURCES.map((path) =>
-        client.api.file
-          .read({ path, location: { directory: dir } })
-          .then((bytes) => `--- ${path} ---\n${new TextDecoder().decode(bytes).slice(0, SOURCE_LIMIT)}`)
-          .catch(() => undefined),
-      ),
-      client.api.file
-        .list({ location: { directory: dir } })
-        .then((listing) =>
-          listing.data.length === 0
-            ? undefined
-            : `--- top-level files ---\n${listing.data
-                .slice(0, LISTING_LIMIT)
-                .map((entry) => (entry.type === "directory" ? `${entry.path}/` : entry.path))
-                .join("\n")}`,
-        )
-        .catch(() => undefined),
-    ])
-      .then((found) => {
-        const files = found.slice(0, -1).filter((excerpt) => excerpt !== undefined)
-        const sources = [...files.slice(0, SOURCE_COUNT), found.at(-1)].filter((excerpt) => excerpt !== undefined)
+    void readProjectSources(client, dir)
+      .then((sources) => {
         if (sources.length === 0) {
           setEmpty(true)
           return undefined
