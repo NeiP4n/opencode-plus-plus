@@ -16,17 +16,14 @@ curl -fsSL --retry 3 "$BASE_URL" -o "$TMP"
 # compatibility probe can return Bun's "Unknown Error, pidfd_open" even after
 # SIGSYS is converted to ENOSYS. Do not let that probe abort the installation;
 # we replace its preload library with the stronger handler below afterwards.
-python3 - "$TMP" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-s = p.read_text()
-old = 'fail "Bun subprocess still fails with the Android seccomp shim; refusing to install a launcher known to crash"'
-new = 'echo "WARNING: Bun subprocess probe still reports an Android seccomp/pidfd issue; continuing to install the compatibility launcher." >&2'
-if old not in s:
-    raise SystemExit("pinned installer changed: expected subprocess failure guard was not found")
-p.write_text(s.replace(old, new, 1))
-PY
+awk '
+  index($0, "fail \\"Bun subprocess still fails with the Android seccomp shim; refusing to install a launcher known to crash\\"") {
+    print "        echo \\"WARNING: Bun subprocess probe still reports an Android seccomp/pidfd issue; continuing to install the compatibility launcher.\\" >&2"
+    next
+  }
+  { print }
+' "$TMP" >"$TMP.new"
+mv "$TMP.new" "$TMP"
 
 sh "$TMP"
 
@@ -72,14 +69,10 @@ static void resolve_real_signal_apis(void) {
 
 static void sigsys_handler(int signo, siginfo_t *info, void *context) {
   (void)signo;
-  if (!info || info->si_code != SYS_SECCOMP || !context) {
-    _exit(128 + SIGSYS);
-  }
+  if (!info || info->si_code != SYS_SECCOMP || !context) _exit(128 + SIGSYS);
 #if defined(__aarch64__)
   ucontext_t *uc = (ucontext_t *)context;
-  /* Android Bionic delivers the PC at the trapped svc instruction. */
   uc->uc_mcontext.pc += 4;
-  /* Make the raw syscall look exactly like ENOSYS to Bun. */
   uc->uc_mcontext.regs[0] = (unsigned long)(long)-ENOSYS;
 #else
   _exit(128 + SIGSYS);
@@ -102,12 +95,10 @@ static void init_sigsys_compat(void) {
   install_ours();
 }
 
-/* Keep our seccomp handler armed if Bun changes SIGSYS after startup. */
 int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact) {
   resolve_real_signal_apis();
   if (signum != SIGSYS || !real_sigaction_fn)
     return real_sigaction_fn ? real_sigaction_fn(signum, act, oldact) : -1;
-
   if (oldact) {
     if (requested_sigsys_valid) *oldact = requested_sigsys;
     else memset(oldact, 0, sizeof(*oldact));
@@ -124,7 +115,6 @@ handler_fn signal(int signum, handler_fn handler) {
   resolve_real_signal_apis();
   if (signum != SIGSYS || !real_signal_fn)
     return real_signal_fn ? real_signal_fn(signum, handler) : SIG_ERR;
-
   requested_sigsys.sa_handler = handler;
   sigemptyset(&requested_sigsys.sa_mask);
   requested_sigsys.sa_flags = 0;
@@ -133,8 +123,6 @@ handler_fn signal(int signum, handler_fn handler) {
   return SIG_DFL;
 }
 
-/* Bun's PLT path can reach these symbols directly. Return ENOSYS so Bun's
- * existing waiter-thread fallback is selected without ever entering seccomp. */
 typedef long (*real_syscall_fn)(long, long, long, long, long, long, long);
 static real_syscall_fn real_syscall_ptr;
 
@@ -178,7 +166,4 @@ else
   echo "opencode-pp: clang is unavailable; keeping the installer-provided shim" >&2
 fi
 
-# The pinned installer writes this exact preload path into the Termux launcher
-# when the seccomp probe fails. Keep the path valid even if the probe happened
-# to be inconclusive on this device.
 exit 0
