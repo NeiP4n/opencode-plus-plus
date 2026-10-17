@@ -2483,6 +2483,7 @@ export type ConfigUpdateInput = {
   readonly model?: string | null
   readonly mcpServers?: { readonly [x: string]: Mcp.LocalConfig | Mcp.RemoteConfig | null }
   readonly compatibilityEnabled?: boolean | null
+  readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
 }
 export type ConfigUpdateOutput = void
 export type ConfigUpdateOperation<E = never> = (input?: ConfigUpdateInput) => Effect.Effect<ConfigUpdateOutput, E>

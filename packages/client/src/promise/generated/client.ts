@@ -2500,6 +2500,7 @@ export function make(options: ClientOptions) {
               model: input?.["model"],
               mcpServers: input?.["mcpServers"],
               compatibilityEnabled: input?.["compatibilityEnabled"],
+              proxy: input?.["proxy"],
             },
             successStatus: 204,
             declaredStatuses: [400, 401, 404],

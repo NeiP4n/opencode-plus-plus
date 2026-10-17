@@ -16,6 +16,7 @@ import { ConfigMCP } from "./config/mcp.js"
 import { ConfigModel } from "./config/model.js"
 import { ConfigPlugin } from "./config/plugin.js"
 import { ConfigProvider } from "./config/provider.js"
+import { ConfigProxy } from "./config/proxy.js"
 import { ConfigReference } from "./config/reference.js"
 import { ConfigWebSearch } from "./config/websearch.js"
 import { ConfigToolOutput } from "./config/tool-output.js"
@@ -35,6 +36,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   default_agent: Schema.String.pipe(optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
+  }),
+  proxy: ConfigProxy.Info.pipe(optional).annotate({
+    description: "HTTP/HTTPS proxy for OpenCode network requests only; local endpoints must be bypassed",
   }),
   update: Schema.Literals(["disable", "notify", "auto"]).pipe(optional).annotate({
     description: "Disable updates, notify when one is available, or install updates automatically",
@@ -122,6 +126,7 @@ export const Patch = Schema.Struct({
   mcpServers: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(ConfigMCP.Server))).annotate({
     description: "MCP servers to add or replace under mcp.servers by name; null removes one",
   }),
+  proxy: Schema.optionalKey(Schema.NullOr(ConfigProxy.Info)),
   compatibilityEnabled: Schema.optionalKey(Schema.NullOr(Schema.Boolean)).annotate({
     description: "Turn reading other agent tools' folders on or off everywhere (compatibility.enabled); null clears it",
   }),
