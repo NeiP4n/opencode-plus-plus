@@ -217,8 +217,8 @@ termux() {
   "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync([process.execPath, "-e", "process.exit(0)"]); if (p.exitCode !== 0) { process.stderr.write(p.stderr); console.error("child Bun exit code:", p.exitCode); process.exit(1) }' >"$spawn_probe_log" 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then
     cat "$spawn_probe_log" >&2
-    rm -f "$spawn_probe_log"
-    fail "patched Bun could not start a child Bun process; Android seccomp/SIGSYS may be blocking subprocesses"
+    echo "WARNING: Bun subprocess preflight failed; continuing installation so the Android OpenTUI fix and launcher are installed." >&2
+    echo "If opencode-pp still fails, the child-process error will need separate diagnosis." >&2
   fi
   rm -f "$spawn_probe_log"
 
