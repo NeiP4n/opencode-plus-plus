@@ -203,6 +203,26 @@ describe("Federation", () => {
     }),
   )
 
+  it.live("notifies the group supervisor when a federated ticket changes state", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setPolicy({
+        project: b.id,
+        visibility: "summary",
+        grants: [{ peer: a.id, allow: ["question"] }],
+      })
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: a.main! })
+
+      const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "API status", body: "Is the route ready?" })
+      expect(ticket.status).toBe("pending")
+      expect((yield* texts(a)).some((text) => text.includes("<federation-event") && text.includes(ticket.id))).toBe(true)
+
+      yield* federation.decide({ id: ticket.id, project: b.id, accept: false })
+      expect((yield* texts(a)).some((text) => text.includes("<federation-event") && text.includes('status="rejected"'))).toBe(true)
+    }),
+  )
+
   it.live("shows only projects that are not hidden", () =>
     Effect.gen(function* () {
       const { a, b } = yield* setup
