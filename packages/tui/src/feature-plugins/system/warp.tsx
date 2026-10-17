@@ -443,27 +443,27 @@ function WarpPage(props: {
   }
 
   return (
-    <box width="100%" backgroundColor={theme().background.base} padding={1} gap={1}>
-      <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
-        <box flexGrow={1} minWidth={0} gap={1}>
+    <box width="100%" backgroundColor={theme().background.base} paddingLeft={1} paddingRight={1} gap={1}>
+      <box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+        <box flexGrow={1} minWidth={0}>
           <text fg={theme().text.base}>
             <b>Cloudflare WARP</b>
           </text>
           <text fg={theme().text.muted} wrapMode="word">
             {ru()
-              ? "Управление VPN-подключением и восстановление регистрации после проблем с доступом."
-              : "Manage the WARP connection and refresh its registration when troubleshooting access."}
+              ? "Через WARP идёт только трафик OpenCode, остальные программы — напрямую."
+              : "Only OpenCode traffic goes through WARP; other apps connect directly."}
           </text>
         </box>
         <ActionButton
           context={props.context}
           id="warp.close"
-          label={ru() ? "[ Назад · Esc ]" : "[ Back · Esc ]"}
+          label="[ Esc ]"
           run={props.onClose}
         />
       </box>
 
-      <box padding={1} gap={1}>
+      <box paddingLeft={1}>
         <box flexDirection="row" alignItems="center" gap={1}>
           <text fg={statusColor(props.context, props.status.state)}>●</text>
           <text fg={theme().text.base}>
@@ -472,7 +472,9 @@ function WarpPage(props: {
           <text fg={theme().text.muted}>{pending() ? working() : ""}</text>
         </box>
         <text fg={theme().text.muted} wrapMode="word">
-          {props.status.details}
+          {props.status.state === "unavailable"
+            ? (ru() ? "Cloudflare WARP не установлен. Нажми «Установить WARP…»." : "Cloudflare WARP is not installed. Press “Install WARP…”.")
+            : props.status.details}
         </text>
         <text fg={theme().text.muted} wrapMode="none">
           {props.exitIp
@@ -497,64 +499,71 @@ function WarpPage(props: {
           run={() => props.run("refresh")}
           disabled={pending()}
         />
-        <ActionButton
+        {props.status.state !== "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.connect"
           label={ru() ? "Подключить" : "Connect"}
           run={() => props.run("connect")}
-          disabled={pending() || props.status.state === "connected" || props.status.state === "unavailable"}
+          disabled={pending() || props.status.state === "connected"}
         />
-        <ActionButton
+        )}
+        {props.status.state !== "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.disconnect"
           label={ru() ? "Отключить" : "Disconnect"}
           run={() => props.run("disconnect")}
           disabled={pending() || props.status.state !== "connected"}
         />
-        <ActionButton
+        )}
+        {props.status.state !== "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.reconnect"
           label={ru() ? "Переподключить" : "Reconnect"}
           run={() => props.run("reconnect")}
-          disabled={pending() || props.status.state === "unavailable"}
+          disabled={pending()}
         />
-        <ActionButton
+        )}
+        {props.status.state !== "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.proxy"
           label={props.proxyEnabled
             ? (ru() ? "Убрать прокси OpenCode" : "Disable OpenCode proxy")
             : (ru() ? "Только OpenCode через WARP…" : "Route only OpenCode through WARP…")}
           run={() => props.run(props.proxyEnabled ? "disableProxy" : "proxy")}
-          disabled={pending() || props.status.state === "unavailable"}
+          disabled={pending()}
           emphasized={!props.proxyEnabled}
         />
-        <ActionButton
+        )}
+        {props.status.state !== "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.changeIp"
           label={ru() ? "Сменить IP" : "Change IP"}
           run={() => props.run("changeIp")}
-          disabled={pending() || !props.proxyEnabled || props.status.state === "unavailable"}
+          disabled={pending() || !props.proxyEnabled}
           emphasized={props.proxyEnabled}
         />
-        <ActionButton
+        )}
+        {props.status.state !== "unavailable" && (
+          <ActionButton
           context={props.context}
           id="warp.reset"
           label={ru() ? "Сбросить регистрацию…" : "Reset registration…"}
           run={() => void reset()}
-          disabled={pending() || props.status.state === "unavailable"}
+          disabled={pending()}
         />
+        )}
       </box>
 
-      <box paddingTop={1} gap={1}>
-        <text fg={theme().text.feedback.warning.base} wrapMode="word">
-          {ru()
-            ? "Connect, Reconnect и Reset работают только в режиме WarpProxy. В Local Proxy только OpenCode использует WARP, остальные приложения идут напрямую. Сброс регистрации — только для личного WARP."
-            : "Connect, Reconnect and Reset work only in WarpProxy mode. With Local Proxy, only OpenCode uses WARP; other apps connect directly. Reset registration is for personal WARP only."}
-        </text>
+      <box gap={1}>
         <text fg={theme().text.muted} wrapMode="word">
           {ru()
-            ? "Команда /update открывает эту панель. Также можно использовать /warp или палитру команд."
-            : "Use /update to open this panel. /warp and the command palette work too."}
+            ? "Reconnect, Сменить IP и Сброс работают в режиме Local Proxy. Сброс — только для личного WARP."
+            : "Reconnect, Change IP and Reset work in Local Proxy mode. Reset is for personal WARP only."}
         </text>
       </box>
     </box>
