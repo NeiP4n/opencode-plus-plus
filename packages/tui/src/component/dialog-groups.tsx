@@ -29,9 +29,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const [opening, setOpening] = createSignal<string>()
   const listed = () => (groups.error ? undefined : groups.latest) ?? []
   const nameOf = (id: string) => projects.list().find((project) => project.id === id)?.name ?? id
-  // The client is generated from the HTTP API; tolerate older generated types while the optional field rolls out.
-  const supervisorOf = (group: { name: string; projects: readonly string[] }) =>
-    (group as { name: string; projects: readonly string[]; supervisor?: string }).supervisor
+  const supervisorOf = (group: { name: string; projects: readonly string[]; supervisor?: string }) => group.supervisor
 
   const act = (action: () => Promise<unknown>) =>
     void action()
@@ -72,7 +70,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
     act(() => client.api.orchestra.group.remove({ name }))
   }
 
-  const startSupervisor = async (group: { name: string; projects: readonly string[] }) => {
+  const startSupervisor = async (group: { name: string; projects: readonly string[]; supervisor?: string }) => {
     const existing = supervisorOf(group)
     if (existing) {
       route.navigate({ type: "session", sessionID: existing })
@@ -98,8 +96,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
         },
       })
       const sessionID = created.data.id
-      // Use an extension type until packages/client generated types are regenerated from protocol.
-      await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: sessionID } as never)
+      await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: sessionID })
       await client.api.session.prompt({
         sessionID,
         text: [
