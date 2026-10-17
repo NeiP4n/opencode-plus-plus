@@ -11,7 +11,7 @@ import { ID, Info, Model, Ref } from "@opencode/core/model"
 import { Provider } from "@opencode/core/provider"
 import { Npm } from "@opencode/util/npm"
 import { Effect, Layer } from "effect"
-import { HttpClient, HttpClientResponse } from "effect/unstable/http"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { testEffect } from "./lib/effect"
 
 const selected = Info.make({
@@ -145,4 +145,69 @@ testEffect(Layer.empty).effect("attributes each stateless completion without cre
     expect(sessions[0]).toStartWith("ses_")
     expect(sessions[1]).not.toBe(sessions[0])
   }),
+)
+
+testEffect(Layer.empty).effect(
+  "identifies the client and lists Zen's required tools without letting the model call them",
+  () =>
+    Effect.gen(function* () {
+      const zen = Info.make({
+        ...Info.default(Provider.ID.make("opencode"), ID.make("free-model")),
+        package: Provider.aisdk("@ai-sdk/perplexity"),
+      })
+      const requests: Array<{ readonly headers: Record<string, string>; readonly body: unknown }> = []
+      const http = Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make((request) =>
+          Effect.gen(function* () {
+            const web = yield* HttpClientRequest.toWeb(request)
+            requests.push({ headers: request.headers, body: yield* Effect.promise(() => web.json()) })
+            return HttpClientResponse.fromWeb(
+              request,
+              new Response(
+                `data: ${JSON.stringify({
+                  id: "completion",
+                  object: "chat.completion.chunk",
+                  created: 1,
+                  model: "free-model",
+                  choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+                })}\n\ndata: [DONE]\n\n`,
+                { headers: { "content-type": "text/event-stream" } },
+              ),
+            )
+          }).pipe(Effect.orDie),
+        ),
+      )
+      const zenResolver = ModelResolver.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            providers,
+            Layer.mock(Model.Service, { get: () => Effect.succeed(zen) }),
+            integrations,
+            npm,
+            Layer.mock(AISDK.Service, {
+              hook: { sdk: () => Effect.die("unused"), language: () => Effect.die("unused") },
+              model: () =>
+                Effect.succeed(LanguageModel.make({ id: "free-model", provider: "opencode", route: OpenAIChat.route })),
+            }),
+          ),
+        ),
+      )
+      const native = LLMClient.layer.pipe(Layer.provide(RequestExecutor.layer.pipe(Layer.provide(http))))
+      const text = yield* Effect.gen(function* () {
+        const generate = yield* Generate.Service
+        return yield* generate.text({
+          prompt: "Return exactly OK",
+          model: Ref.make({ providerID: zen.providerID, id: zen.id }),
+        })
+      }).pipe(Effect.provide(Generate.layer.pipe(Layer.provide(Layer.merge(zenResolver, native)))))
+
+      expect(text).toBe("OK")
+      expect(requests[0]?.headers["x-opencode-client"]).toBeDefined()
+      expect(requests[0]?.headers["user-agent"]).toBeDefined()
+      expect(requests[0]?.body).toMatchObject({
+        tools: [{ function: { name: "read" } }, { function: { name: "shell" } }],
+        tool_choice: "none",
+      })
+    }),
 )

@@ -1026,7 +1026,8 @@ const ru: Record<string, string> = {
   refresh: "обновить",
   "Collecting project facts…": "Собираю факты о проекте…",
   "Could not collect facts: {error}": "Не удалось собрать факты: {error}",
-  "Open a session in this project to collect its facts.": "Открой сессию в этом проекте, чтобы собрать факты.",
+  "Open a project to collect its facts.": "Открой проект, чтобы собрать факты.",
+  "No README.md, AGENTS.md or package.json to learn from.": "Нет README.md, AGENTS.md или package.json, из которых можно узнать о проекте.",
 }
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {

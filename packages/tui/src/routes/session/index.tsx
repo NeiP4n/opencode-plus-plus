@@ -164,6 +164,11 @@ export function Session(props: {
   const { navigate } = useRoute()
   const data = useData()
   const local = useLocal()
+  // Permission explanations ask the model chosen in the prompt, not the session's last one.
+  const promptModel = createMemo(() => {
+    const model = local.model.current()
+    return model && { providerID: model.providerID, id: model.modelID, variant: local.model.variant.current() }
+  })
   const args = useArgs()
   const configState = useConfig()
   const config = configState.data
@@ -1490,7 +1495,11 @@ export function Session(props: {
                     {(_) => {
                       const request = promptedPermissions()[0]
                       return request ? (
-                        <PermissionPrompt request={request} directory={session()?.location.directory} />
+                        <PermissionPrompt
+                          request={request}
+                          directory={session()?.location.directory}
+                          model={promptModel()}
+                        />
                       ) : null
                     }}
                   </Show>

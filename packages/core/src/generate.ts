@@ -4,9 +4,29 @@ import { LLM, LLMClient, AIError } from "@opencode/ai"
 import { SessionID } from "@opencode/schema/session-id"
 import { Context, Effect, Layer, Schema } from "effect"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
+import { App } from "./app.js"
 import { llmClient } from "./effect/app-node-platform.js"
 import { ModelResolver } from "./model-resolver.js"
 import { Model } from "./model.js"
+
+// OpenCode Zen's free tier rejects a request whose tool list lacks `read` and `shell`, as Session requests
+// handle in SessionModelRequest. A one-shot generation runs no tools, so it advertises their schemas and
+// forbids calling them.
+const ZEN_COMPATIBILITY = {
+  tools: [
+    {
+      name: "read",
+      description: "Read a file.",
+      inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+    },
+    {
+      name: "shell",
+      description: "Run a shell command.",
+      inputSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+    },
+  ],
+  toolChoice: "none",
+} as const
 
 export interface TextInput {
   readonly prompt: string
@@ -35,6 +55,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const llm = yield* LLMClient.Service
     const resolver = yield* ModelResolver.Service
+    const app = yield* App.Metadata
 
     const runText = Effect.fn("Generate.text")(function* (input: TextInput) {
       const resolved = yield* resolver.resolve(input.model).pipe(
@@ -66,8 +87,16 @@ export const layer = Layer.effect(
           LLM.request({
             model: resolved.model,
             prompt: input.prompt,
-            // Gateways require session attribution even for a stateless call; no Session is stored.
-            http: { headers: { "x-opencode-session": SessionID.create() } },
+            ...(resolved.ref.providerID === "opencode" ? ZEN_COMPATIBILITY : {}),
+            // Gateways require session attribution even for a stateless call; no Session is stored. OpenCode Zen's
+            // free tier also checks the client identity that Session requests send.
+            http: {
+              headers: {
+                "x-opencode-session": SessionID.create(),
+                "User-Agent": App.useragent(app),
+                "x-opencode-client": app.name,
+              },
+            },
           }),
         )
         .pipe(
@@ -100,5 +129,5 @@ export const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [ModelResolver.node, llmClient],
+  deps: [ModelResolver.node, llmClient, App.node],
 })

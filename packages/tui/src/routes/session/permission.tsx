@@ -22,13 +22,12 @@ import { useT } from "../../util/i18n"
 
 type PermissionStage = "permission" | "reject"
 
-// session.generate shows the session's tools but runs no tool loop, so a tool call would come back empty.
+// A stateless call with only the request text keeps this cheap: no session history, no tools.
 const explainInstructions = (language: string | undefined) =>
   [
     "The user must approve or reject the request below and wants to understand it first.",
     `Explain in ${language === "ru" ? "Russian" : "English"}, in plain words for someone who is not a programmer, what it will do.`,
     "Use at most three short sentences and no headings. Say whether it only reads something or changes, deletes, installs, or sends something.",
-    "Do not call any tools and do not take any actions.",
   ].join(" ")
 
 function EditBody(props: { file?: string; diff?: string; patch?: string }) {
@@ -122,7 +121,9 @@ function EditBody(props: { file?: string; diff?: string; patch?: string }) {
   )
 }
 
-export function PermissionPrompt(props: { request: PermissionRequest; directory?: string }) {
+export type ExplainModel = { readonly providerID: string; readonly id: string; readonly variant?: string }
+
+export function PermissionPrompt(props: { request: PermissionRequest; directory?: string; model?: ExplainModel }) {
   const data = useData()
   const client = useClient()
   const toast = useToast()
@@ -174,13 +175,10 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
     ]
       .filter(Boolean)
       .join("\n")
-      .slice(0, 6_000)
+      .slice(0, 2_000)
     setStore("explanation", { status: "loading", text: "" })
-    void client.api.session
-      .generate({
-        sessionID: props.request.sessionID,
-        prompt: [explainInstructions(config.language), subject].join("\n\n"),
-      })
+    void client.api.generate
+      .text({ prompt: [explainInstructions(config.language), subject].join("\n\n"), model: props.model })
       .then((result) => setStore("explanation", { status: "done", text: result.text.trim() }))
       .catch((cause: unknown) =>
         setStore("explanation", { status: "error", text: cause instanceof Error ? cause.message : String(cause) }),

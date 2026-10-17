@@ -24,7 +24,7 @@ const request = {
 } satisfies PermissionRequest
 
 async function mount(root: string, language: "en" | "ru") {
-  const prompts: string[] = []
+  const prompts: Array<{ prompt: string; model?: unknown }> = []
   const ready = Promise.withResolvers<void>()
   const transport = createFetch((url, input) => {
     if (url.pathname === "/api/session/ses_explain")
@@ -39,9 +39,9 @@ async function mount(root: string, language: "en" | "ru") {
           time: { created: 0, updated: 0 },
         },
       })
-    if (url.pathname === "/api/session/ses_explain/generate")
-      return input.json().then((body: { prompt: string }) => {
-        prompts.push(body.prompt)
+    if (url.pathname === "/api/experimental/generate")
+      return input.json().then((body: { prompt: string; model?: unknown }) => {
+        prompts.push(body)
         return json({ data: { text: "Deletes the build folder." } })
       })
   }, createEventStream())
@@ -49,7 +49,7 @@ async function mount(root: string, language: "en" | "ru") {
   function Sync() {
     const data = useData()
     onMount(() => void data.session.sync("ses_explain").then(ready.resolve, ready.reject))
-    return <PermissionPrompt request={request} />
+    return <PermissionPrompt request={request} model={{ providerID: "opencode", id: "free-model" }} />
   }
 
   const app = await testRender(
@@ -95,8 +95,10 @@ test("the explain button asks the session model about the command and shows the 
       frame.findIndex((line) => line.includes("Permission required")),
     )
     expect(prompts).toHaveLength(1)
-    expect(prompts[0]).toContain("rm -rf build")
-    expect(prompts[0]).toContain("Explain in English")
+    // Only the request goes out, to the model chosen in the prompt.
+    expect(prompts[0]?.prompt).toContain("rm -rf build")
+    expect(prompts[0]?.prompt).toContain("Explain in English")
+    expect(prompts[0]?.model).toEqual({ providerID: "opencode", id: "free-model" })
   } finally {
     app.renderer.destroy()
   }
@@ -109,7 +111,7 @@ test("the explain shortcut answers in the interface language", async () => {
     await app.waitForFrame((frame) => frame.includes("объяснить") && frame.includes("Нужно разрешение"))
     await app.mockInput.typeText("?")
     await app.waitForFrame((frame) => frame.includes("Deletes the build folder."))
-    expect(prompts[0]).toContain("Explain in Russian")
+    expect(prompts[0]?.prompt).toContain("Explain in Russian")
   } finally {
     app.renderer.destroy()
   }
