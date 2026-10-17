@@ -559,7 +559,7 @@ function WarpPage(props: {
           id="warp.install"
           label={ru() ? "Установить WARP…" : "Install WARP…"}
           run={() => props.run("install")}
-          disabled={pending() || props.status.state !== "unavailable"}
+          disabled={pending() || (props.status.state !== "unavailable" && props.status.state !== "unknown")}
           emphasized
         />
         <ActionButton
@@ -651,8 +651,10 @@ export default Plugin.define({
       try {
         let next: WarpStatus
         let actionMessage: string | undefined
+        let infoOnly = false
         if (action === "install") {
           const installed = await installWarp(context)
+          infoOnly = !installed
           next = await readWarpStatus()
           actionMessage = installed
             ? text(context, "Installer finished. Check WARP status and enable Local Proxy before routing OpenCode through it.", "Установщик завершился. Проверь статус WARP и включи Local Proxy перед маршрутизацией OpenCode.")
@@ -674,9 +676,11 @@ export default Plugin.define({
           context.ui.toast.show({
             title: text(context, "WARP action finished", "Операция WARP завершена"),
             message: actionMessage ?? (statusLabel(context, next.state) + ": " + next.details.slice(0, 240)),
-            variant: action === "install" || action === "proxy" || action === "disableProxy"
-              ? "success"
-              : next.state === "connected" ? "success" : "info",
+            variant: infoOnly
+              ? "info"
+              : action === "install" || action === "proxy" || action === "disableProxy"
+                ? "success"
+                : next.state === "connected" ? "success" : "info",
           })
         }
       } catch (cause) {
