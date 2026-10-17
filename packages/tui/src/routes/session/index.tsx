@@ -1593,6 +1593,7 @@ export function SessionTranscript(props: { sessionID: string; width: number }) {
               row={row}
               message={(messageID) => data.session.message.get(props.sessionID, messageID)}
               boundaryID={boundaries()[index()]}
+              compact
             />
           )}
         </For>
@@ -1605,6 +1606,7 @@ type SessionRowViewProps = {
   row: SessionRow
   message: (messageID: string) => SessionMessageInfo | undefined
   boundaryID?: string
+  compact?: boolean
 }
 
 function SessionRowView(props: SessionRowViewProps) {
@@ -1614,7 +1616,7 @@ function SessionRowView(props: SessionRowViewProps) {
     node: target,
   })
   return (
-    <box ref={setTarget} id={sessionRowID(props.row, props.boundaryID)} marginTop={1} flexShrink={0}>
+    <box ref={setTarget} id={sessionRowID(props.row, props.boundaryID)} marginTop={props.compact ? 0 : 1} flexShrink={0}>
       <Switch>
         <Match when={props.row.type === "group" ? props.row : undefined}>
           {(row) => (
