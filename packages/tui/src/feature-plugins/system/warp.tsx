@@ -86,12 +86,32 @@ async function readWarpStatus(): Promise<WarpStatus> {
   }
 }
 
+async function isLocalProxyMode(): Promise<boolean> {
+  try {
+    return /WarpProxy/i.test(await runWarp(["settings"]))
+  } catch {
+    return false
+  }
+}
+
+async function requireLocalProxyMode(context: Plugin.Context) {
+  if (await isLocalProxyMode()) return
+  throw new Error(text(
+    context,
+    "WARP is not in Local Proxy mode. To avoid routing other applications through WARP, open Preferences > Advanced > Configure Proxy, enable Local Proxy on port 40000, and retry. OpenCode will not connect, disconnect, reconnect, or reset a full-device WARP connection.",
+    "WARP не находится в режиме Local Proxy. Чтобы не перенаправлять трафик остальных программ, открой Preferences > Advanced > Configure Proxy, включи Local Proxy на порту 40000 и повтори попытку. OpenCode не будет подключать, отключать, переподключать или сбрасывать полноустройственный WARP.",
+  ))
+}
+
 function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-async function performWarpAction(action: WarpAction): Promise<WarpStatus> {
+async function performWarpAction(action: WarpAction, context: Plugin.Context): Promise<WarpStatus> {
   if (action === "refresh") return readWarpStatus()
+  if (action === "connect" || action === "disconnect" || action === "reconnect" || action === "reset") {
+    await requireLocalProxyMode(context)
+  }
 
   if (action === "connect") {
     await runWarp(["connect"])
@@ -380,7 +400,9 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
     else if (help.toLowerCase().includes("proxy") && help.toLowerCase().includes("port")) {
       await runWarp(["proxy", "port", "40000"]).catch(() => undefined)
     }
-    await runWarp(["connect"])
+    // Never connect unless the CLI confirms Local Proxy mode. The default WARP mode
+    // may route every app on the device, which this plugin must avoid.
+    if (await isLocalProxyMode()) await runWarp(["connect"])
   }
 
   await wait(500)
@@ -612,8 +634,8 @@ function WarpPage(props: {
       <box paddingTop={1} gap={1}>
         <text fg={theme().text.feedback.warning.base} wrapMode="word">
           {ru()
-            ? "В Local Proxy только OpenCode использует WARP; остальные приложения идут напрямую. Сброс регистрации — только для личного WARP, не корпоративного Zero Trust."
-            : "With Local Proxy, only OpenCode uses WARP; other applications connect directly. Reset registration is for personal WARP only, not organization-managed Zero Trust."}
+            ? "Connect, Reconnect и Reset работают только в режиме WarpProxy. В Local Proxy только OpenCode использует WARP, остальные приложения идут напрямую. Сброс регистрации — только для личного WARP."
+            : "Connect, Reconnect and Reset work only in WarpProxy mode. With Local Proxy, only OpenCode uses WARP; other apps connect directly. Reset registration is for personal WARP only."}
         </text>
         <text fg={theme().text.muted} wrapMode="word">
           {ru()
@@ -669,7 +691,7 @@ export default Plugin.define({
           next = await readWarpStatus()
           actionMessage = text(context, "OpenCode proxy disabled; its previous proxy environment is restored.", "Прокси OpenCode отключён; прежние настройки прокси восстановлены.")
         } else {
-          next = await performWarpAction(action)
+          next = await performWarpAction(action, context)
         }
         setSharedStatus(updateStatus, next)
         if (action !== "refresh") {
