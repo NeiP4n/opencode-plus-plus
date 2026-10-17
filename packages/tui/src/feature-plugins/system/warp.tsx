@@ -409,7 +409,7 @@ export default Plugin.define({
               title: text(context, "Cloudflare WARP controls", "Управление Cloudflare WARP"),
               description: text(context, "View status, connect, reconnect, or reset registration", "Статус, подключение, переподключение и сброс регистрации"),
               group: "System",
-              slash: { name: "warp" },
+              slash: { name: "warp", arguments: true },
               palette: true,
               run: open,
             },
@@ -418,7 +418,7 @@ export default Plugin.define({
               title: text(context, "Refresh WARP registration", "Обновить регистрацию WARP"),
               description: text(context, "Reset and recreate the personal WARP registration, then reconnect", "Сбросить и создать заново регистрацию личного WARP, затем подключиться"),
               group: "System",
-              slash: { name: "update" },
+              slash: { name: "update", arguments: true },
               palette: true,
               run() {
                 open()
