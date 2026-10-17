@@ -74,6 +74,83 @@ install_bun() {
   fail "could not install a runnable Bun"
 }
 
+install_getrandom_compat() {
+  echo "Bun needs the Android getrandom compatibility shim; installing clang to build it…"
+  pkg install -y clang || fail "could not install clang for the Android compatibility shim"
+
+  shim_src="$PREFIX/tmp/opencode-pp-getrandom-compat.c"
+  shim="$PREFIX/lib/libopencode-getrandom-compat.so"
+  mkdir -p "$PREFIX/tmp" "$PREFIX/lib"
+  cat >"$shim_src" <<'C_SOURCE'
+#include <errno.h>
+#include <fcntl.h>
+#include <stddef.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+/* Compatibility export for Android releases whose Bionic libc does not export
+   getrandom(). Use the kernel's /dev/urandom source; Bun calls this for entropy. */
+ssize_t getrandom(void *buffer, size_t length, unsigned int flags) {
+  (void)flags;
+  if (length == 0) return 0;
+  if (buffer == NULL) { errno = EFAULT; return -1; }
+
+  int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return -1;
+
+  size_t done = 0;
+  while (done < length) {
+    ssize_t n = read(fd, (char *)buffer + done, length - done);
+    if (n > 0) {
+      done += (size_t)n;
+      continue;
+    }
+    if (n < 0 && errno == EINTR) continue;
+    if (n == 0) errno = EIO;
+    if (done == 0) {
+      int saved_errno = errno;
+      close(fd);
+      errno = saved_errno;
+      return -1;
+    }
+    break;
+  }
+
+  close(fd);
+  return (ssize_t)done;
+}
+C_SOURCE
+
+  clang -shared -fPIC -O2 -Wall -Wextra -Werror \
+    -Wl,-soname,libopencode-getrandom-compat.so \
+    -o "$shim" "$shim_src" || fail "could not build the getrandom compatibility shim"
+
+  bun_binary="$PREFIX/lib/bun-termux/bun"
+  [ -x "$bun_binary" ] || fail "patched Bun binary not found at $bun_binary"
+  probe_log="$PREFIX/tmp/opencode-pp-bun-probe.log"
+  if ! LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$bun_binary" --version >"$probe_log" 2>&1; then
+    cat "$probe_log" >&2
+    fail "Bun still cannot start with the getrandom compatibility shim; this Android build is not compatible"
+  fi
+
+  # The package launcher normally execs the binary directly. Add the shim to
+  # both launchers so future bun/bunx commands use it too.
+  cat >"$PREFIX/bin/bun" <<'BUN_WRAPPER'
+#!/data/data/com.termux/files/usr/bin/bash
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+export LD_PRELOAD="$PREFIX/lib/libopencode-getrandom-compat.so${LD_PRELOAD:+:$LD_PRELOAD}"
+exec "$PREFIX/lib/bun-termux/bun" "$@"
+BUN_WRAPPER
+  cat >"$PREFIX/bin/bunx" <<'BUNX_WRAPPER'
+#!/data/data/com.termux/files/usr/bin/bash
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+export LD_PRELOAD="$PREFIX/lib/libopencode-getrandom-compat.so${LD_PRELOAD:+:$LD_PRELOAD}"
+exec -a bunx "$PREFIX/lib/bun-termux/bun" "$@"
+BUNX_WRAPPER
+  chmod 755 "$PREFIX/bin/bun" "$PREFIX/bin/bunx"
+  rm -f "$shim_src" "$probe_log"
+}
+
 termux() {
   echo "Configuring native Termux/Android runtime…"
   pkg update -y >/dev/null 2>&1 || true
@@ -86,22 +163,42 @@ termux() {
   fi
   curl --version >/dev/null 2>&1 || fail "Termux curl is still broken"
 
-  if ! need bun; then
-    echo "Installing patched native Bun for Termux…"
+  expected_version="${TERMUX_BUN_VERSION}-patched"
+  installed_version="$(dpkg-query -W -f='${Version}' bun 2>/dev/null || true)"
+  bun_ok=0
+  if [ "$installed_version" = "$expected_version" ] && bun --version >/dev/null 2>&1; then
+    bun_ok=1
+  fi
+
+  if [ "$bun_ok" -ne 1 ]; then
+    echo "Installing source-patched native Bun for Termux…"
     deb="bun_${TERMUX_BUN_VERSION}-patched_aarch64.deb"
-    url="https://github.com/bd-loser/bun-termux/releases/download/v${TERMUX_BUN_VERSION}-patched/${deb}"
-    tmp="${PREFIX:-$HOME}/tmp/opencode-pp-${deb}"
-    mkdir -p "$(dirname "$tmp")"
+    url="https://github.com/bd-loser/bun-termux/releases/download/v${TERMUX_BUN_VERSION}-patched/$deb"
+    tmp="$PREFIX/tmp/opencode-pp-$deb"
+    mkdir -p "$PREFIX/tmp"
     echo "Downloading $deb…"
     curl -fL --retry 3 -o "$tmp" "$url" || fail "could not download patched Termux Bun ($url)"
-    dpkg -i "$tmp" >/dev/null 2>&1 || {
+    dpkg -i "$tmp" || {
       echo "Fixing Termux package dependencies…"
-      apt-get -f install -y || fail "could not install patched Termux Bun"
-      dpkg -i "$tmp" >/dev/null 2>&1 || fail "could not install patched Termux Bun"
+      apt-get -f install -y || fail "could not install patched Termux Bun dependencies"
+      dpkg -i "$tmp" || fail "could not install patched Termux Bun"
     }
     rm -f "$tmp"
   fi
-  need bun || fail "patched Termux Bun was not installed"
+
+  if ! bun --version >/dev/null 2>&1; then
+    probe_log="$PREFIX/tmp/opencode-pp-bun-probe.log"
+    if bun --version >"$probe_log" 2>&1; then
+      :
+    elif grep -qi 'getrandom' "$probe_log"; then
+      cat "$probe_log" >&2
+      install_getrandom_compat
+    else
+      cat "$probe_log" >&2
+      fail "patched Termux Bun cannot start; see the loader error above"
+    fi
+    rm -f "$probe_log"
+  fi
   bun --version || fail "patched Termux Bun cannot start"
 
   mkdir -p "$BIN"
