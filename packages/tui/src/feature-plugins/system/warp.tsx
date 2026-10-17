@@ -384,26 +384,29 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
   }
 
   const help = await runWarp(["--help"]).catch(() => "")
-  let configured = false
   try {
     await runWarp(["mode", "proxy"])
-    configured = true
   } catch {
     try {
       await runWarp(["set-mode", "proxy"])
-      configured = true
     } catch {}
   }
 
-  if (configured) {
-    if (/set-proxy-port/i.test(help)) await runWarp(["set-proxy-port", "40000"]).catch(() => undefined)
-    else if (help.toLowerCase().includes("proxy") && help.toLowerCase().includes("port")) {
-      await runWarp(["proxy", "port", "40000"]).catch(() => undefined)
-    }
-    // Never connect unless the CLI confirms Local Proxy mode. The default WARP mode
-    // may route every app on the device, which this plugin must avoid.
-    if (await isLocalProxyMode()) await runWarp(["connect"])
+  // A listening port alone is not enough: verify WARP itself reports WarpProxy
+  // before allowing the OpenCode process to use it.
+  if (!(await isLocalProxyMode())) {
+    throw new Error(text(
+      context,
+      "WARP did not confirm Local Proxy mode. Enable it in Preferences > Advanced > Configure Proxy, set port 40000, and retry. OpenCode's proxy settings were not changed.",
+      "WARP не подтвердил режим Local Proxy. Включи его в Preferences > Advanced > Configure Proxy, задай порт 40000 и повтори попытку. Настройки прокси OpenCode не менялись.",
+    ))
   }
+
+  if (/set-proxy-port/i.test(help)) await runWarp(["set-proxy-port", "40000"]).catch(() => undefined)
+  else if (help.toLowerCase().includes("proxy") && help.toLowerCase().includes("port")) {
+    await runWarp(["proxy", "port", "40000"]).catch(() => undefined)
+  }
+  await runWarp(["connect"])
 
   await wait(500)
   if (!(await proxyPortOpen(40000))) {
