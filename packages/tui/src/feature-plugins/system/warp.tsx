@@ -115,20 +115,25 @@ function commandExists(command: string): Promise<boolean> {
   })
 }
 
+/**
+ * Installers that need no password (winget, brew) run in the background with stdin closed, so the TUI keeps
+ * the keyboard. Only commands that may prompt (sudo, AUR helpers) take over the terminal.
+ */
 function runInteractive(context: Plugin.Context, command: string, args: string[]): Promise<void> {
-  context.renderer.suspend()
+  const needsTerminal = command !== "winget" && command !== "brew"
+  if (needsTerminal) context.renderer.suspend()
   return new Promise<void>((resolve, reject) => {
     let settled = false
     const finish = (error?: Error) => {
       if (settled) return
       settled = true
-      context.renderer.resume()
+      if (needsTerminal) context.renderer.resume()
       if (error) reject(error)
       else resolve()
     }
     let child: ReturnType<typeof spawn>
     try {
-      child = spawn(command, args, { stdio: "inherit", windowsHide: false })
+      child = spawn(command, args, { stdio: needsTerminal ? "inherit" : ["ignore", "ignore", "ignore"], windowsHide: !needsTerminal })
     } catch (cause) {
       finish(cause instanceof Error ? cause : new Error(String(cause)))
       return
