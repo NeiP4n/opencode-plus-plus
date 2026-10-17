@@ -10,7 +10,7 @@ One command; git, Bun and everything else is installed for you.
 
 | System | Command |
 | --- | --- |
-| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.sh \| sh` |
+| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/install.sh \| sh` |
 | Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 \| iex` |
 
 Then run `opencode-pp`. A regular opencode keeps the `opencode` command; settings in `~/.config/opencode` are shared.
