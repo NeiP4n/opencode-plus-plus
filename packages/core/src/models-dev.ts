@@ -100,12 +100,22 @@ function freeModel(id: string, name: string, contextLength = 32_000, outputLengt
   }
 }
 
-/** Parse only models explicitly advertised as free by Kilo. Never import priced models. */
+function zeroPrice(value: unknown) {
+  if (typeof value !== "number" && typeof value !== "string") return false
+  const number = Number(value)
+  return value !== "" && Number.isFinite(number) && number === 0
+}
+
+/** Parse Kilo models tagged :free or explicitly listed at zero input/output price. */
 export function parseKiloFreeModels(input: unknown): Record<string, SourceModel> {
   if (!isRecord(input) || !Array.isArray(input.data)) return {}
   const models: Record<string, SourceModel> = {}
   for (const item of input.data) {
-    if (!isRecord(item) || typeof item.id !== "string" || !item.id.endsWith(":free")) continue
+    if (!isRecord(item) || typeof item.id !== "string") continue
+    const pricing = isRecord(item.pricing) ? item.pricing : undefined
+    const freeByPrice = pricing && zeroPrice(pricing.prompt) && zeroPrice(pricing.completion)
+    if (!item.id.endsWith(":free") && !freeByPrice) continue
+
     const id = item.id
     const contextLength =
       typeof item.context_length === "number" && Number.isFinite(item.context_length) && item.context_length > 0
