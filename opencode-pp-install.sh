@@ -206,10 +206,27 @@ termux() {
   rm -f "$probe_log"
   "$PREFIX/bin/bun" --version || fail "patched Termux Bun cannot start"
 
+  # A version check alone doesn't exercise Bun's process-spawn path. On some
+  # Android seccomp profiles that path can still terminate with SIGSYS.
+  echo "Checking Bun subprocess compatibility…"
+  spawn_probe_log="$PREFIX/tmp/opencode-pp-bun-spawn-probe.log"
+  status=0
+  "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync(["/system/bin/sh", "-c", "exit 0"]); if (p.exitCode !== 0) process.exit(p.exitCode ?? 1)' >"$spawn_probe_log" 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    cat "$spawn_probe_log" >&2
+    rm -f "$spawn_probe_log"
+    fail "patched Bun failed the subprocess test (Android seccomp/SIGSYS is a possible cause); this device/runtime combination is not compatible"
+  fi
+  rm -f "$spawn_probe_log"
+
   install_termux_pty
   # Earlier installers put the launcher in ~/.local/bin, which Termux never puts on PATH.
   old="$HOME/.local/bin/opencode-pp"
   if [ "$old" != "$BIN/opencode-pp" ] && [ -f "$old" ] && grep -q 'installed by opencode-pp-install.sh' "$old"; then rm -f "$old"; fi
+  # Pin the runtime in the generated launcher. Do not bake in whichever
+  # unrelated Bun happens to appear first on PATH during installation.
+  OPENCODE_PP_BUN_BIN="$PREFIX/bin/bun"
+  export OPENCODE_PP_BUN_BIN
   install_opencode
   exit 0
 }
@@ -241,6 +258,17 @@ fetch_checked() {
 }
 
 install_opencode() {
+  if [ -n "${OPENCODE_PP_BUN_BIN:-}" ]; then
+    BUN_BIN="$OPENCODE_PP_BUN_BIN"
+  else
+    BUN_BIN="$(command -v bun || true)"
+  fi
+  [ -n "$BUN_BIN" ] && [ -x "$BUN_BIN" ] || fail "Bun executable not found or not executable: $BUN_BIN"
+
+  # Child scripts and lifecycle hooks must also resolve the same runtime.
+  PATH="$(dirname "$BUN_BIN"):$PATH"
+  export PATH
+
   if [ -d "$DIR/.git" ]; then
     echo "Updating $DIR…"
     git -C "$DIR" fetch --force --prune origin '+refs/tags/release/*:refs/tags/release/*'
@@ -279,14 +307,14 @@ install_opencode() {
   restore
 
   echo "Installing dependencies…"
-  (cd "$DIR" && bun install --frozen-lockfile --filter ./packages/cli)
+  (cd "$DIR" && "$BUN_BIN" install --frozen-lockfile --filter ./packages/cli)
 
   mkdir -p "$BIN"
   cat >"$BIN/opencode-pp" <<WRAPPER
 #!/bin/sh
 # Opencode++ $VERSION, installed by opencode-pp-install.sh.
 ${TERMUX_ENV:-}
-OPENCODE_COMMAND=opencode-pp exec "$(command -v bun)" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
+OPENCODE_COMMAND=opencode-pp exec "$BUN_BIN" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
 WRAPPER
   chmod +x "$BIN/opencode-pp"
 
