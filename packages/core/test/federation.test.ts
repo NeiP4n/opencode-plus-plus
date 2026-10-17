@@ -207,19 +207,30 @@ describe("Federation", () => {
     Effect.gen(function* () {
       const { a, b } = yield* setup
       const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const supervisor = yield* sessions.create({
+        title: "Group Orchestrator · Shop",
+        agent: Orchestra.agent,
+        location: { directory: AbsolutePath.make(a.directory) },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id } },
+      })
+      const supervisorTexts = Effect.gen(function* () {
+        const inbox = yield* sessions.inbox(supervisor.id)
+        return inbox.flatMap((item) => ("text" in item.payload ? [item.payload.text] : []))
+      })
       yield* federation.setPolicy({
         project: b.id,
         visibility: "summary",
         grants: [{ peer: a.id, allow: ["question"] }],
       })
-      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: a.main! })
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: supervisor.id })
 
       const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "API status", body: "Is the route ready?" })
       expect(ticket.status).toBe("pending")
-      expect((yield* texts(a)).some((text) => text.includes("<federation-event") && text.includes(ticket.id))).toBe(true)
+      expect((yield* supervisorTexts).some((text) => text.includes("<federation-event") && text.includes(ticket.id))).toBe(true)
 
       yield* federation.decide({ id: ticket.id, project: b.id, accept: false })
-      expect((yield* texts(a)).some((text) => text.includes("<federation-event") && text.includes('status="rejected"'))).toBe(true)
+      expect((yield* supervisorTexts).some((text) => text.includes("<federation-event") && text.includes('status="rejected"'))).toBe(true)
     }),
   )
 
