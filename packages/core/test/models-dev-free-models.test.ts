@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { normalize } from "../src/models-dev"
+import { normalize, parseKiloFreeModels, parseKiloFreeModelsText } from "../src/models-dev"
 
 describe("anonymous FREE model routes", () => {
   const providers = normalize({})
   const byID = new Map(providers.map((provider) => [provider.info.id, provider]))
 
-  test("registers Kilo free routes without account credentials", () => {
+  test("registers Kilo auto-free and statically documented routes without account credentials", () => {
     const kilo = byID.get("kilo-free")
     expect(kilo).toBeDefined()
     expect(kilo!.info.name).toContain("FREE")
@@ -16,21 +16,34 @@ describe("anonymous FREE model routes", () => {
       "kilo-auto/free",
       "minimax/minimax-m2.1:free",
       "z-ai/glm-5:free",
+      "google/gemma-4-26b-a4b-it:free",
     ])
     expect(kilo!.models.every((model) => model.name.includes("[FREE]"))).toBe(true)
     expect(kilo!.models.every((model) => model.cost.every((cost) => cost.input === 0 && cost.output === 0))).toBe(true)
   })
 
-  test("registers LLMFaucet free routes with its documented placeholder token", () => {
-    const faucet = byID.get("llmfaucet-free")
-    expect(faucet).toBeDefined()
-    expect(faucet!.info.name).toContain("FREE")
-    expect(faucet!.info.settings?.baseURL).toBe("https://api.llmfaucet.dev/v1")
-    expect(faucet!.info.headers).toEqual({ Authorization: "Bearer free" })
-    expect(faucet!.info.package).toBe("@opencode/ai/providers/openai-compatible")
-    expect(faucet!.models.map((model) => model.id)).toEqual(["auto", "auto:fast", "auto:smart", "auto:coding"])
-    expect(faucet!.models.every((model) => model.name.includes("[FREE]"))).toBe(true)
-    expect(faucet!.models.every((model) => model.cost.every((cost) => cost.input === 0 && cost.output === 0))).toBe(true)
+  test("discovers all :free models from the anonymous Kilo model catalog", () => {
+    const parsed = parseKiloFreeModels({
+      data: [
+        {
+          id: "provider/code-model:free",
+          name: "Code Model",
+          context_length: 65_536,
+          top_provider: { max_completion_tokens: 8_192 },
+          supported_parameters: ["tools", "temperature"],
+        },
+        { id: "provider/another-model:free", name: "Another Model" },
+        { id: "provider/paid-model", name: "Paid Model", pricing: { prompt: "0", completion: "0" } },
+        { id: "provider/paid-model-2", name: "Paid Model 2", pricing: { prompt: "0.0001", completion: "0.0002" } },
+        { name: "Broken model" },
+      ],
+    })
+    expect(Object.keys(parsed)).toEqual(["provider/code-model:free", "provider/another-model:free"])
+    expect(parsed["provider/code-model:free"].name).toBe("[FREE] Code Model")
+    expect(parsed["provider/code-model:free"].limit).toEqual({ context: 65_536, input: 65_536, output: 8_192 })
+    expect(parsed["provider/code-model:free"].tool_call).toBe(true)
+    expect(parsed["provider/another-model:free"].name).toBe("[FREE] Another Model")
+    expect(parseKiloFreeModelsText("not json")).toBeUndefined()
   })
 
   test("free routes remain present when the upstream models.dev catalog refreshes", () => {
@@ -56,6 +69,5 @@ describe("anonymous FREE model routes", () => {
     })
     expect(refreshed.some((provider) => provider.info.id === "existing")).toBe(true)
     expect(refreshed.some((provider) => provider.info.id === "kilo-free")).toBe(true)
-    expect(refreshed.some((provider) => provider.info.id === "llmfaucet-free")).toBe(true)
   })
 })
