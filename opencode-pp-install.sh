@@ -284,8 +284,8 @@ const aliases = {
   "@opentui/keymap": `npm:@androidtui/keymap@${version}`,
   "@opentui/solid": `npm:@androidtui/solid@${version}`,
 }
-const nativeKey = "@opentui/core-android-arm64"
-const nativeAlias = `npm:@androidtui/core-android-arm64@${version}`
+const nativeKey = "@androidtui/core-android-arm64"
+const nativeVersion = version
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"))
 const writeJson = (file, data) => writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
 
@@ -296,20 +296,24 @@ rootPkg.workspaces.catalog ??= {}
 Object.assign(rootPkg.workspaces.catalog, aliases)
 rootPkg.overrides ??= {}
 rootPkg.optionalDependencies ??= {}
+// This installer runs the TypeScript source directly, not Bun's compiled
+// single-file output. Keep the Android native asset under its real package
+// name; aliasing it to @opentui/core-android-arm64 can leave Bun's filtered
+// workspace install without a resolvable @androidtui package.
+delete rootPkg.overrides["@opentui/core-android-arm64"]
 delete rootPkg.overrides["@androidtui/core-android-arm64"]
-delete rootPkg.optionalDependencies["@androidtui/core-android-arm64"]
-rootPkg.overrides[nativeKey] = nativeAlias
-rootPkg.optionalDependencies[nativeKey] = nativeAlias
+delete rootPkg.optionalDependencies["@opentui/core-android-arm64"]
+rootPkg.optionalDependencies[nativeKey] = nativeVersion
 writeJson(rootFile, rootPkg)
 
-// The installer uses --filter ./packages/cli. A root-only optional dependency
-// may be downloaded without being linked into the CLI workspace's node_modules,
-// so declare the same Android native package on the actual runtime workspace.
+// The installer uses --filter ./packages/cli. The native Android library must
+// also be declared by the CLI workspace so Bun links it into the runtime tree.
 const cliFile = path.join(root, "packages", "cli", "package.json")
 if (!existsSync(cliFile)) throw new Error("Could not locate packages/cli/package.json")
 const cliPkg = readJson(cliFile)
 cliPkg.optionalDependencies ??= {}
-cliPkg.optionalDependencies[nativeKey] = nativeAlias
+delete cliPkg.optionalDependencies["@opentui/core-android-arm64"]
+cliPkg.optionalDependencies[nativeKey] = nativeVersion
 writeJson(cliFile, cliPkg)
 
 function rewriteMap(map) {
@@ -420,7 +424,7 @@ install_opencode() {
     # The Android aliases require a lockfile refresh; frozen-lockfile would
     # reject the platform-specific dependency mapping.
     (cd "$DIR" && "$BUN_BIN" install --filter ./packages/cli) || fail "could not install Android-compatible OpenTUI dependencies"
-    (cd "$DIR/packages/cli" && "$BUN_BIN" -e 'const native = await import("@opentui/core-android-arm64"); if (typeof native.default !== "string") throw new Error("Android OpenTUI native asset did not resolve to a library path"); console.log("Android OpenTUI native asset:", native.default)') || fail "Android OpenTUI native renderer is missing or could not be resolved from the CLI dependency tree"
+    (cd "$DIR/packages/cli" && "$BUN_BIN" -e 'import { existsSync } from "node:fs"; import path from "node:path"; const candidates = [path.join(process.cwd(), "node_modules/@androidtui/core-android-arm64/libopentui.so"), path.resolve(process.cwd(), "../../node_modules/@androidtui/core-android-arm64/libopentui.so")]; const asset = candidates.find(existsSync); if (!asset) throw new Error("libopentui.so missing from @androidtui/core-android-arm64"); console.log("Android OpenTUI native asset:", asset)') || fail "Android OpenTUI native library is missing from the CLI dependency tree"
   else
     echo "Installing dependencies…"
     (cd "$DIR" && "$BUN_BIN" install --frozen-lockfile --filter ./packages/cli)
