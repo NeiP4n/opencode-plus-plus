@@ -42,7 +42,7 @@ async function mount(root: string, language: "en" | "ru") {
     if (url.pathname === "/api/experimental/generate")
       return input.json().then((body: { prompt: string; model?: unknown }) => {
         prompts.push(body)
-        return json({ data: { text: "Deletes the build folder." } })
+        return json({ data: { text: "**Deletes** — removes the `build` folder." } })
       })
   }, createEventStream())
 
@@ -88,10 +88,10 @@ test("the explain button asks the session model about the command and shows the 
     const lines = app.captureCharFrame().split("\n")
     const y = lines.findIndex((line) => line.includes("explain"))
     await app.mockMouse.click(lines[y]!.indexOf("explain"), y)
-    await app.waitForFrame((frame) => frame.includes("Deletes the build folder."))
+    await app.waitForFrame((frame) => frame.includes("Deletes — removes the build folder."))
 
     const frame = app.captureCharFrame().split("\n")
-    expect(frame.findIndex((line) => line.includes("Deletes the build folder."))).toBeLessThan(
+    expect(frame.findIndex((line) => line.includes("Deletes — removes the build folder."))).toBeLessThan(
       frame.findIndex((line) => line.includes("Permission required")),
     )
     expect(prompts).toHaveLength(1)
@@ -110,7 +110,7 @@ test("the explain shortcut answers in the interface language", async () => {
   try {
     await app.waitForFrame((frame) => frame.includes("объяснить") && frame.includes("Нужно разрешение"))
     await app.mockInput.typeText("?")
-    await app.waitForFrame((frame) => frame.includes("Deletes the build folder."))
+    await app.waitForFrame((frame) => frame.includes("Deletes — removes the build folder."))
     expect(prompts[0]?.prompt).toContain("Explain in Russian")
   } finally {
     app.renderer.destroy()

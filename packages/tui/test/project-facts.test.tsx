@@ -25,7 +25,7 @@ test("the Facts window learns the project from a few small files with one statel
       if (url.pathname === "/api/experimental/generate")
         return request.json().then((body: { prompt: string }) => {
           prompts.push(body.prompt)
-          return json({ data: { text: "Demo — a project that adds numbers" } })
+          return json({ data: { text: "- **Demo** — a project that adds `numbers`" } })
         })
     },
   })
@@ -42,10 +42,39 @@ test("the Facts window learns the project from a few small files with one statel
   await setup.waitForFrame(
     (frame) => frame.includes("Project facts") && frame.includes("Demo — a project that adds numbers"),
   )
+  // Markdown renders: the emphasis and code markers are not shown as text.
+  expect(setup.captureCharFrame()).not.toContain("**Demo**")
   expect(reads.toSorted()).toEqual(["AGENTS.md", "README.md", "package.json"])
   expect(prompts).toHaveLength(1)
   expect(prompts[0]).toContain("A demo project that adds numbers.")
 
   await click("hide")
   await setup.waitForFrame((frame) => !frame.includes("Project facts"))
+})
+
+test("the Facts window says so without asking a model when the folder has nothing to learn from", async () => {
+  await using state = await tmpdir()
+  const prompts: string[] = []
+  await using setup = await createAppFixture({
+    width: 150,
+    height: 34,
+    state: state.path,
+    config: { animations: false, debug: { devtools: true } },
+    fetch: (url) => {
+      if (url.pathname === "/api/room/mesh")
+        return json({ _tag: "ServiceUnavailableError", message: "rooms are off" }, { status: 503 })
+      if (url.pathname.startsWith("/api/fs/read/")) return new Response(null, { status: 404 })
+      if (url.pathname === "/api/experimental/generate") {
+        prompts.push(url.pathname)
+        return json({ data: { text: "unused" } })
+      }
+    },
+  })
+  await setup.ready
+  await setup.waitForFrame((frame) => frame.includes("Facts") && frame.includes("Language"))
+  const lines = setup.captureCharFrame().split("\n")
+  const y = lines.findLastIndex((line) => line.includes("Facts"))
+  await setup.mockMouse.click(lines[y]!.indexOf("Facts") + 1, y)
+  await setup.waitForFrame((frame) => frame.includes("No README.md, AGENTS.md or package.json to learn from."))
+  expect(prompts).toEqual([])
 })

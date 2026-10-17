@@ -8,7 +8,7 @@ import { useLocal } from "../context/local"
 import { useLocation } from "../context/location"
 import { useRoute } from "../context/route"
 import { useStorage } from "../context/storage"
-import { useTheme } from "../context/theme"
+import { useTheme, useThemes } from "../context/theme"
 import { SplitBorder } from "../ui/border"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
@@ -16,8 +16,11 @@ import { Spinner } from "./spinner"
 
 type FactsState = {
   open: boolean
-  projects: Record<string, { text: string; language: string; time: number }>
+  projects: Record<string, { text: string; language: string; time: number; format?: number }>
 }
+
+// Bump when the prompt's output format changes so facts saved in the old format are collected again.
+const FORMAT = 2
 
 export function useProjectFacts() {
   return useStorage().store<FactsState>("project-facts", { initial: { open: false, projects: {} } })
@@ -31,8 +34,9 @@ const SOURCE_LIMIT = 1_500
 const instructions = (language: string, sources: string) =>
   [
     "Below are excerpts of a software project's files. The person working on it wants a short cheat sheet so they keep understanding what the project is about.",
-    "List the 5 to 8 most useful definitions and facts: what the project is, its key terms, where important things live, and rules that must not be broken.",
-    `Write in ${language === "ru" ? "Russian" : "English"}, in plain words a newcomer understands, avoiding jargon, one short line per item, formatted as \`Term — explanation\`, with no headings or other markdown.`,
+    "Pick only the 4 to 6 facts that matter most: what the project is, its one or two key terms, and a rule that must not be broken. Skip details such as versions, scripts, and file lists unless they are essential.",
+    `Write in ${language === "ru" ? "Russian" : "English"}, in plain words a newcomer understands, avoiding jargon.`,
+    "Format each fact as one markdown list item of at most 12 words: `- **Term** — explanation`. Put file paths and commands in `backticks` and use *italics* sparingly for emphasis. No headings, no intro, no closing line.",
     "State only what the excerpts show; leave out anything you would have to guess.",
     "",
     sources,
@@ -57,11 +61,14 @@ function FactsWindow() {
   const route = useRoute()
   const location = useLocation()
   const theme = useTheme()
+  const syntax = useThemes().currentSyntax
   const config = useConfig().data
   const t = useT()
   const dimensions = useTerminalDimensions()
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal<string>()
+  // A folder with none of the source files is a normal case, not a failure.
+  const [empty, setEmpty] = createSignal(false)
 
   const sessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
   const directory = createMemo(() => {
@@ -81,6 +88,7 @@ function FactsWindow() {
     const selected = local.model.current()
     setLoading(true)
     setError(undefined)
+    setEmpty(false)
     void Promise.all(
       SOURCES.map((path) =>
         client.api.file
@@ -91,7 +99,10 @@ function FactsWindow() {
     )
       .then((excerpts) => {
         const sources = excerpts.filter((excerpt) => excerpt !== undefined)
-        if (sources.length === 0) throw new Error(t("No README.md, AGENTS.md or package.json to learn from."))
+        if (sources.length === 0) {
+          setEmpty(true)
+          return undefined
+        }
         return client.api.generate.text({
           prompt: instructions(lang, sources.join("\n\n")),
           model: selected && {
@@ -101,20 +112,21 @@ function FactsWindow() {
           },
         })
       })
-      .then((result) =>
-        update((draft) => {
-          draft.projects[dir] = { text: result.text.trim(), language: lang, time: Date.now() }
-        }),
-      )
+      .then((result) => {
+        if (result === undefined) return
+        return update((draft) => {
+          draft.projects[dir] = { text: result.text.trim(), language: lang, time: Date.now(), format: FORMAT }
+        })
+      })
       .catch((cause: unknown) => setError(errorMessage(cause)))
       .finally(() => setLoading(false))
   }
 
   // Collect once per project and language when the window is open; a failure waits for an explicit refresh.
   createEffect(() => {
-    if (loading() || error() !== undefined || directory() === undefined) return
+    if (loading() || empty() || error() !== undefined || directory() === undefined) return
     const current = entry()
-    if (current === undefined || current.language !== language()) collect()
+    if (current === undefined || current.language !== language() || current.format !== FORMAT) collect()
   })
 
   return (
@@ -163,6 +175,11 @@ function FactsWindow() {
           <Match when={loading()}>
             <Spinner color={theme.text.muted}>{t("Collecting project facts…")}</Spinner>
           </Match>
+          <Match when={empty()}>
+            <text fg={theme.text.muted} wrapMode="word">
+              {t("No README.md, AGENTS.md or package.json to learn from.")}
+            </text>
+          </Match>
           <Match when={error()}>
             {(message) => (
               <text fg={theme.text.feedback.error.base} wrapMode="word">
@@ -172,9 +189,14 @@ function FactsWindow() {
           </Match>
           <Match when={entry()}>
             {(facts) => (
-              <text fg={theme.text.base} wrapMode="word">
-                {facts().text}
-              </text>
+              <markdown
+                syntaxStyle={syntax()}
+                content={facts().text}
+                conceal
+                internalBlockMode="top-level"
+                fg={theme.markdown.text}
+                bg={theme.background.raised.base}
+              />
             )}
           </Match>
           <Match when={true}>

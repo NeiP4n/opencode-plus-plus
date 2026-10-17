@@ -27,7 +27,8 @@ const explainInstructions = (language: string | undefined) =>
   [
     "The user must approve or reject the request below and wants to understand it first.",
     `Explain in ${language === "ru" ? "Russian" : "English"}, in plain words for someone who is not a programmer, what it will do.`,
-    "Use at most three short sentences and no headings. Say whether it only reads something or changes, deletes, installs, or sends something.",
+    "Start with a bold verdict of one to three words saying whether it only reads something or changes, deletes, installs, or sends something, then a dash and at most two short sentences.",
+    "Put commands, file names, and paths in `backticks`. No headings and no lists.",
   ].join(" ")
 
 function EditBody(props: { file?: string; diff?: string; patch?: string }) {
@@ -149,6 +150,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
   })
 
   const theme = useTheme()
+  const syntax = useThemes().currentSyntax
 
   const current = createMemo(() =>
     permissionPresentation(
@@ -342,9 +344,14 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                       </text>
                     </Match>
                     <Match when={store.explanation.status === "done"}>
-                      <text fg={theme.text.base} wrapMode="word">
-                        {store.explanation.text}
-                      </text>
+                      <markdown
+                        syntaxStyle={syntax()}
+                        content={store.explanation.text}
+                        conceal
+                        internalBlockMode="top-level"
+                        fg={theme.markdown.text}
+                        bg={theme.background.raised.base}
+                      />
                     </Match>
                   </Switch>
                 </box>
