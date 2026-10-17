@@ -43,6 +43,10 @@ describe("anonymous FREE model routes", () => {
     expect(parsed["provider/code-model:free"].limit).toEqual({ context: 65_536, input: 65_536, output: 8_192 })
     expect(parsed["provider/code-model:free"].tool_call).toBe(true)
     expect(parsed["provider/another-model:free"].name).toBe("[FREE] Another Model")
+    const catalog = normalize({}, parsed)
+    const kilo = catalog.find((provider) => provider.info.id === "kilo-free")
+    expect(kilo?.models.some((model) => model.id === "provider/code-model:free")).toBe(true)
+    expect(kilo?.models.find((model) => model.id === "provider/code-model:free")?.name).toBe("[FREE] Code Model")
     expect(parseKiloFreeModelsText("not json")).toBeUndefined()
   })
 
