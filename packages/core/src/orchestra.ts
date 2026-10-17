@@ -2238,14 +2238,8 @@ export function parsePermissionDecision(text: string): PermissionDecision | unde
   }
   if (!isRecord(value)) return
   if (value.decision !== "allow" && value.decision !== "deny") return
-  const decision = value.decision
-  const reason =
-    typeof value.reason === "string" && value.reason.trim()
-      ? value.reason.trim().slice(0, 500)
-      : decision === "allow"
-        ? "Allowed by the project orchestrator."
-        : "Denied by the project orchestrator."
-  return { decision, reason }
+  if (typeof value.reason !== "string" || !value.reason.trim()) return
+  return { decision: value.decision, reason: value.reason.trim().slice(0, 500) }
 }
 
 export function checksOf(answer: string) {
