@@ -4841,7 +4841,7 @@ describe("SessionRunnerLLM", () => {
             error: {
               type: "tool.execution",
               message:
-                'No tool named "missing" is currently available. Please use a tool from the available tool list.',
+                'No tool named "missing" is currently available. Available tools: defect, echo, execute, storefail.',
             },
           },
         ),

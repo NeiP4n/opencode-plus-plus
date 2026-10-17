@@ -648,10 +648,25 @@ describe("Tool", () => {
       expect(snapshot.definitions.map((tool) => tool.name)).toEqual(["healthy", "execute"])
       expect(codeModeListings(snapshot.codeModeCatalog!).map((tool) => tool.path)).toEqual(["codemode"])
       expect((yield* snapshot.execute(call("phone_type")).pipe(Effect.flip)).message).toBe(
-        'No tool named "phone_type" is currently available. Please use a tool from the available tool list.',
+        'No tool named "phone_type" is currently available. Available tools: execute, healthy.',
       )
     }).pipe(Effect.provide(Logger.layer([logger])))
   })
+
+  it.effect("runs a call spelled the way another harness names the tool", () =>
+    Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* transform(service, { shell: constant("ran shell"), read: constant("ran read") }, { codemode: false })
+      const snapshot = yield* service.snapshot()
+      expect((yield* snapshot.execute(call("Bash"))).output).toEqual({ text: "ran shell" })
+      expect((yield* snapshot.execute(call("functions.read_file"))).output).toEqual({ text: "ran read" })
+      const renamed = new Map(snapshot.definitions.filter((tool) => tool.name === "shell").map((tool) => ["run", tool]))
+      expect((yield* snapshot.execute({ ...call("Bash"), definitions: renamed })).output).toEqual({ text: "ran shell" })
+      expect((yield* snapshot.execute({ ...call("read"), definitions: renamed }).pipe(Effect.flip)).message).toBe(
+        "Tool is not available for this request: read",
+      )
+    }),
+  )
 
   it.effect("skipped registrations leave existing tools and scoped cleanup intact", () =>
     Effect.gen(function* () {
@@ -838,7 +853,7 @@ describe("Tool", () => {
         status: "error",
         error: {
           type: "tool.execution",
-          message: 'No tool named "missing" is currently available. Please use a tool from the available tool list.',
+          message: 'No tool named "missing" is currently available. Available tools: execute, failed.',
         },
       })
 
@@ -1079,7 +1094,7 @@ describe("Tool", () => {
         error: {
           type: "tool.execution",
           message:
-            'Invalid arguments for tool "transformed":\n- value: Expected boolean\n\nArguments provided:\n{\n  "value": "yes"\n}\n\nUpdate the arguments and call the tool again.',
+            'Invalid arguments for tool "transformed":\n- value: Expected boolean\n\nExpected arguments: { value: boolean }\n\nArguments provided:\n{\n  "value": "yes"\n}\n\nUpdate the arguments and call the tool again.',
         },
       })
       expect(executed).toEqual(["yes"])

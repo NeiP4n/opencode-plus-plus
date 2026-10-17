@@ -15,6 +15,7 @@ import { PluginHooks } from "./plugin/hooks.js"
 import { SessionMessage } from "./session/message.js"
 import { SessionSchema } from "./session/schema.js"
 import { State } from "./state.js"
+import { ToolCallName } from "./tool/call-name.js"
 import { definition, effectiveName, execute, normalizedName, normalizeContent } from "./tool/runtime.js"
 import { Wildcard } from "./util/wildcard.js"
 
@@ -291,7 +292,12 @@ const layer = Layer.effect(
                 id: Tool.CallID.make(input.call.id),
                 progress: input.progress ?? (() => Effect.void),
               }
-              const event = yield* beforeExecute(input.call.name, input.call.input, context)
+              // Advertised name -> registry name it executes; context hooks may rename or remove tools.
+              const available = input.definitions
+                ? new Map(Array.from(input.definitions, ([key, value]) => [key, value.name]))
+                : new Map([...direct.keys(), ...(codeModeTool ? [codeModeTool.name] : [])].map((key) => [key, key]))
+              const called = ToolCallName.resolve(input.call.name, available) ?? input.call.name
+              const event = yield* beforeExecute(called, input.call.input, context)
               const requested = input.definitions?.get(event.tool)
               // Preserve context-hook removal and alias resolution, also for native CodeMode tools.
               if (
@@ -305,9 +311,7 @@ const layer = Layer.effect(
                 return yield* executeTool(codeModeTool, name, event.input, context)
               const tool = direct.get(name) ?? (requested ? codeModeTools.get(name) : undefined)
               if (tool) return yield* executeTool(tool, name, event.input, context)
-              return yield* new Tool.Error({
-                message: `No tool named "${name}" is currently available. Please use a tool from the available tool list.`,
-              })
+              return yield* new Tool.Error({ message: ToolCallName.unknown(name, Array.from(available.keys())) })
             }),
           }
         }),

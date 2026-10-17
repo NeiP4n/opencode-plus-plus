@@ -63,9 +63,10 @@ export const execute = (tool: Tool.Info<any, any>, input: unknown, context: Tool
 const decodeInput = (tool: Tool.Info<any, any>, value: unknown) =>
   Effect.gen(function* () {
     const result = yield* validateInput(tool.input, value)
-    if (result.issues)
-      return yield* new Tool.Error({ message: formatInputIssues(effectiveName(tool), result.issues, value) })
-    return result.value
+    if (!result.issues) return result.value
+    // A vendor schema without JSON Schema support still fails with its issues, just without the shape hint.
+    const schema = yield* Effect.try(() => inputJsonSchema(tool.input)).pipe(Effect.orElseSucceed(() => ({})))
+    return yield* new Tool.Error({ message: formatInputIssues(effectiveName(tool), result.issues, value, schema) })
   })
 
 const validateInput = (
@@ -85,7 +86,12 @@ const validateInput = (
   })
 }
 
-const formatInputIssues = (tool: string, issues: ReadonlyArray<StandardSchemaV1.Issue>, value: unknown) => {
+const formatInputIssues = (
+  tool: string,
+  issues: ReadonlyArray<StandardSchemaV1.Issue>,
+  value: unknown,
+  schema: JsonSchema.JsonSchema,
+) => {
   const details = issues.slice(0, 5).map((issue) => {
     const path =
       issue.path?.reduce<string>((path, segment) => {
@@ -96,7 +102,51 @@ const formatInputIssues = (tool: string, issues: ReadonlyArray<StandardSchemaV1.
     return `- ${path}: ${issue.message}`
   })
   if (issues.length > 5) details.push(`- ...and ${issues.length - 5} more ${issues.length === 6 ? "issue" : "issues"}`)
-  return `Invalid arguments for tool "${tool}":\n${details.join("\n")}\n\nArguments provided:\n${JSON.stringify(value, null, 2)}\n\nUpdate the arguments and call the tool again.`
+  const expected = signature(schema)
+  return [
+    `Invalid arguments for tool "${tool}":`,
+    ...details,
+    ...(expected === undefined ? [] : ["", `Expected arguments: ${expected}`]),
+    "",
+    "Arguments provided:",
+    JSON.stringify(shorten(value), null, 2),
+    "",
+    "Update the arguments and call the tool again.",
+  ].join("\n")
+}
+
+// One line per field, `name: type` with `?` for optional and enum values inline, so a model that
+// guessed the shape sees the real one without re-reading the whole tool description.
+const signature = (schema: JsonSchema.JsonSchema) => {
+  if (!isRecord(schema.properties)) return undefined
+  const required = Array.isArray(schema.required) ? schema.required : []
+  const fields = Object.entries(schema.properties).map(
+    ([key, property]) => `${key}${required.includes(key) ? "" : "?"}: ${typeName(property)}`,
+  )
+  return fields.length === 0 ? undefined : `{ ${fields.join(", ")} }`
+}
+
+const typeName = (property: unknown): string => {
+  if (!isRecord(property)) return "unknown"
+  if (Array.isArray(property.enum)) return property.enum.map((item) => JSON.stringify(item)).join(" | ")
+  if ("const" in property) return JSON.stringify(property.const)
+  if (typeof property.$ref === "string") return property.$ref.slice(property.$ref.lastIndexOf("/") + 1)
+  const branches = Array.isArray(property.anyOf) ? property.anyOf : Array.isArray(property.oneOf) ? property.oneOf : []
+  if (branches.length > 0) return branches.map(typeName).join(" | ")
+  if (property.type === "array") return `${typeName(property.items)}[]`
+  if (Array.isArray(property.type)) return property.type.join(" | ")
+  return typeof property.type === "string" ? property.type : "unknown"
+}
+
+// The echo exists to show the shape the model sent. A rejected write with a whole file in it used
+// to come back verbatim and double the tokens of the failed step.
+const shorten = (value: unknown, depth = 0): unknown => {
+  if (typeof value === "string")
+    return value.length > 300 ? `${value.slice(0, 200)}... [${value.length - 200} more characters]` : value
+  if (depth > 6) return value
+  if (Array.isArray(value)) return value.map((item) => shorten(item, depth + 1))
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shorten(item, depth + 1)]))
+  return value
 }
 
 const jsonSchema = (schema: JsonSchema.JsonSchema) => {
