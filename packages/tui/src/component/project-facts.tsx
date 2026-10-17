@@ -21,7 +21,10 @@ type FactsState = {
 }
 
 // Bump when the prompt's output format changes so facts saved in the old format are collected again.
-const FORMAT = 2
+const FORMAT = 3
+// Facts live with the project, so every window and every restart shows them without asking a model again.
+const FACTS_FILE = ".opencode/facts.md"
+const header = (language: string) => `<!-- opencode-facts language=${language} format=${FORMAT} -->`
 
 export function useProjectFacts() {
   return useStorage().store<FactsState>("project-facts", { initial: { open: false, projects: {} } })
@@ -35,20 +38,21 @@ const SOURCES = [
   "README",
   "AGENTS.md",
   "CLAUDE.md",
+  ".opencode/dod.yaml",
   ".opencode/plan.md",
   "package.json",
   "pyproject.toml",
   "Cargo.toml",
   "go.mod",
 ]
-const SOURCE_LIMIT = 1_500
-const SOURCE_COUNT = 3
+const SOURCE_LIMIT = 1_200
+const SOURCE_COUNT = 5
 const LISTING_LIMIT = 60
 
 const instructions = (language: string, sources: string) =>
   [
     "Below are excerpts of a software project's files and its top-level file list. The person working on it wants a short cheat sheet so they keep understanding what the project is about.",
-    "Pick only the 4 to 6 facts that matter most: what the project is, its one or two key terms, and a rule that must not be broken. Skip details such as versions, scripts, and file lists unless they are essential.",
+    "Pick only the 4 to 7 facts that matter most: what the project is, its one or two key terms, and a rule that must not be broken. If a DoD (definition of done) or plan is included, add one fact about what the project is working toward right now and how far along it is. Skip details such as versions, scripts, and file lists unless they are essential.",
     `Write in ${language === "ru" ? "Russian" : "English"}, in plain words a newcomer understands, avoiding jargon.`,
     "Format each fact as one markdown list item of at most 12 words: `- **Term** — explanation`. Put file paths and commands in `backticks` and use *italics* sparingly for emphasis. No headings, no intro, no closing line.",
     "State only what the excerpts show; leave out anything you would have to guess.",
@@ -83,6 +87,8 @@ function FactsWindow() {
   const [error, setError] = createSignal<string>()
   // A folder with none of the source files is a normal case, not a failure.
   const [empty, setEmpty] = createSignal(false)
+  // Folders whose saved facts file was already looked at in this window.
+  const [checked, setChecked] = createSignal<ReadonlySet<string>>(new Set())
 
   const sessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
   const directory = createMemo(() => {
@@ -139,19 +145,46 @@ function FactsWindow() {
       })
       .then((result) => {
         if (result === undefined) return
+        const text = result.text.trim()
+        // Saving into the project is best effort: the window still shows the facts if the folder is read-only.
+        void client.api.file
+          .write({
+            location: { directory: dir },
+            path: FACTS_FILE,
+            payload: new TextEncoder().encode(`${header(lang)}\n${text}\n`),
+          })
+          .catch(() => undefined)
         return update((draft) => {
-          draft.projects[dir] = { text: result.text.trim(), language: lang, time: Date.now(), format: FORMAT }
+          draft.projects[dir] = { text, language: lang, time: Date.now(), format: FORMAT }
         })
       })
       .catch((cause: unknown) => setError(modelErrorText(cause, t)))
       .finally(() => setLoading(false))
   }
 
-  // Collect once per project and language when the window is open; a failure waits for an explicit refresh.
+  // Facts saved in the project come first; a model is asked only when there are none for this language and
+  // format. A failure waits for an explicit refresh.
   createEffect(() => {
-    if (loading() || empty() || error() !== undefined || directory() === undefined) return
+    const dir = directory()
+    if (loading() || empty() || error() !== undefined || dir === undefined) return
     const current = entry()
-    if (current === undefined || current.language !== language() || current.format !== FORMAT) collect()
+    if (current !== undefined && current.language === language() && current.format === FORMAT) return
+    if (checked().has(dir)) return collect()
+    const lang = language()
+    // Loading holds the effect until the read settles, so a saved file never races a model request.
+    setLoading(true)
+    setChecked((folders) => new Set([...folders, dir]))
+    void client.api.file
+      .read({ path: FACTS_FILE, location: { directory: dir } })
+      .then((bytes) => {
+        const [first, ...rest] = new TextDecoder().decode(bytes).split("\n")
+        if (first !== header(lang)) return
+        return update((draft) => {
+          draft.projects[dir] = { text: rest.join("\n").trim(), language: lang, time: Date.now(), format: FORMAT }
+        })
+      })
+      .catch(() => undefined)
+      .finally(() => setLoading(false))
   })
 
   return (
