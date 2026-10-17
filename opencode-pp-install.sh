@@ -248,8 +248,7 @@ function walk(dir) {
     const pkg = readJson(file)
     const changed =
       rewriteMap(pkg.dependencies) |
-      rewriteMap(pkg.devDependencies) |
-      rewriteMap(pkg.peerDependencies)
+      rewriteMap(pkg.devDependencies)
     if (changed) writeJson(file, pkg)
   }
 }
