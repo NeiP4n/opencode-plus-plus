@@ -234,7 +234,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
         yield* sessions
           .prompt({
             sessionID: group.supervisor,
-            id: SessionMessage.ID.make("msg_group_activity_" + sessionID + "_" + transition.replace(/[^a-z0-9]+/gi, "_") + "_" + Date.now().toString(36)),
+            id: SessionMessage.ID.create(),
             delivery: "queue",
             text: [
               '<orchestrator-activity project="' + projectID + '" session="' + sessionID + '" state="' + transition + '">',
