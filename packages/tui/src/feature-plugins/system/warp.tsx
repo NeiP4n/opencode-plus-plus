@@ -309,14 +309,15 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   return true
 }
 
-async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean> {
+/** `undefined` means the config could not be read right now (for example mid-write by another tool). */
+async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean | undefined> {
   try {
     const entries = await context.client.config.get()
     const found = entries.findLast((entry) => entry.type === "document" && entry.info.proxy !== undefined)
     if (!found || found.type !== "document") return false
     return Warp.isWarpProxy(found.info.proxy)
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -634,15 +635,22 @@ export default Plugin.define({
         Warp.exitIp(),
         proxy.enabled ? Warp.mode().then((current) => Warp.exitIp(current.port ?? Warp.DEFAULT_PORT)) : Promise.resolve(undefined),
       ])
+      // A failed probe keeps the last known address instead of blanking it.
       updateExit((draft) => {
-        draft.direct = describeIp(direct)
-        draft.ip = describeIp(viaWarp)
+        if (direct) draft.direct = describeIp(direct)
+        if (!proxy.enabled) draft.ip = ""
+        else if (viaWarp) draft.ip = describeIp(viaWarp)
       })
     }
 
+    // The global config is rewritten by other tools too, so a single "off" read is not trusted:
+    // the indicator only flips off after two consecutive reads agree.
+    let offReads = 0
     const refreshProxy = async () => {
       const enabled = await readOpenCodeProxyEnabled(context)
-      updateProxy((draft) => { draft.enabled = enabled })
+      if (enabled === undefined) return
+      offReads = enabled ? 0 : offReads + 1
+      if (enabled || offReads >= 2) updateProxy((draft) => { draft.enabled = enabled })
     }
 
     const refresh = async () => {
