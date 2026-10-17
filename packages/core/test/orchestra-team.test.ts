@@ -1610,14 +1610,14 @@ describe("Orchestra team", () => {
         }),
       )
       // What the permission service passes to plugins once every agent and config rule allowed the edit.
-      const evaluate = (agent: Agent.ID, action: string) =>
+      const evaluate = (agent: Agent.ID, action: string, effect: PermissionEvaluation["effect"] = "allow") =>
         Effect.gen(function* () {
           const event: PermissionEvaluation = {
             sessionID: Session.ID.create(),
             agent,
             action,
             resources: ["/project/file.txt"],
-            effect: "allow",
+            effect,
           }
           yield* Effect.forEach(hooks, (hook) => hook(event), { discard: true })
           return event.effect
@@ -1664,6 +1664,10 @@ describe("Orchestra team", () => {
       expect(yield* evaluate(Orchestra.agent, "edit")).toBe("deny")
       expect(yield* evaluate(Orchestra.agent, "subagent")).toBe("deny")
       expect(yield* evaluate(Orchestra.role("developer"), "subagent")).toBe("deny")
+      // the Orchestrator settles other-directory access for its team instead of prompting the operator
+      expect(yield* evaluate(Orchestra.role("developer"), "external_directory", "ask")).toBe("allow")
+      expect(yield* evaluate(Orchestra.agent, "external_directory", "ask")).toBe("allow")
+      expect(yield* evaluate(Agent.defaultID, "external_directory", "ask")).toBe("ask")
 
       yield* orchestra.removeRole(role.id)
       yield* agents.get(role.agent).pipe(

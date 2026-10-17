@@ -135,6 +135,17 @@ export const Plugin = define({
             "The Orchestrator and team roles must delegate through the sessions tool; nested subagents bypass team tracking"
           return
         }
+        // The Orchestrator runs the team unattended: a team session reaching outside the project
+        // (temp files, caches, sibling repos) is its call, not a prompt for the operator.
+        // A config "deny" is settled before this hook runs and still wins.
+        if (
+          event.action === "external_directory" &&
+          event.effect === "ask" &&
+          (event.agent === Orchestra.agent || team.roles.some((role) => role.agent === event.agent))
+        ) {
+          event.effect = "allow"
+          return
+        }
         const limited = team.roles.find((role) => role.tools && role.agent === event.agent)
         if (limited?.tools && TOOL_ACTIONS.has(event.action) && !Orchestra.toolAllowed(limited.tools, event.action)) {
           event.effect = "deny"
