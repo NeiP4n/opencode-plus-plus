@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { normalize } from "../src/models-dev"
 
 describe("anonymous FREE model routes", () => {
-  const providers = normalize([])
+  const providers = normalize({})
   const byID = new Map(providers.map((provider) => [provider.info.id, provider]))
 
   test("registers Kilo free routes without account credentials", () => {
