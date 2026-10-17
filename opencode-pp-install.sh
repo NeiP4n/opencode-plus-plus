@@ -31,6 +31,34 @@ fi
 
 sh "$TMP"
 
+# Repair a duplicate signal left in some interrupted/overlapping room-chat updates.
+# This is intentionally limited to this exact declaration; normal installs are unchanged.
+opencode_dir="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
+room_chat="$opencode_dir/packages/tui/src/component/room-chat.tsx"
+if [ -f "$room_chat" ]; then
+  repair_tmp="${room_chat}.repair.$"
+  seen_awaiting_ai=0
+  duplicate_awaiting_ai=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *'const [awaitingAI, setAwaitingAI] = createSignal(false)'*)
+        if [ "$seen_awaiting_ai" -eq 1 ]; then
+          duplicate_awaiting_ai=1
+          continue
+        fi
+        seen_awaiting_ai=1
+        ;;
+    esac
+    printf '%s\n' "$line" >> "$repair_tmp"
+  done < "$room_chat"
+  if [ "$duplicate_awaiting_ai" -eq 1 ]; then
+    mv "$repair_tmp" "$room_chat"
+    echo "opencode-pp: removed duplicate awaitingAI declaration from room-chat.tsx"
+  else
+    rm -f "$repair_tmp"
+  fi
+fi
+
 # Replace the preliminary shim with a handler that stays installed when Bun
 # itself calls sigaction(SIGSYS). This is the important difference on Android
 # builds where Bun probes pidfd_open through an inline syscall.
