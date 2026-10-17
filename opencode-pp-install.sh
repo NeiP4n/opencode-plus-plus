@@ -37,7 +37,6 @@ opencode_dir="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
 room_chat="$opencode_dir/packages/tui/src/component/room-chat.tsx"
 if [ -f "$room_chat" ]; then
   repair_tmp="${room_chat}.repair"
-  repair_tmp="${room_chat}.repair"
   : > "$repair_tmp"
   seen_awaiting_ai=0
   duplicate_awaiting_ai=0
