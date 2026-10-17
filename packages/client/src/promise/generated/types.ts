@@ -607,7 +607,7 @@ export type OrchestraOrigin = "builtin" | "edited" | "custom"
 
 export type OrchestraAccess = "hidden" | "read" | "write" | "full"
 
-export type FederationGroup = { name: string; projects: Array<string>; supervisor?: string }
+export type FederationGroup = { name: string; projects: Array<string>; supervisor?: string | undefined }
 
 export type SessionMessageLocationSwitched = {
   id: string
@@ -8961,9 +8961,9 @@ export type OrchestraCategoryOutput = void
 export type OrchestraGroupListOutput = Array<FederationGroup>
 
 export type OrchestraGroupSaveInput = {
-  readonly name: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string }["name"]
-  readonly projects: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string }["projects"]
-  readonly supervisor?: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string }["supervisor"]
+  readonly name: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string | undefined }["name"]
+  readonly projects: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string | undefined }["projects"]
+  readonly supervisor?: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string | undefined }["supervisor"]
 }
 
 export type OrchestraGroupSaveOutput = void
