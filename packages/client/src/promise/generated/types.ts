@@ -7448,7 +7448,6 @@ export type ConfigUpdateInput = {
     readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
     readonly compatibilityEnabled?: boolean | null
   }["compatibilityEnabled"]
-  readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
 }
 
 export type ConfigUpdateOutput = void
