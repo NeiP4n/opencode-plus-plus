@@ -43,7 +43,6 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   const [error, setError] = createSignal<unknown>()
   const [note, setNote] = createSignal<{ name: string; title: string }>()
   const [running, setRunning] = createSignal(false)
-  const [awaitingAI, setAwaitingAI] = createSignal(false)
   // The poll replaces the answer every few seconds; only a different session remounts the view.
   const sessionID = createMemo(() => joined()?.session.id)
   // Set by the view inside the data provider; the room log calls it once it has caught up.
@@ -123,6 +122,7 @@ function RoomView(props: {
   const remote = roomClient(props.room)
   const [sending, setSending] = createSignal(0)
   const [failure, setFailure] = createSignal<string>()
+  const [awaitingAI, setAwaitingAI] = createSignal(false)
   const [reading, setReading] = createSignal(false)
   const [document, setDocument] = createSignal<NoteInfo | null>()
   const { currentSyntax: syntax } = useThemes()
