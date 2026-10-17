@@ -107,16 +107,51 @@ async function* events(
     [Symbol.asyncIterator]()
   yield { id: "room", type: "server.connected" as const, data: {} }
   let replaying = !resumed
+  let liveDurableSeq: number | undefined
+  const liveDurableIDs = new Set<string>()
+  const liveDurableOrder: string[] = []
+  const rememberLiveDurable = (id: string, seq: number) => {
+    liveDurableIDs.add(id)
+    liveDurableOrder.push(id)
+    liveDurableSeq = Math.max(liveDurableSeq ?? -1, seq)
+    while (liveDurableOrder.length > 5000) {
+      const oldest = liveDurableOrder.shift()
+      if (oldest) liveDurableIDs.delete(oldest)
+    }
+  }
   for (let item = await log.next(); !item.done; item = await log.next()) {
-    const value = item.value
+    let value = item.value
     if (value.type === "log.synced") {
       if (value.seq !== undefined) cursor.seq = Math.max(cursor.seq ?? -1, value.seq)
+      if (liveDurableSeq !== undefined) cursor.seq = Math.max(cursor.seq ?? -1, liveDurableSeq)
+      liveDurableSeq = undefined
       if (replaying) onLive?.()
       replaying = false
       continue
     }
-    if (replaying) continue
-    if ("durable" in value && value.durable) cursor.seq = Math.max(cursor.seq ?? -1, value.durable.seq)
+
+    const metadata = "metadata" in value ? value.metadata : undefined
+    const live = metadata?.__opencodeRoomLive === true
+    if (live && metadata) {
+      const clean = { ...metadata }
+      delete clean.__opencodeRoomLive
+      value = {
+        ...value,
+        metadata: Object.keys(clean).length ? clean : undefined,
+      } as typeof item.value
+    }
+
+    // History is loaded through the message API. Live boundaries create the assistant
+    // before the first ephemeral text delta reaches the UI.
+    if (replaying && !live) continue
+
+    if ("durable" in value && value.durable) {
+      if (live) rememberLiveDurable(value.id, value.durable.seq)
+      else {
+        if (liveDurableIDs.has(value.id)) continue
+        if (!replaying) cursor.seq = Math.max(cursor.seq ?? -1, value.durable.seq)
+      }
+    }
     yield value
   }
 }
