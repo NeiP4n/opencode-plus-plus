@@ -212,4 +212,86 @@ else
   esac
 fi
 
+# The first filtered install can keep stale upstream @opentui packages in Bun's
+# store even though the Android .so is present. Resolve all workspace references
+# to the Android aliases explicitly, reinstall, and assert what the CLI imports.
+if [ -n "${PREFIX:-}" ] && [ -x "$PREFIX/bin/bun" ] && [ -f "$PREFIX/lib/libopencode-sigsys-compat.so" ]; then
+  opencode_dir="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
+  aliaser="$PREFIX/tmp/opencode-pp-androidtui-runtime.mjs"
+  cat >"$aliaser" <<'ANDROIDTUI_RUNTIME'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import path from "node:path"
+
+const root = path.resolve(process.argv[2] ?? "")
+const version = process.argv[3] ?? "0.5.17"
+const aliases = {
+  "@opentui/core": `npm:@androidtui/core@${version}`,
+  "@opentui/keymap": `npm:@androidtui/keymap@${version}`,
+  "@opentui/solid": `npm:@androidtui/solid@${version}`,
+}
+const readJson = (file) => JSON.parse(readFileSync(file, "utf8"))
+const writeJson = (file, data) => writeFileSync(file, JSON.stringify(data, null, 2) + "\n")
+const rootFile = path.join(root, "package.json")
+if (!existsSync(rootFile)) throw new Error("OpenCode++ package.json is missing")
+const rootPkg = readJson(rootFile)
+rootPkg.workspaces ??= {}
+rootPkg.workspaces.catalog ??= {}
+Object.assign(rootPkg.workspaces.catalog, aliases)
+rootPkg.overrides ??= {}
+// A catalog-based override can keep the upstream package version pinned.
+for (const name of Object.keys(aliases)) delete rootPkg.overrides[name]
+writeJson(rootFile, rootPkg)
+
+const skip = new Set([".git", "node_modules", "dist", ".turbo", ".opencode"])
+function rewriteMap(map) {
+  if (!map || typeof map !== "object") return false
+  let changed = false
+  for (const [name, alias] of Object.entries(aliases)) {
+    const current = map[name]
+    if (typeof current !== "string" || current.startsWith("workspace:")) continue
+    if (current !== alias) {
+      map[name] = alias
+      changed = true
+    }
+  }
+  return changed
+}
+function walk(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (!skip.has(entry.name)) walk(path.join(dir, entry.name))
+      continue
+    }
+    if (entry.name !== "package.json") continue
+    const file = path.join(dir, entry.name)
+    const pkg = readJson(file)
+    const changed =
+      rewriteMap(pkg.dependencies) |
+      rewriteMap(pkg.devDependencies) |
+      rewriteMap(pkg.peerDependencies)
+    if (changed) writeJson(file, pkg)
+  }
+}
+walk(root)
+console.log(`Explicit Android OpenTUI aliases configured at ${version}`)
+ANDROIDTUI_RUNTIME
+  echo "Re-resolving Android OpenTUI packages…"
+  shim="$PREFIX/lib/libopencode-sigsys-compat.so"
+  LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" "$aliaser" "$opencode_dir" "${OPENCODE_PP_TERMUX_OPENTUI_VERSION:-0.5.17}" || {
+    rm -f "$aliaser"
+    echo "opencode-pp: failed to configure Android OpenTUI aliases" >&2
+    exit 1
+  }
+  rm -f "$aliaser"
+  (cd "$opencode_dir" && LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" install --filter ./packages/cli) || {
+    echo "opencode-pp: failed to reinstall Android OpenTUI dependencies" >&2
+    exit 1
+  }
+  (cd "$opencode_dir/packages/cli" && LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}" "$PREFIX/bin/bun" -e 'const resolved = import.meta.resolve("@opentui/core"); console.log("Resolved OpenTUI core:", resolved); if (!resolved.includes("@androidtui")) throw new Error("CLI still resolves upstream @opentui/core instead of @androidtui/core")') || {
+    echo "opencode-pp: the CLI still resolves the incompatible upstream OpenTUI package" >&2
+    exit 1
+  }
+fi
+
+
 exit 0
