@@ -112,11 +112,15 @@ export const Plugin = {
               switch (input.action) {
                 case "peers": {
                   const peers = yield* federation.peers(project.id)
+                  const allowed = groupSupervisor
+                    ? new Set((yield* federation.groups()).find((group) => group.name === groupSupervisor.name)?.projects ?? [])
+                    : undefined
+                  const visible = allowed ? peers.filter((peer) => allowed.has(peer.id)) : peers
                   return {
                     output:
-                      peers.length === 0
-                        ? "No other project shows itself to you."
-                        : peers.map((peer) => `${peer.id} · ${peer.name} · ${peer.visibility}`).join("\n"),
+                      visible.length === 0
+                        ? "No other project in the allowed scope shows itself to you."
+                        : visible.map((peer) => `${peer.id} · ${peer.name} · ${peer.visibility}`).join("\n"),
                   }
                 }
                 case "policy":
@@ -142,6 +146,11 @@ export const Plugin = {
                 case "send": {
                   if (!input.to || !input.kind || !input.subject)
                     return yield* new ToolFailure({ message: "send needs to, kind and subject (and body)." })
+                  if (groupSupervisor) {
+                    const managed = (yield* federation.groups()).find((group) => group.name === groupSupervisor.name)
+                    if (!managed || !managed.projects.includes(Orchestra.ProjectID.make(input.to)))
+                      return yield* new ToolFailure({ message: "The Group Orchestrator may send tickets only to projects in its registered group." })
+                  }
                   if (input.kind !== "question") yield* ask(`send:${input.kind}:${input.to}`)
                   const ticket = yield* federation
                     .send({
@@ -174,8 +183,9 @@ export const Plugin = {
                 }
                 case "groups": {
                   const found = yield* federation.groups()
+                  const visible = groupSupervisor ? found.filter((group) => group.name === groupSupervisor.name) : found
                   return {
-                    output: found.map((group) => group.name + ": " + group.projects.join(", ") + (group.supervisor ? " · supervisor " + group.supervisor : "")).join("\n") || "No groups.",
+                    output: visible.map((group) => group.name + ": " + group.projects.join(", ") + (group.supervisor ? " · supervisor " + group.supervisor : "")).join("\n") || "No groups.",
                   }
                 }
                 case "group_status": {
