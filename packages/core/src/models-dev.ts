@@ -69,6 +69,7 @@ type SourceModel = {
 
 type SourceProvider = {
   readonly api?: string
+  readonly headers?: Readonly<Record<string, string>>
   readonly name: string
   readonly env: readonly string[]
   readonly id: string
@@ -82,6 +83,58 @@ export type Snapshot = {
   readonly environment: readonly string[]
 }
 
+/**
+ * Public, no-account free routes. Keep these separate from models.dev's remote catalog:
+ * a catalog refresh must not remove the anonymous routes from the model picker.
+ *
+ * Kilo's free model IDs are dynamically routed server-side and can change availability.
+ * LLMFaucet routes across keyless upstreams and currently enforces a shared anonymous
+ * daily limit. Both are best-effort community/free services, not production guarantees.
+ */
+function freeModel(id: string, name: string): SourceModel {
+  return {
+    id,
+    name,
+    release_date: "",
+    attachment: false,
+    reasoning: false,
+    tool_call: true,
+    limit: { context: 32_000, input: 32_000, output: 4_096 },
+    modalities: { input: ["text"], output: ["text"] },
+  }
+}
+
+const ANONYMOUS_FREE_PROVIDERS: readonly SourceProvider[] = [
+  {
+    id: "kilo-free",
+    name: "Kilo Gateway [FREE · NO ACCOUNT]",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    api: "https://ai-gateway.kilo.ai/api/v1",
+    models: {
+      "kilo-auto/free": freeModel("kilo-auto/free", "[FREE] Kilo Auto Free"),
+      "minimax/minimax-m2.1:free": freeModel("minimax/minimax-m2.1:free", "[FREE] MiniMax M2.1"),
+      "z-ai/glm-5:free": freeModel("z-ai/glm-5:free", "[FREE] GLM-5"),
+    },
+  },
+  {
+    id: "llmfaucet-free",
+    name: "LLMFaucet [FREE · NO ACCOUNT]",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    api: "https://api.llmfaucet.dev/v1",
+    // The public endpoint accepts anonymous requests; "free" is a placeholder token
+    // for clients which insist on an Authorization header.
+    headers: { Authorization: "Bearer free" },
+    models: {
+      auto: freeModel("auto", "[FREE] LLMFaucet Auto"),
+      "auto:fast": freeModel("auto:fast", "[FREE] LLMFaucet Auto Fast"),
+      "auto:smart": freeModel("auto:smart", "[FREE] LLMFaucet Auto Smart"),
+      "auto:coding": freeModel("auto:coding", "[FREE] LLMFaucet Auto Coding"),
+    },
+  },
+]
+
 function nativePackage(provider: SourceProvider, model?: SourceModel) {
   const npm = model?.provider?.npm ?? provider.npm
   return (
@@ -93,9 +146,12 @@ function nativePackage(provider: SourceProvider, model?: SourceModel) {
   )
 }
 
-function normalize(input: Record<string, SourceProvider>): readonly Snapshot[] {
+export function normalize(input: Record<string, SourceProvider>): readonly Snapshot[] {
+  const catalog = { ...input }
+  for (const item of ANONYMOUS_FREE_PROVIDERS) catalog[item.id] = item
+
   const providers: Snapshot[] = []
-  for (const item of Object.values(input)) {
+  for (const item of Object.values(catalog)) {
     const providerID = Provider.ID.make(item.id)
     const packageName = nativePackage(item)
     const info = {
@@ -106,6 +162,7 @@ function normalize(input: Record<string, SourceProvider>): readonly Snapshot[] {
       ...(item.api && packageName !== "@opencode/ai/providers/cloudflare-workers-ai"
         ? { settings: { baseURL: item.api } }
         : {}),
+      ...(item.headers ? { headers: { ...item.headers } } : {}),
     } satisfies Provider.Info
     const models: Model.Info[] = []
     for (const model of Object.values(item.models)) {
