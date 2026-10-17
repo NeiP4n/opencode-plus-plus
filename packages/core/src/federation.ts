@@ -365,7 +365,17 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
           Schema.encodeSync(Group)({ name, projects, ...(supervisor ? { supervisor } : {}) }),
         )
       }),
-      removeGroup: (name) => kv.remove(GROUP + name.trim()),
+      removeGroup: Effect.fn("Federation.removeGroup")(function* (name) {
+        const normalized = name.trim()
+        yield* kv.remove(GROUP + normalized)
+        const prefix = ACTIVITY + encodeURIComponent(normalized) + "/"
+        const removeActivity = Effect.fnUntraced(function* (after?: string): Effect.Effect<void> {
+          const result = yield* kv.scan({ prefix, after, limit: 1000 })
+          yield* Effect.forEach(result.entries, (entry) => kv.remove(entry.key), { discard: true })
+          if (result.next) yield* removeActivity(result.next)
+        })
+        yield* removeActivity()
+      }),
       linkGroup: Effect.fn("Federation.linkGroup")(function* (name) {
         const group = (yield* groups()).find((item) => item.name === name.trim())
         if (!group) return yield* new FederationError({ message: `No group named ${name}` })
