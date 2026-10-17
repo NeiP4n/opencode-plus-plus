@@ -6,7 +6,7 @@ echo "opencode-pp: installer revision $INSTALLER_WRAPPER_REV"
 set -eu
 
 BASE_URL="https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/c01cdcc0414feeed0aed3da6d00bab897df7a18f/opencode-pp-install.sh"
-TMP="${TMPDIR:-${PREFIX:-/tmp}}/opencode-pp-installer.$.sh"
+TMP="${TMPDIR:-${PREFIX:-/tmp}}/opencode-pp-installer.$$.sh"
 trap 'rm -f "$TMP" "${PREFIX:-/tmp}/tmp/opencode-pp-sigsys-compat.c" 2>/dev/null || true' EXIT
 
 command -v curl >/dev/null 2>&1 || { echo 'opencode-pp: curl is required' >&2; exit 1; }
