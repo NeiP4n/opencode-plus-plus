@@ -3,16 +3,15 @@ import { normalize, parseKiloFreeModels, parseKiloFreeModelsText } from "../src/
 
 describe("anonymous FREE model routes", () => {
   const providers = normalize({})
-  const byID = new Map(providers.map((provider) => [provider.info.id, provider]))
 
   test("registers Kilo auto-free and statically documented routes without account credentials", () => {
-    const kilo = byID.get("kilo-free")
+    const kilo = providers.find((provider) => provider.info.id === "kilo-free")
     expect(kilo).toBeDefined()
     expect(kilo!.info.name).toContain("FREE")
     expect(kilo!.info.settings?.baseURL).toBe("https://ai-gateway.kilo.ai/api/v1")
     expect(kilo!.info.headers).toBeUndefined()
     expect(kilo!.info.package).toBe("@opencode/ai/providers/openai-compatible")
-    expect(kilo!.models.map((model) => model.id)).toEqual([
+    expect(kilo!.models.map((model) => String(model.id))).toEqual([
       "kilo-auto/free",
       "minimax/minimax-m2.1:free",
       "z-ai/glm-5:free",
