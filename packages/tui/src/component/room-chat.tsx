@@ -44,6 +44,7 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   const [note, setNote] = createSignal<{ name: string; title: string }>()
   const [running, setRunning] = createSignal(false)
   const [awaitingAI, setAwaitingAI] = createSignal(false)
+  const [awaitingAI, setAwaitingAI] = createSignal(false)
   // The poll replaces the answer every few seconds; only a different session remounts the view.
   const sessionID = createMemo(() => joined()?.session.id)
   // Set by the view inside the data provider; the room log calls it once it has caught up.
