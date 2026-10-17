@@ -102,6 +102,22 @@ export function parseDodBoard(source: string): DodTask[] {
   }))
 }
 
+// A file caught mid-save, by an AI's edit tool or any writer without an atomic rename, reads as
+// broken YAML for a moment. Read again shortly; only the same text failing twice is a real error.
+const SETTLE = 250
+
+export async function readDodBoard(file: string): Promise<DodTask[]> {
+  const first = await Bun.file(file).text()
+  try {
+    return parseDodBoard(first)
+  } catch (cause) {
+    await Bun.sleep(SETTLE)
+    const second = await Bun.file(file).text()
+    if (second === first) throw cause
+    return parseDodBoard(second)
+  }
+}
+
 // What needs a look comes first: failed, blocked, in progress, then not started, with
 // finished work last; tasks keep the file's order within each group.
 const RANK: Record<string, number> = { FAILED: 0, BLOCKED: 1, IN_PROGRESS: 2, NOT_STARTED: 3, DONE: 4, OUT_OF_SCOPE: 5 }
@@ -143,6 +159,7 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
   const [hoveredAction, setHoveredAction] = createSignal<"open" | "toggle" | "close">()
   const actionHoverColor = () => theme.text.action?.primary?.hovered ?? theme.increase(actionColor, 2)
   let revision = 0
+  let strike = false
 
   const directory = () =>
     props.context.data.session.get(props.sessionID)?.location?.directory ?? props.context.location?.directory
@@ -160,10 +177,17 @@ export function SidebarDod(props: { context: Plugin.Context; sessionID: string }
         if (current === revision) setBoard({ type: "missing" })
         return
       }
-      const items = parseDodBoard(await file.text())
+      const items = await readDodBoard(path.join(root, FILE))
       if (current === revision) setBoard({ type: "ready", items })
+      strike = false
     } catch (cause) {
       if (current !== revision) return
+      // One failed poll keeps the board people were looking at while the file is being rewritten;
+      // the next poll decides.
+      if (board().type === "ready" && !strike) {
+        strike = true
+        return
+      }
       setBoard({ type: "error", reason: cause instanceof Error ? cause.message : String(cause) })
     }
   }
@@ -308,6 +332,7 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
   const [board, setBoard] = createSignal<BoardState>({ type: "loading" })
   const [boardRoot, setBoardRoot] = createSignal<string>()
   let revision = 0
+  let strike = false
 
   const directory = () =>
     props.context.data.session.get(props.panel.sessionID)?.location?.directory ?? props.context.location?.directory
@@ -328,10 +353,17 @@ export function SidebarDodPanel(props: { context: Plugin.Context; panel: PanelIn
         if (current === revision) setBoard({ type: "missing" })
         return
       }
-      const items = parseDodBoard(await file.text())
+      const items = await readDodBoard(path.join(root, FILE))
       if (current === revision) setBoard({ type: "ready", items })
+      strike = false
     } catch (cause) {
       if (current !== revision) return
+      // One failed poll keeps the board people were looking at while the file is being rewritten;
+      // the next poll decides.
+      if (board().type === "ready" && !strike) {
+        strike = true
+        return
+      }
       setBoard({ type: "error", reason: cause instanceof Error ? cause.message : String(cause) })
     }
   }

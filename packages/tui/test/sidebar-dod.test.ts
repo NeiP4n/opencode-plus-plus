@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test"
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import {
   DOD_PANEL,
   openDodPanel,
   parseDodBoard,
+  readDodBoard,
   resolveDodRoot,
   summarizeDodBoard,
   orderDodTasks,
@@ -147,4 +148,19 @@ test("active work is listed first and the filter splits unfinished from finished
   expect(filterDodTasks(items, "active").map((item) => item.id)).toEqual(["T2", "T4", "T3", "T1"])
   expect(filterDodTasks(items, "done").map((item) => item.id)).toEqual(["T0", "T5"])
   expect(filterDodTasks(items, "all")).toHaveLength(6)
+})
+
+test("a board caught mid-save is read again instead of reported broken", async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "opencode-dod-read-"))
+  const file = path.join(temporary, "dod.yaml")
+  try {
+    await writeFile(file, 'leaves:\n  - id: L-001\n    what: "half')
+    setTimeout(() => void writeFile(file, 'leaves:\n  - id: L-001\n    what: "Whole"\n'), 50)
+    expect((await readDodBoard(file)).map((item) => item.title)).toEqual(["Whole"])
+
+    await writeFile(file, 'leaves:\n  - id: L-001\n    what: "still broken')
+    await expect(readDodBoard(file)).rejects.toThrow()
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
 })
