@@ -409,9 +409,21 @@ export default Plugin.define({
               title: text(context, "Cloudflare WARP controls", "Управление Cloudflare WARP"),
               description: text(context, "View status, connect, reconnect, or reset registration", "Статус, подключение, переподключение и сброс регистрации"),
               group: "System",
-              slash: { name: "update", aliases: ["warp"] },
+              slash: { name: "warp" },
               palette: true,
               run: open,
+            },
+            {
+              id: "opencode.warp.update",
+              title: text(context, "Refresh WARP registration", "Обновить регистрацию WARP"),
+              description: text(context, "Reset and recreate the personal WARP registration, then reconnect", "Сбросить и создать заново регистрацию личного WARP, затем подключиться"),
+              group: "System",
+              slash: { name: "update" },
+              palette: true,
+              run() {
+                open()
+                void perform("reset")
+              },
             },
           ],
         }))
