@@ -59,6 +59,12 @@ export const AskResult = Schema.Struct({
 }).annotate({ identifier: "Permission.AskResult" })
 export type AskResult = typeof AskResult.Type
 
+export type DelegateDecision = {
+  readonly effect: "allow" | "deny"
+  readonly message?: string
+}
+export type Delegate = (request: Request) => Effect.Effect<DelegateDecision | undefined>
+
 export { Event } from "@opencode/schema/permission"
 
 export class DeclinedError extends Schema.TaggedError<DeclinedError>()("Permission.DeclinedError", {}) {}
@@ -109,6 +115,8 @@ export interface Interface {
   // is an ordinary failure here, not the defect assert raises to stop a model's tool.
   readonly confirm: (input: AssertInput) => Effect.Effect<void, DeclinedError | CorrectedError>
   readonly reply: (input: ReplyInput) => Effect.Effect<void, NotFoundError>
+  // Optional host callback for deciding agent tool permissions before a UI request is created.
+  readonly setDelegate: (delegate: Delegate) => Effect.Effect<void>
   readonly get: (id: ID) => Effect.Effect<Request | undefined>
   readonly forSession: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<Request>>
   readonly list: () => Effect.Effect<ReadonlyArray<Request>>
@@ -132,6 +140,7 @@ const layer = Layer.effect(
     const saved = yield* PermissionSaved.Service
     const hooks = yield* PluginHooks.Service
     const pending = new Map<ID, Pending>()
+    let delegate: Delegate | undefined
     let closed = false
 
     const close = Effect.gen(function* () {
@@ -236,6 +245,36 @@ const layer = Layer.effect(
       Effect.gen(function* () {
         if (closed) return yield* Effect.die(new DeclinedError())
         const result = yield* evaluateInput(input)
+        const value = request(input, result.message)
+
+        if (result.effect === "ask" && delegate) {
+          const decide = delegate
+          const decision = yield* decide(value).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Permission delegate failed; denying the agent request", {
+                sessionID: input.sessionID,
+                requestID: value.id,
+                action: input.action,
+                cause,
+              }).pipe(
+                Effect.as({
+                  effect: "deny" as const,
+                  message: "The project orchestrator could not safely evaluate this permission; denied by default.",
+                }),
+              ),
+            ),
+          )
+          if (decision?.effect === "allow") return
+          if (decision?.effect === "deny") {
+            return yield* new BlockedError({
+              rules: relevant(input, result.rules),
+              permission: input.action,
+              resources: input.resources,
+              reason: decision.message ?? "The project orchestrator denied this permission.",
+            })
+          }
+        }
+
         return yield* Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             if (result.effect === "deny") {
@@ -247,7 +286,7 @@ const layer = Layer.effect(
               })
             }
             if (result.effect === "allow") return
-            const item = yield* create(request(input, result.message), input.agent)
+            const item = yield* create(value, input.agent)
             return yield* restore(Deferred.await(item.deferred)).pipe(
               // Deliberate defect tunnel: leaves wrap execution in blanket `mapError`, which
               // must not convert a user's decline into model-facing tool output. The decline
@@ -328,6 +367,10 @@ const layer = Layer.effect(
       ),
     )
 
+    const setDelegate = (handler: Delegate) => Effect.sync(() => {
+      delegate = handler
+    })
+
     const list = Effect.fn("Permission.list")(function* () {
       return Array.from(pending.values(), (item) => item.request)
     })
@@ -348,7 +391,7 @@ const layer = Layer.effect(
       return yield* Deferred.await(item.deferred)
     })
 
-    return Service.of({ ask, assert, confirm, reply, get, forSession, list, close })
+    return Service.of({ ask, assert, confirm, reply, setDelegate, get, forSession, list, close })
   }),
 )
 
