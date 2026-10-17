@@ -134,15 +134,27 @@ function RoomView(props: {
       awaitingTimer = undefined
     }, 15_000)
   }
-  createEffect(() => {
-    if (!props.running || !awaitingAI()) return
+  const stopWaitingForAI = () => {
     if (awaitingTimer) clearTimeout(awaitingTimer)
     awaitingTimer = undefined
     setAwaitingAI(false)
+  }
+  createEffect(() => {
+    // Once the server confirms execution is running, its state takes over the indicator.
+    if (props.running && awaitingAI()) stopWaitingForAI()
   })
   onCleanup(() => {
     if (awaitingTimer) clearTimeout(awaitingTimer)
   })
+  const executionEnded = (event: { data: { sessionID: string } }) => {
+    if (event.data.sessionID === props.sessionID) stopWaitingForAI()
+  }
+  const endSubscriptions = [
+    data.on("session.execution.succeeded", executionEnded),
+    data.on("session.execution.failed", executionEnded),
+    data.on("session.execution.interrupted", executionEnded),
+  ]
+  onCleanup(() => endSubscriptions.forEach((unsubscribe) => unsubscribe()))
   const [reading, setReading] = createSignal(false)
   const [document, setDocument] = createSignal<NoteInfo | null>()
   const { currentSyntax: syntax } = useThemes()
@@ -190,18 +202,10 @@ function RoomView(props: {
     )
       .then(() => {
         setFailure()
-        void remote.room.guest
-          .messages({ roomID: props.room.roomID, sessionID: props.sessionID })
-          .then((result) => {
-            setNote(result.note)
-            setRunning(result.running)
-          })
-          .catch(() => undefined)
+        // RoomChat polls the host's running/note state; this view has no local setters.
       })
       .catch((cause: unknown) => {
-        setAwaitingAI(false)
-        if (awaitingTimer) clearTimeout(awaitingTimer)
-        awaitingTimer = undefined
+        stopWaitingForAI()
         setFailure(errorMessage(cause))
         if (input && !input.plainText) input.setText(text)
       })
