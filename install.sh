@@ -1,7 +1,7 @@
 #!/bin/sh
 # Canonical installer entrypoint for OpenCode++ (Linux/macOS/Termux).
 # Revision marker helps diagnose stale raw.githubusercontent.com responses.
-INSTALLER_WRAPPER_REV="termux-opentui-client-fix-2026-10-17-e"
+INSTALLER_WRAPPER_REV="termux-opentui-client-fix-2026-10-17-f"
 echo "opencode-pp: installer revision $INSTALLER_WRAPPER_REV"
 set -eu
 
@@ -30,25 +30,6 @@ else
 fi
 
 sh "$TMP"
-
-# Migrate stale room-client UI code restored from local changes during update.
-# Current client code derives the indicator from the host's polled running state.
-opencode_dir="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
-room_chat="$opencode_dir/packages/tui/src/component/room-chat.tsx"
-if [ -f "$room_chat" ] && grep -q 'awaitingAI' "$room_chat"; then
-  sed -i \
-    -e '/const \[awaitingAI, setAwaitingAI\] = createSignal(false)/d' \
-    -e '/  const executionEnded = (event: { data: { sessionID: string } }) =>/,/  onCleanup(() => endSubscriptions.forEach((unsubscribe) => unsubscribe()))/d' \
-    -e '/setAwaitingAI(/d' \
-    -e 's/props.running || awaitingAI() || sending() > 0/props.running || sending() > 0/' \
-    -e 's/props.running || awaitingAI() ? "Thinking…"/props.running ? "Thinking…"/' \
-    "$room_chat"
-  if grep -q 'awaitingAI' "$room_chat"; then
-    echo "opencode-pp: could not migrate stale room-chat thinking state" >&2
-    exit 1
-  fi
-  echo "opencode-pp: repaired stale room-client thinking state"
-fi
 
 # Replace the preliminary shim with a handler that stays installed when Bun
 # itself calls sigaction(SIGSYS). This is the important difference on Android
