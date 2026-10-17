@@ -35,6 +35,7 @@ export class WarpError extends Error {
       | "not-proxy-mode"
       | "device-in-use"
       | "proxy-unreachable"
+      | "socks-only"
       | "managed-registration"
       | "command-failed",
     message: string,
@@ -347,6 +348,32 @@ export function portOpen(port = DEFAULT_PORT, host = "127.0.0.1"): Promise<boole
   })
 }
 
+/** True when something on the port answers a SOCKS5 greeting. */
+export function speaksSocks5(port = DEFAULT_PORT, host = "127.0.0.1"): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port })
+    const timer = setTimeout(() => done(false), 2_000)
+    const done = (value: boolean) => {
+      clearTimeout(timer)
+      socket.destroy()
+      resolve(value)
+    }
+    socket.once("error", () => done(false))
+    socket.once("connect", () => socket.write(Buffer.from([5, 1, 0])))
+    socket.once("data", (reply) => done(reply[0] === 5))
+  })
+}
+
+/**
+ * OpenCode's proxy setting is an HTTP URL. Newer WARP clients serve HTTP and SOCKS5 on the same port, but older
+ * ones are SOCKS5-only and would accept connections while carrying no HTTP traffic. Decided by a real request
+ * through the proxy, so a client that speaks both is never misreported.
+ */
+export async function isSocksOnly(port = DEFAULT_PORT) {
+  if (await exitIp(port, 6_000)) return false
+  return speaksSocks5(port)
+}
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 async function waitForPort(port: number, attempts = 15) {
@@ -456,6 +483,12 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
       `The WARP local proxy is not listening on 127.0.0.1:${effectivePort}. WARP says: ${connected.details.replace(/\s+/g, " ").slice(0, 160)}. connect said: ${lastConnectOutput || "(nothing)"}`,
     )
   }
+  if (await isSocksOnly(effectivePort)) {
+    throw new WarpError(
+      "socks-only",
+      `The WARP proxy on 127.0.0.1:${effectivePort} speaks SOCKS5 only, but OpenCode needs an HTTP proxy. Update Cloudflare WARP to a version with an HTTP/HTTPS local proxy.`,
+    )
+  }
   return status()
 }
 
@@ -513,7 +546,7 @@ export type Rotation = { before?: ExitIp; after?: ExitIp; changed: boolean; used
 export async function rotate(port = DEFAULT_PORT): Promise<Rotation> {
   await requireProxyMode()
   const effectivePort = (await mode()).port ?? port
-  const before = await exitIp(effectivePort)
+  const before = await exitIp(effectivePort, 5_000)
 
   let state = await reconnect()
   let after = await waitForExit(effectivePort)
@@ -531,9 +564,9 @@ export async function rotate(port = DEFAULT_PORT): Promise<Rotation> {
   return { before, after, changed: Boolean(before && after && before.ip !== after.ip), usedNewRegistration, status: state }
 }
 
-async function waitForExit(port: number, attempts = 6) {
+async function waitForExit(port: number, attempts = 3) {
   for (let index = 0; index < attempts; index++) {
-    const result = await exitIp(port)
+    const result = await exitIp(port, 5_000)
     if (result) return result
     await wait(700)
   }

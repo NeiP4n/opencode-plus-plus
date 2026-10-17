@@ -73,6 +73,12 @@ function describe(context: Plugin.Context, cause: unknown) {
           "WARP is connected for the whole device. OpenCode will not switch it to Local Proxy because other applications would lose their tunnel. Disconnect WARP and retry.",
           "WARP подключён для всего устройства. OpenCode не будет переключать его в Local Proxy, иначе остальные программы потеряют туннель. Отключи WARP и повтори.",
         )
+      case "socks-only":
+        return text(
+          context,
+          "This WARP version's local proxy speaks SOCKS5 only; OpenCode needs HTTP. Update Cloudflare WARP.",
+          "Локальный прокси этой версии WARP работает только по SOCKS5, а OpenCode нужен HTTP. Обнови Cloudflare WARP.",
+        )
       case "managed-registration":
         return text(
           context,
@@ -649,6 +655,9 @@ export default Plugin.define({
     // the indicator only flips off after two consecutive reads agree.
     let offReads = 0
     let leaving = false
+    // Set when the user pressed Disconnect, so the watchdog respects it; cleared by any action that connects.
+    let userDisconnected = false
+    let revived = 0
     // Turn WARP off together with the last OpenCode that uses it (and only if this one was routed through it).
     const leave = () => {
       if (leaving) return
@@ -677,14 +686,26 @@ export default Plugin.define({
 
     const refresh = async () => {
       if (busy.action !== null) return
-      setSharedStatus(updateStatus, await readWarpStatus())
+      const read = await readWarpStatus()
+      setSharedStatus(updateStatus, read)
       await refreshProxy()
+      // WARP dropped on its own while OpenCode relies on it: bring it back (a few tries, never after Disconnect).
+      if (proxy.enabled && read.state === "disconnected" && !userDisconnected && revived < 5) {
+        revived++
+        try {
+          if ((await Warp.mode()).mode === "proxy") setSharedStatus(updateStatus, await Warp.connect())
+        } catch {}
+      } else if (read.state === "connected") {
+        revived = 0
+      }
       await refreshExitIp()
     }
 
     const perform = async (action: WarpAction) => {
       if (busy.action !== null) return
       setSharedBusy(updateBusy, action)
+      if (action === "disconnect") userDisconnected = true
+      else if (action !== "refresh") userDisconnected = false
       try {
         let next: WarpStatus
         let actionMessage: string | undefined
@@ -809,7 +830,6 @@ export default Plugin.define({
       process.off("exit", leave)
       process.off("SIGHUP", onHup)
       process.off("SIGTERM", onTerm)
-      leave()
     }
   },
 })
