@@ -32,6 +32,8 @@ export const Info = Schema.Struct({
   id: ID,
   sessionID: SessionID,
   name: Schema.String,
+  // Nickname guests and the host model use to identify this host in a room.
+  hostName: Schema.String.pipe(Schema.optional),
   ai: AiMessaging,
   // Rooms saved before roles existed: whether guests could answer permission requests.
   // Read only to choose defaultRole for such rooms.

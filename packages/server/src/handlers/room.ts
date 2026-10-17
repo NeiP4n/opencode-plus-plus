@@ -46,7 +46,7 @@ function missingRequest(id: Permission.ID) {
 
 const CHAT_LIMIT = 100
 
-function chatMessage(message: SessionMessage.Info): Room.Message[] {
+function chatMessage(message: SessionMessage.Info, hostName = "host"): Room.Message[] {
   const created = DateTime.toEpochMillis(message.time.created)
   if (message.type === "user") {
     const room = message.metadata?.room
@@ -55,7 +55,7 @@ function chatMessage(message: SessionMessage.Info): Room.Message[] {
       {
         id: message.id,
         role: "user" as const,
-        author: typeof author === "string" ? author : "host",
+        author: typeof author === "string" ? author : hostName,
         text: message.text,
         created,
       },
@@ -90,6 +90,15 @@ const decodeRoomLiveEvent = Schema.decodeUnknownOption(RoomLiveEvent)
 
 // Control and format characters in a name would reach the host's terminal, notes and feed.
 const UNSAFE_NAME = /[\p{Cc}\p{Cf}\u2028\u2029]/u
+
+function invalidDisplayName(name: string | undefined, field: string) {
+  if (name === undefined) return
+  const value = name.trim()
+  if (value === "" || value.length > 64)
+    return new InvalidRequestError({ message: "Name must be 1 to 64 characters", field })
+  if (UNSAFE_NAME.test(value))
+    return new InvalidRequestError({ message: "Name has characters that cannot be shown", field })
+}
 
 // Loopback is left out: tunnels such as Porthole deliver every guest from it, so a ban on it would ban them all.
 function remoteAddress(request: HttpServerRequest.HttpServerRequest) {
@@ -287,6 +296,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       .handle(
         "room.create",
         Effect.fn(function* (ctx) {
+          const nameError = invalidDisplayName(ctx.payload.hostName, "hostName")
+          if (nameError) return yield* nameError
           yield* sessions.get(ctx.payload.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           return { data: yield* rooms.create(ctx.payload) }
         }),
@@ -294,6 +305,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       .handle(
         "room.update",
         Effect.fn(function* (ctx) {
+          const nameError = invalidDisplayName(ctx.payload.hostName, "hostName")
+          if (nameError) return yield* nameError
           return {
             data: yield* rooms
               .update(ctx.params.roomID, ctx.payload)
@@ -525,7 +538,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession), Effect.orDie)
           const note = yield* boundNote(session.id)
           return {
-            data: messages.toReversed().flatMap(chatMessage),
+            data: messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname())),
             running: (yield* sessions.active).has(session.id),
             note: note && { name: note.name, title: note.frontmatter.title || note.name },
           }
@@ -546,6 +559,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           if (ctx.payload.text.trim() === "")
             return yield* new InvalidRequestError({ message: "Message is empty", field: "text" })
+          const hostName = joined.room.hostName?.trim() || hostname()
+          const participants = [
+            ...new Set([hostName, ...(yield* rooms.members(joined.room.id)).map((member) => member.name)]),
+          ]
           return {
             data: yield* sessions
               .prompt({
@@ -554,7 +571,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 text: ctx.payload.text,
                 // The server stamps the author from the token, so a guest cannot speak as someone else.
                 metadata: {
-                  room: { id: joined.room.id, guest: joined.guest, ...(ctx.payload.ai ? { ai: true } : {}) },
+                  room: {
+                    id: joined.room.id,
+                    guest: joined.guest,
+                    hostName,
+                    participants,
+                    ...(ctx.payload.ai ? { ai: true } : {}),
+                  },
                 },
               })
               .pipe(

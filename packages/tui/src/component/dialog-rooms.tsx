@@ -444,6 +444,8 @@ export function DialogHost(props: { onClose?: () => void }) {
   const theme = useTheme().surface("dialog")
   const toast = useToast()
   const t = useT()
+  const config = useConfig().data
+  const hostNameFields: Record<string, InputRenderable> = {}
   const [rooms, { refetch }] = createResource(() => client.api.room.list())
   const [server, { refetch: reread }] = createResource(() => client.api.server.info())
   const [codes, setCodes] = createSignal<Readonly<Record<string, RoomJoinCode & { until: number }>>>({})
@@ -513,6 +515,7 @@ export function DialogHost(props: { onClose?: () => void }) {
       const room = await client.api.room.create({
         sessionID: id,
         name: target?.name ?? (data.session.get(id)?.title || undefined),
+        hostName: hostname(),
         directory: target?.directory,
       })
       await issue(room.id)
@@ -536,6 +539,15 @@ export function DialogHost(props: { onClose?: () => void }) {
   const close = (room: RoomInfo) => {
     if (armed() !== room.id) return setArmed(room.id)
     void run(() => client.api.room.remove({ roomID: room.id }))
+  }
+
+  const saveHostName = (roomID: string) => {
+    const name = hostNameFields[roomID]?.value.trim()
+    if (!name) {
+      toast.show({ message: t("Enter a host nickname."), variant: "error" })
+      return
+    }
+    void run(() => client.api.room.update({ roomID, hostName: name }))
   }
 
   return (
@@ -631,6 +643,31 @@ export function DialogHost(props: { onClose?: () => void }) {
                   >{` · ${room.directory ? t("whole project") : t("one session")}`}</span>
                 </text>
               </Labeled>
+              <Setting
+                label={t("Host nickname")}
+                help={t("The name other participants use for this host. The AI uses it to distinguish the host from guests.")}
+              >
+                <input
+                  width={24}
+                  cursorStyle={config.cursor}
+                  ref={(element: InputRenderable) => {
+                    hostNameFields[room.id] = element
+                    element.value = room.hostName ?? hostname()
+                  }}
+                  onMouseDown={() => hostNameFields[room.id]?.focus()}
+                  placeholder={hostname()}
+                  placeholderColor={theme.text.muted}
+                  textColor={theme.text.formfield.base}
+                  focusedTextColor={theme.text.formfield.focused}
+                  cursorColor={theme.text.formfield.focused}
+                  backgroundColor={theme.background.formfield.base}
+                  focusedBackgroundColor={theme.background.formfield.focused}
+                  onSubmit={() => saveHostName(room.id)}
+                />
+                <Button disabled={busy()} onClick={() => saveHostName(room.id)}>
+                  {t("Save")}
+                </Button>
+              </Setting>
               <Show
                 when={!room.open && codes()[room.id]}
                 fallback={

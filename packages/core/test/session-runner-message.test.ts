@@ -82,6 +82,31 @@ describe("toLLMMessages", () => {
     expect(messages.map((message) => message.id)).toEqual([id("text"), id("reasoning")])
   })
 
+  test("adds participant context to a guest room prompt for recipient-aware replies", () => {
+    const text = "@Ivan please check this"
+    const message = SessionMessage.User.make({
+      id: id("room-guest"),
+      type: "user",
+      text,
+      metadata: {
+        room: {
+          id: "room_test",
+          guest: { id: "guest-1", name: "Nei" },
+          hostName: "Host PC",
+          participants: ["Host PC", "Nei", "Ivan"],
+        },
+      },
+      time: { created },
+    })
+
+    const lowered = JSON.stringify(toLLMMessages([message], model))
+    expect(lowered).toContain("Host nickname: Host PC")
+    expect(lowered).toContain("Participants in this room: Host PC, Nei, Ivan")
+    expect(lowered).toContain("Current message sender: Nei")
+    expect(lowered).toContain(text)
+    expect(message.text).toBe(text)
+  })
+
   test("maps every top-level Session message type", () => {
     const file = FileAttachment.make({
       data: Base64.make("aGVsbG8="),

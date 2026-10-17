@@ -16,6 +16,35 @@ import type { FileAttachment } from "@opencode/schema/prompt"
 
 const imageMimes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"])
 
+function roomContextText(metadata: Record<string, unknown> | undefined, text: string) {
+  const value = metadata?.room
+  if (!value || typeof value !== "object" || Array.isArray(value)) return text
+  const room = value as Record<string, unknown>
+  const guest = room.guest
+  if (!guest || typeof guest !== "object" || Array.isArray(guest)) return text
+  const sender = (guest as Record<string, unknown>).name
+  if (typeof sender !== "string" || !sender.trim()) return text
+
+  const hostName = typeof room.hostName === "string" && room.hostName.trim() ? room.hostName.trim() : "host"
+  const members = Array.isArray(room.participants)
+    ? room.participants
+        .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+        .map((name) => name.trim())
+    : [hostName, sender.trim()]
+  const participants = [...new Set([hostName, ...members])]
+
+  return [
+    "[Multiplayer room context]",
+    `Host nickname: ${hostName}`,
+    `Participants in this room: ${participants.join(", ")}`,
+    `Current message sender: ${sender.trim()}`,
+    "If the message explicitly addresses a participant by name or @nickname, respond to that participant. Otherwise, address the sender. Use the host nickname to distinguish the host from guests.",
+    "",
+    "[Message from the participant]",
+    text,
+  ].join("\n")
+}
+
 const media = (file: FileAttachment): ContentPart => ({
   type: "media",
   media: Media.base64(file.data, file.mime),
@@ -267,9 +296,10 @@ function toLLMMessage(message: SessionMessage.Info, model: Model.Ref, providerMe
         }),
       ]
     case "user":
+      const text = roomContextText(message.metadata, message.text)
       const content = [
         ...(message.skills ?? []).flatMap((skill) => (skill.text === undefined ? [] : [Message.text(skill.text)])),
-        ...(message.text === "" ? [] : [Message.text(message.text)]),
+        ...(text === "" ? [] : [Message.text(text)]),
         ...userAttachmentContent(message.files ?? []),
       ]
       if (content.length === 0) return []

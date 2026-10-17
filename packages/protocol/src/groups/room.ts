@@ -119,6 +119,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
       payload: Schema.Struct({
         sessionID: Session.ID,
         name: Schema.String.pipe(Schema.optional),
+        hostName: Schema.String.pipe(Schema.optional),
         ai: Room.AiMessaging.pipe(Schema.optional),
         guestApprovals: Schema.Boolean.pipe(Schema.optional),
         defaultRole: Room.DefaultRole.pipe(Schema.optional),
@@ -127,7 +128,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         directory: Schema.String.pipe(Schema.optional),
       }),
       success: Schema.Struct({ data: Room.Info }),
-      error: SessionNotFoundError,
+      error: [SessionNotFoundError, InvalidRequestError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.create",
@@ -141,18 +142,19 @@ export const RoomGroup = HttpApiGroup.make("server.room")
       params: { roomID: Room.ID },
       payload: Schema.Struct({
         name: Schema.String.pipe(Schema.optional),
+        hostName: Schema.String.pipe(Schema.optional),
         ai: Room.AiMessaging.pipe(Schema.optional),
         guestApprovals: Schema.Boolean.pipe(Schema.optional),
         defaultRole: Room.DefaultRole.pipe(Schema.optional),
         open: Schema.Boolean.pipe(Schema.optional),
       }),
       success: Schema.Struct({ data: Room.Info }),
-      error: RoomNotFoundError,
+      error: [RoomNotFoundError, InvalidRequestError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.update",
         summary: "Update room",
-        description: "Rename a room or change what guests and the host model may do in it.",
+        description: "Rename a room, set the host nickname, or change what guests and the host model may do in it.",
       }),
     ),
   )

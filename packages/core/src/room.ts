@@ -27,6 +27,7 @@ export type EventKind = Room.EventKind
 export const CreateInput = Schema.Struct({
   sessionID: SessionID,
   name: Schema.String.pipe(Schema.optional),
+  hostName: Schema.String.pipe(Schema.optional),
   ai: Room.AiMessaging.pipe(Schema.optional),
   guestApprovals: Schema.Boolean.pipe(Schema.optional),
   defaultRole: Room.DefaultRole.pipe(Schema.optional),
@@ -37,6 +38,7 @@ export type CreateInput = typeof CreateInput.Type
 
 export const UpdateInput = Schema.Struct({
   name: Schema.String.pipe(Schema.optional),
+  hostName: Schema.String.pipe(Schema.optional),
   ai: Room.AiMessaging.pipe(Schema.optional),
   guestApprovals: Schema.Boolean.pipe(Schema.optional),
   defaultRole: Room.DefaultRole.pipe(Schema.optional),
@@ -123,6 +125,7 @@ const layer = Layer.effect(
           id: ID.create(),
           sessionID: input.sessionID,
           name: input.name?.trim() || "Room",
+          hostName: input.hostName?.trim() || undefined,
           ai: input.ai ?? "linked",
           guestApprovals: input.guestApprovals ?? false,
           defaultRole: input.defaultRole ?? "member",
@@ -136,6 +139,7 @@ const layer = Layer.effect(
         return yield* save({
           ...room,
           name: input.name?.trim() || room.name,
+          hostName: input.hostName?.trim() || room.hostName,
           ai: input.ai ?? room.ai,
           guestApprovals: input.guestApprovals ?? room.guestApprovals,
           defaultRole: input.defaultRole ?? room.defaultRole,
