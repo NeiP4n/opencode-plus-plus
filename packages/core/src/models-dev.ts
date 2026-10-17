@@ -69,7 +69,6 @@ type SourceModel = {
 
 type SourceProvider = {
   readonly api?: string
-  readonly headers?: Readonly<Record<string, string>>
   readonly name: string
   readonly env: readonly string[]
   readonly id: string
@@ -191,7 +190,6 @@ export function normalize(
       ...(item.api && packageName !== "@opencode/ai/providers/cloudflare-workers-ai"
         ? { settings: { baseURL: item.api } }
         : {}),
-      ...(item.headers ? { headers: { ...item.headers } } : {}),
     } satisfies Provider.Info
     const models: Model.Info[] = []
     for (const model of Object.values(item.models)) {
@@ -366,10 +364,10 @@ const defaultSource = "https://models.opencode.ai"
 
 // Bundled snapshot of https://models.opencode.ai/api.json, committed at
 // packages/core/src/models-dev/snapshot.txt and refreshed via
-// `bun run script/update-models-snapshot.ts`. Decoded and normalized once per
-// isolate: the snapshot is a multi-MB module-level constant and one isolate can
-// host many runtimes (Cloudflare colocates Durable Object instances), so
-// per-runtime decoding would multiply the cost.
+// `bun run script/update-models-snapshot.ts`. Decoded once per isolate: the snapshot
+// is a multi-MB module-level constant and one isolate can host many runtimes
+// (Cloudflare colocates Durable Object instances), so per-runtime decoding would
+// multiply the cost.
 let bundledCache: Record<string, SourceProvider> | undefined
 const bundledSnapshot = Effect.suspend(() =>
   bundledCache
