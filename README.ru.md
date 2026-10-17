@@ -10,7 +10,7 @@
 
 | Система | Команда |
 | --- | --- |
-| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.sh \| sh` |
+| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/install.sh \| sh` |
 | Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-install.ps1 \| iex` |
 
 Потом запусти `opencode-pp`. Обычный opencode остаётся командой `opencode`, настройки в `~/.config/opencode` общие.
