@@ -165,12 +165,7 @@ termux() {
 
   expected_version="${TERMUX_BUN_VERSION}-patched"
   installed_version="$(dpkg-query -W -f='${Version}' bun 2>/dev/null || true)"
-  bun_ok=0
-  if [ "$installed_version" = "$expected_version" ] && bun --version >/dev/null 2>&1; then
-    bun_ok=1
-  fi
-
-  if [ "$bun_ok" -ne 1 ]; then
+  if [ "$installed_version" != "$expected_version" ] || [ ! -x "$PREFIX/lib/bun-termux/bun" ]; then
     echo "Installing source-patched native Bun for Termux…"
     deb="bun_${TERMUX_BUN_VERSION}-patched_aarch64.deb"
     url="https://github.com/bd-loser/bun-termux/releases/download/v${TERMUX_BUN_VERSION}-patched/$deb"
@@ -184,6 +179,8 @@ termux() {
       dpkg -i "$tmp" || fail "could not install patched Termux Bun"
     }
     rm -f "$tmp"
+  else
+    echo "Found patched Bun package; probing runtime compatibility…"
   fi
 
   if ! bun --version >/dev/null 2>&1; then
