@@ -279,6 +279,7 @@ async function installWarp(context: Plugin.Context): Promise<boolean> {
   })
   if (!accepted || !command) return false
   await runInteractive(context, command, args)
+  await Warp.hideGui()
   if (isAUR) {
     context.ui.toast.show({
       title: text(context, "WARP installed", "WARP установлен"),

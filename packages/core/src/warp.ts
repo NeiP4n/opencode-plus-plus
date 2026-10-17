@@ -9,7 +9,8 @@
  * Nothing here runs a shell: warp-cli is always spawned with a fixed argument vector.
  */
 import { execFile } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { createConnection } from "node:net"
 import path from "node:path"
@@ -193,6 +194,45 @@ async function runAny(...variants: Array<readonly string[]>) {
   throw last
 }
 
+// ---------- keep the WARP GUI out of the way ----------
+
+function quiet(command: string, args: readonly string[]): Promise<void> {
+  return new Promise((resolve) => {
+    execFile(command, [...args], { windowsHide: true, timeout: 5_000 }, () => resolve())
+  })
+}
+
+/**
+ * Everything is driven through warp-cli, so the tray/desktop app is never needed. Close it if it is
+ * running and stop it from starting at login. The background service (and the local proxy) keep running.
+ * Only the current user's autostart is changed.
+ */
+export async function hideGui(platform: NodeJS.Platform = process.platform) {
+  if (platform === "win32") {
+    await quiet("taskkill.exe", ["/F", "/IM", "Cloudflare WARP.exe"])
+    await quiet("reg.exe", ["delete", "HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "Cloudflare WARP", "/f"])
+    return
+  }
+  if (platform === "linux") {
+    await quiet("pkill", ["-x", "warp-taskbar"])
+    try {
+      const dir = path.join(process.env.XDG_CONFIG_HOME ?? path.join(homedir(), ".config"), "autostart")
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        path.join(dir, "warp-taskbar.desktop"),
+        "[Desktop Entry]
+Type=Application
+Name=Cloudflare WARP
+Hidden=true
+X-GNOME-Autostart-enabled=false
+",
+      )
+    } catch {}
+    return
+  }
+  if (platform === "darwin") await quiet("osascript", ["-e", 'tell application "Cloudflare WARP" to quit'])
+}
+
 // ---------- state ----------
 
 export async function status(): Promise<Status> {
@@ -300,6 +340,7 @@ export async function ensureProxy(port = DEFAULT_PORT): Promise<Status> {
   }
   const effectivePort = confirmed.port ?? port
   await run(["connect"])
+  await hideGui()
   if (!(await waitForPort(effectivePort))) {
     throw new WarpError(
       "proxy-unreachable",
