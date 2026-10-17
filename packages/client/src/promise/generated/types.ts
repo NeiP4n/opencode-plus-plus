@@ -2359,11 +2359,11 @@ export type ConfigEntry =
         shell?: string
         model?: string | { providerID: string; model: string; variant?: string }
         default_agent?: string
+        proxy?: { http?: string; https?: string; no_proxy?: Array<string> }
         update?: "disable" | "notify" | "auto"
         share?: "manual" | "auto" | "disabled"
         enterprise?: { url?: string }
         username?: string
-        proxy?: { http?: string; https?: string; no_proxy?: Array<string> }
         permissions?: PermissionRuleset
         agents?: {
           [x: string]: {
@@ -7290,7 +7290,7 @@ export type ConfigUpdateInput = {
           }
         | null
     }
-    readonly compatibilityEnabled?: boolean | null
+      readonly compatibilityEnabled?: boolean | null
   }["shell"]
   readonly model?: {
     readonly shell?: string | null
@@ -7328,6 +7328,7 @@ export type ConfigUpdateInput = {
           }
         | null
     }
+    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
     readonly compatibilityEnabled?: boolean | null
   }["model"]
   readonly mcpServers?: {
@@ -7366,8 +7367,48 @@ export type ConfigUpdateInput = {
           }
         | null
     }
+    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
     readonly compatibilityEnabled?: boolean | null
   }["mcpServers"]
+  readonly proxy?: {
+    readonly shell?: string | null
+    readonly model?: string | null
+    readonly mcpServers?: {
+      readonly [x: string]:
+        | {
+            readonly type: "local"
+            readonly command: ReadonlyArray<string>
+            readonly cwd?: string
+            readonly environment?: { readonly [x: string]: string }
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+          }
+        | {
+            readonly type: "remote"
+            readonly url: string
+            readonly headers?: { readonly [x: string]: string }
+            readonly oauth?:
+              | {
+                  readonly client_id?: string
+                  readonly client_secret?: string
+                  readonly scope?: string
+                  readonly callback_port?: number
+                  readonly redirect_uri?: string
+                  readonly auth_server_metadata_url?: string
+                }
+              | false
+            readonly disabled?: boolean
+            readonly codemode?: boolean
+            readonly timeout?: { readonly startup?: number; readonly catalog?: number; readonly execution?: number }
+            readonly protocol?: "legacy" | "auto" | "2026-07-28"
+          }
+        | null
+    }
+    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
+    readonly compatibilityEnabled?: boolean | null
+  }["proxy"]
   readonly compatibilityEnabled?: {
     readonly shell?: string | null
     readonly model?: string | null
@@ -7404,6 +7445,7 @@ export type ConfigUpdateInput = {
           }
         | null
     }
+    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
     readonly compatibilityEnabled?: boolean | null
   }["compatibilityEnabled"]
   readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null

@@ -1826,8 +1826,8 @@ const EndpointConfigUpdate = (raw: RawClient["server.config"]) => (input?: Confi
         shell: input?.["shell"],
         model: input?.["model"],
         mcpServers: input?.["mcpServers"],
-        compatibilityEnabled: input?.["compatibilityEnabled"],
         proxy: input?.["proxy"],
+        compatibilityEnabled: input?.["compatibilityEnabled"],
       },
     }).pipe(Effect.mapError(mapClientError)),
   )
