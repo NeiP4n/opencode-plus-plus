@@ -1,3 +1,5 @@
+export * as ConfigProxy from "./proxy.js"
+
 import { Schema } from "effect"
 import { optional } from "../schema.js"
 

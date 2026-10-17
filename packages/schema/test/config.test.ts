@@ -63,6 +63,20 @@ describe("Config.Entry", () => {
     })
   })
 
+  test("round-trips app-scoped proxy settings", () => {
+    const input = {
+      proxy: {
+        http: "http://127.0.0.1:40000",
+        https: "http://127.0.0.1:40000",
+        no_proxy: ["localhost", "127.0.0.1", "::1"],
+      },
+    } as const
+    const decoded = Schema.decodeUnknownSync(Config.Info)(input)
+    expect(decoded.proxy).toEqual(input.proxy)
+    expect(Schema.encodeSync(Config.Info)(decoded)).toEqual(input)
+    expect(Schema.decodeUnknownSync(Config.Patch)({ proxy: null })).toEqual({ proxy: null })
+  })
+
   test("accepts disabled, fixed, and random web search selection", () => {
     const decode = Schema.decodeUnknownSync(Config.Info)
 
