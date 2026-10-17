@@ -46,6 +46,8 @@ export interface Interface {
   readonly unlink: (a: Orchestra.ProjectID, b: Orchestra.ProjectID) => Effect.Effect<void>
   readonly linked: (project: Orchestra.ProjectID) => Effect.Effect<ReadonlyArray<{ id: Orchestra.ProjectID; name: string }>>
   readonly groups: () => Effect.Effect<ReadonlyArray<Group>>
+  // Sanitized per-project execution signals; never exposes foreign session IDs or transcripts.
+  readonly activity: (group: string) => Effect.Effect<ReadonlyArray<Activity>, FederationError>
   // Creates or replaces a group. Linking a group links every pair in it.
   readonly setGroup: (group: Group) => Effect.Effect<void, FederationError>
   readonly removeGroup: (name: string) => Effect.Effect<void>
@@ -73,6 +75,17 @@ const POLICY = "federation/policy/"
 const TICKET = "federation/ticket/"
 const LINK = "federation/link/"
 const GROUP = "federation/group/"
+const ACTIVITY = "federation/group/activity/"
+
+export const Activity = Schema.Struct({
+  project: Orchestra.ProjectID,
+  scope: Schema.Literals(["orchestrator", "worker"]),
+  transition: Schema.Literals(["started", "succeeded", "failed", "interrupted"]),
+  updated: Schema.Number,
+}).annotate({ identifier: "Federation.Activity" })
+export interface Activity extends Schema.Schema.Type<typeof Activity> {}
+const decodeActivity = Schema.decodeUnknownOption(Activity)
+const encodeActivity = Schema.encodeSync(Activity)
 // A pending ticket nobody decided on stops counting after this long.
 const EXPIRES = 7 * 24 * 60 * 60 * 1000
 const SUBJECT_LIMIT = 120
@@ -221,30 +234,51 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
       }
     })
 
-    // Follow project Orchestrator and worker run transitions. This wakes the dedicated supervisor
-    // when work starts or finishes even if no federation ticket was exchanged.
+    const activityKey = (group: string, project: Orchestra.ProjectID, scope: Activity["scope"]) =>
+      ACTIVITY + encodeURIComponent(group) + "/" + project + "/" + scope
+
+    const activity = Effect.fn("Federation.activity")(function* (name: string) {
+      const group = (yield* groups()).find((item) => item.name === name.trim())
+      if (!group) return yield* new FederationError({ message: "No group named " + name })
+      const result = yield* kv.scan({ prefix: ACTIVITY + encodeURIComponent(group.name) + "/", limit: 1000 })
+      const members = new Set(group.projects)
+      return result.entries
+        .flatMap((entry) => {
+          const value = decodeActivity(entry.value)
+          if (Option.isNone(value) || !members.has(value.value.project)) return []
+          return [value.value]
+        })
+        .toSorted((a, b) => b.updated - a.updated)
+    })
+
+    // Only sanitized execution-state transitions leave a project boundary. Internal session IDs,
+    // worker names and transcripts remain visible exclusively to the project that owns them.
     const notifySupervisorActivity = Effect.fnUntraced(function* (
       allGroups: ReadonlyArray<Group>,
       projectID: Orchestra.ProjectID,
-      sessionID: string,
-      transition: string,
+      scope: Activity["scope"],
+      transition: Activity["transition"],
     ) {
+      const updated = Date.now()
+      const value: Activity = { project: projectID, scope, transition, updated }
       for (const group of allGroups) {
-        if (!group.supervisor || group.supervisor === sessionID || !group.projects.includes(projectID)) continue
+        if (!group.projects.includes(projectID)) continue
+        yield* kv.set(activityKey(group.name, projectID, scope), encodeActivity(value))
+        if (!group.supervisor) continue
         yield* sessions
           .prompt({
             sessionID: group.supervisor,
             id: SessionMessage.ID.create(),
             delivery: "queue",
             text: [
-              '<orchestrator-activity project="' + projectID + '" session="' + sessionID + '" state="' + transition + '">',
+              '<orchestrator-activity project="' + projectID + '" scope="' + scope + '" state="' + transition + '">',
               "Group: " + quote(group.name, 80),
-              "A session belonging to a project in your federation group changed execution state: " + transition + ".",
-              "Call group_status to inspect current main Orchestrator state, worker activity, latest outcomes and federated tickets. Compare the result with previous reports and surface blockers or conflicts.",
-              "This notification is telemetry, not a permission grant. Continue to respect the receiving project's approvals and policy.",
+              "A project activity state changed. This notification contains only the project ID, scope and transition; it does not expose session IDs or transcript contents.",
+              "Call group_status for the latest sanitized activity snapshot and federation ticket summary, then report blockers and recommended next actions.",
+              "This is telemetry, not a permission grant. Continue to respect each project's rules and approvals.",
               "</orchestrator-activity>",
             ].join("\n"),
-            metadata: { federation: { group: group.name, project: projectID, session: sessionID, state: transition } },
+            metadata: { federation: { group: group.name, project: projectID, scope, state: transition, updated } },
           })
           .pipe(Effect.ignore)
       }
@@ -261,16 +295,16 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
       (event) =>
         Effect.gen(function* () {
           const allGroups = yield* groups()
-          if (!allGroups.some((group) => group.supervisor)) return
+          if (allGroups.length === 0) return
           const allProjects = yield* orchestra.projects()
           const owners = yield* orchestra.owners()
           const mainProject = allProjects.find((item) => item.main === event.sessionID)
           const projectID = owners[event.sessionID] ?? mainProject?.id
           if (!projectID) return
-          // Worker starts are reflected when their project Orchestrator dispatches work; only terminal worker
-          // events wake the supervisor, avoiding a duplicate model turn for every worker start.
+          // Worker starts are omitted; main Orchestrator starts and all terminal worker/main outcomes are observed.
           if (event.type === "session.execution.started" && !mainProject) return
-          const transition =
+          const scope: Activity["scope"] = mainProject ? "orchestrator" : "worker"
+          const transition: Activity["transition"] =
             event.type === "session.execution.started"
               ? "started"
               : event.type === "session.execution.succeeded"
@@ -278,7 +312,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
                 : event.type === "session.execution.failed"
                   ? "failed"
                   : "interrupted"
-          yield* notifySupervisorActivity(allGroups, projectID, event.sessionID, transition)
+          yield* notifySupervisorActivity(allGroups, projectID, scope, transition)
         }).pipe(Effect.catchCause((cause) => Effect.logError("federation group monitor failed", { cause }))),
     ).pipe(Effect.forkScoped({ startImmediately: true }))
 
@@ -288,6 +322,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
       unlink,
       linked,
       groups,
+      activity,
       setGroup: Effect.fn("Federation.setGroup")(function* (group) {
         const name = group.name.trim()
         if (!name) return yield* new FederationError({ message: "A group needs a name" })
