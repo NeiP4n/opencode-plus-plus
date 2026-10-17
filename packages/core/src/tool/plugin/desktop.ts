@@ -301,7 +301,7 @@ type Host = ReturnType<typeof makeHost>
 // One long-lived PowerShell answers every step on Windows: starting powershell.exe costs
 // about half a second, which would otherwise be paid for every keystroke and screenshot.
 // Each request and reply is one base64 line, so multi-line output never breaks framing.
-export function makeHost() {
+export function makeHost(prelude = HOST_PRELUDE, label = "desktop") {
   let child: ChildProcessWithoutNullStreams | undefined
   let buffer = ""
   const waiting: { resolve: (value: string) => void; reject: (error: Error) => void }[] = []
@@ -331,9 +331,9 @@ export function makeHost() {
       }
     })
     created.on("exit", () => {
-      for (const pending of waiting.splice(0)) pending.reject(new Error("The desktop helper exited"))
+      for (const pending of waiting.splice(0)) pending.reject(new Error(`The ${label} helper exited`))
     })
-    created.stdin.write(HOST_PRELUDE + "\n")
+    created.stdin.write(prelude + "\n")
     child = created
     return created
   }
@@ -348,7 +348,7 @@ export function makeHost() {
             const process = start()
             const timer = setTimeout(() => {
               process.kill()
-              reject(new Error("The desktop helper did not answer within 30 s"))
+              reject(new Error(`The ${label} helper did not answer within 30 s`))
             }, 30_000)
             waiting.push({
               resolve: (value) => {

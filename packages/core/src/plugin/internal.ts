@@ -83,6 +83,7 @@ import { McpCatalog } from "../mcp/catalog.js"
 import { Orchestra } from "../orchestra.js"
 import { PeerTool } from "../tool/plugin/peer.js"
 import { DodTool } from "../tool/plugin/dod.js"
+import { PlaytestTool } from "../tool/plugin/playtest.js"
 import { Peer } from "../peer.js"
 import { PlotTool } from "../tool/plugin/plot.js"
 import { Plot } from "../plot.js"
@@ -283,6 +284,7 @@ const pre = [
   TeamForgeTool.Plugin,
   CommandForgeTool.Plugin,
   DesktopTool.Plugin,
+  PlaytestTool.Plugin,
   McpCatalog.Plugin,
   PeerTool.Plugin,
   DodTool.Plugin,

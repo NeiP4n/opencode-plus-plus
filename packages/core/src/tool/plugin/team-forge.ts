@@ -99,7 +99,7 @@ export const Plugin = {
         `AI tools a role can be given in tools as <id>_*: ${McpCatalog.forPlatform()
           .map((entry) => `${entry.id} (${entry.description})`)
           .join("; ")}`,
-        `Computer tools: desktop and desktop_* share the permission action "desktop"; give it to roles that must see or operate the screen.`,
+        `Computer tools: desktop and desktop_* share the permission action "desktop"; give it to roles that must see or operate the screen. playtest (permission "playtest") runs and drives apps and games off-screen with a virtual mouse; give it to testers.`,
       ].join("\n")
     })
 
