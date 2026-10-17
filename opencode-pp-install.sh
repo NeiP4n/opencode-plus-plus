@@ -302,6 +302,16 @@ rootPkg.overrides[nativeKey] = nativeAlias
 rootPkg.optionalDependencies[nativeKey] = nativeAlias
 writeJson(rootFile, rootPkg)
 
+// The installer uses --filter ./packages/cli. A root-only optional dependency
+// may be downloaded without being linked into the CLI workspace's node_modules,
+// so declare the same Android native package on the actual runtime workspace.
+const cliFile = path.join(root, "packages", "cli", "package.json")
+if (!existsSync(cliFile)) throw new Error("Could not locate packages/cli/package.json")
+const cliPkg = readJson(cliFile)
+cliPkg.optionalDependencies ??= {}
+cliPkg.optionalDependencies[nativeKey] = nativeAlias
+writeJson(cliFile, cliPkg)
+
 function rewriteMap(map) {
   if (!map || typeof map !== "object") return false
   let changed = false
