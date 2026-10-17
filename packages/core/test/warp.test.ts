@@ -85,3 +85,12 @@ describe("WARP tunnel protocol", () => {
     expect(usesWireGuard("(network policy)	WARP tunnel protocol: MASQUE")).toBe(false)
   })
 })
+
+describe("config keeps the OpenCode proxy", () => {
+  test("normalizing a config does not drop the proxy block", async () => {
+    const { ConfigNormalize } = await import("@opencode/core/config/normalize")
+    const result = ConfigNormalize.normalize({ proxy: { http: "http://127.0.0.1:40000", https: "http://127.0.0.1:40000", no_proxy: ["localhost"] } })
+    expect(result.type).toBe("normalized")
+    if (result.type === "normalized") expect(result.encoded.proxy).toEqual({ http: "http://127.0.0.1:40000", https: "http://127.0.0.1:40000", no_proxy: ["localhost"] })
+  })
+})
