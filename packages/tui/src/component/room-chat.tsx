@@ -122,7 +122,6 @@ function RoomView(props: {
   const remote = roomClient(props.room)
   const [sending, setSending] = createSignal(0)
   const [failure, setFailure] = createSignal<string>()
-  const [awaitingAI, setAwaitingAI] = createSignal(false)
   const [reading, setReading] = createSignal(false)
   const [document, setDocument] = createSignal<NoteInfo | null>()
   const { currentSyntax: syntax } = useThemes()
@@ -145,15 +144,8 @@ function RoomView(props: {
   const permissions = () =>
     (data.session.permission.list(props.sessionID) ?? []).filter((request) => !answered().has(request.id))
 
-  const executionEnded = (event: { data: { sessionID: string } }) => {
-    if (event.data.sessionID === props.sessionID) setAwaitingAI(false)
-  }
-  const endSubscriptions = [
-    data.on("session.execution.succeeded", executionEnded),
-    data.on("session.execution.failed", executionEnded),
-    data.on("session.execution.interrupted", executionEnded),
-  ]
-  onCleanup(() => endSubscriptions.forEach((unsubscribe) => unsubscribe()))
+  // The host's running state is polled by RoomChat and is authoritative. Do not
+  // keep a second optimistic "thinking" flag here: a missed end event would strand it.
 
   // The field clears at once so the next message can be typed while this one posts, and the
   // message shows in the transcript before the host answers; a failed post puts it back.
@@ -164,7 +156,6 @@ function RoomView(props: {
     setSending((count) => count + 1)
     // A cohost's "/name arguments" runs a host command rather than prompting the model.
     const command = props.role === "cohost" ? /^\/(\S+)\s*([\s\S]*)$/.exec(text) : null
-    setAwaitingAI(!command)
     void (
       command
         ? remote.room.guest.session.command({
@@ -186,7 +177,6 @@ function RoomView(props: {
           .catch(() => undefined)
       })
       .catch((cause: unknown) => {
-        setAwaitingAI(false)
         setFailure(errorMessage(cause))
         if (input && !input.plainText) input.setText(text)
       })
@@ -284,10 +274,10 @@ function RoomView(props: {
             width={dimensions().width - padding() * 2 - (sidebar() ? SIDEBAR_WIDTH : 0)}
           />
         </Show>
-        <Show when={props.running || awaitingAI() || sending() > 0}>
+        <Show when={props.running || sending() > 0}>
           <box flexDirection="row" gap={1} flexShrink={0} marginTop={1}>
             <text fg={theme.text.muted} wrapMode="none">
-              {"◌ " + t(props.running || awaitingAI() ? "Thinking…" : "Sending…")}
+              {"◌ " + t(props.running ? "Thinking…" : "Sending…")}
             </text>
           </box>
         </Show>
