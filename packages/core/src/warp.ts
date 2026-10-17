@@ -210,7 +210,7 @@ function quiet(command: string, args: readonly string[]): Promise<void> {
 export async function hideGui(platform: NodeJS.Platform = process.platform) {
   if (platform === "win32") {
     await quiet("taskkill.exe", ["/F", "/IM", "Cloudflare WARP.exe"])
-    await quiet("reg.exe", ["delete", "HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "Cloudflare WARP", "/f"])
+    await quiet("reg.exe", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Cloudflare WARP", "/f"])
     return
   }
   if (platform === "linux") {
@@ -220,12 +220,7 @@ export async function hideGui(platform: NodeJS.Platform = process.platform) {
       mkdirSync(dir, { recursive: true })
       writeFileSync(
         path.join(dir, "warp-taskbar.desktop"),
-        "[Desktop Entry]
-Type=Application
-Name=Cloudflare WARP
-Hidden=true
-X-GNOME-Autostart-enabled=false
-",
+        ["[Desktop Entry]", "Type=Application", "Name=Cloudflare WARP", "Hidden=true", "X-GNOME-Autostart-enabled=false", ""].join("\n"),
       )
     } catch {}
     return
