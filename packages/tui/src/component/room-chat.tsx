@@ -176,9 +176,16 @@ function RoomView(props: {
   onMount(() => setTimeout(() => input?.focus(), 1))
   // The transcript loads while the room log replays the host's history, and events in between
   // are skipped; once the log is live, reload the transcript so nothing from that gap is missing.
+  // The transcript's rows are built from events and rebuilt only when user or idle messages
+  // change, so a reloaded reply would keep the empty rows its stream left; a fresh mount
+  // rebuilds them from the reloaded messages.
+  const [generation, setGeneration] = createSignal(1)
   props.onLive(() => {
     data.session.message.invalidate(props.sessionID)
-    void data.session.message.sync(props.sessionID).catch(ignoreGuestUnavailable)
+    void data.session.message
+      .sync(props.sessionID)
+      .then(() => setGeneration((count) => count + 1))
+      .catch(ignoreGuestUnavailable)
   })
   onCleanup(() => props.onLive(() => undefined))
 
@@ -311,10 +318,12 @@ function RoomView(props: {
             </scrollbox>
           }
         >
-          <SessionTranscript
-            sessionID={props.sessionID}
-            width={dimensions().width - padding() * 2 - (sidebar() ? SIDEBAR_WIDTH : 0)}
-          />
+          <Show when={generation()} keyed>
+            <SessionTranscript
+              sessionID={props.sessionID}
+              width={dimensions().width - padding() * 2 - (sidebar() ? SIDEBAR_WIDTH : 0)}
+            />
+          </Show>
         </Show>
         <Show when={props.running || awaitingAI() || sending() > 0}>
           <box flexDirection="row" gap={1} flexShrink={0} marginTop={1}>
