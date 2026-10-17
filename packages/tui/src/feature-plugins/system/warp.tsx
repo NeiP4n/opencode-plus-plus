@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { Plugin } from "@opencode/plugin/tui"
-import { createSignal, onCleanup, onMount } from "solid-js"
+import { createSignal } from "solid-js"
 import { hoverBackground } from "../../ui/hover"
 import { parseWarpStatus, warpCliUnavailable, warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
 
