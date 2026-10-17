@@ -162,6 +162,108 @@ BUNX_WRAPPER
   rm -f "$shim_src" "$probe_log"
 }
 
+# Work around Android seccomp SIGSYS traps seen on some Android releases.
+# The shim emulates a trapped syscall as -ENOSYS so runtimes can take their
+# normal fallback path; close_range is also intercepted for child-spawn paths.
+install_sigsys_compat() {
+  shim="$PREFIX/lib/libopencode-sigsys-compat.so"
+  [ -f "$shim" ] && return 0
+
+  echo "Bun child-process startup is blocked by Android seccomp; building compatibility shim…"
+  pkg install -y clang || fail "could not install clang for the Android seccomp compatibility shim"
+
+  shim_src="$PREFIX/tmp/opencode-pp-sigsys-compat.c"
+  mkdir -p "$PREFIX/tmp" "$PREFIX/lib"
+  cat >"$shim_src" <<'C_SOURCE'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/ucontext.h>
+#include <unistd.h>
+
+#ifndef SYS_SECCOMP
+#define SYS_SECCOMP 1
+#endif
+#ifndef ENOSYS
+#define ENOSYS 38
+#endif
+#ifndef __NR_close_range
+#define __NR_close_range 436
+#endif
+
+/*
+ * Based on the Android seccomp compatibility approach documented by
+ * Hope2333/opencode-termux (MIT): a syscall trapped by Android's zygote
+ * filter arrives as SIGSYS instead of returning ENOSYS. On aarch64 Bionic,
+ * skip the trapped svc and set x0 to -ENOSYS. This is only activated when
+ * the installer's child-process probe reproduces SIGSYS.
+ */
+static void sigsys_handler(int signo, siginfo_t *info, void *context) {
+  (void)signo;
+  if (!info || info->si_code != SYS_SECCOMP || !context) _exit(128 + SIGSYS);
+#if defined(__aarch64__)
+  ucontext_t *uc = (ucontext_t *)context;
+  uc->uc_mcontext.pc += 4;
+  uc->uc_mcontext.regs[0] = (unsigned long)(long)-ENOSYS;
+#else
+  _exit(128 + SIGSYS);
+#endif
+}
+
+__attribute__((constructor))
+static void install_sigsys_handler(void) {
+  struct sigaction sa = {0};
+  sa.sa_sigaction = sigsys_handler;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sigemptyset(&sa.sa_mask);
+  (void)sigaction(SIGSYS, &sa, NULL);
+}
+
+typedef long (*real_syscall_t)(long, long, long, long, long, long, long);
+static real_syscall_t real_syscall_ptr;
+
+long syscall(long number, ...) {
+  if (number == __NR_close_range) {
+    errno = ENOSYS;
+    return -1;
+  }
+  if (!real_syscall_ptr) {
+    real_syscall_ptr = (real_syscall_t)dlsym(RTLD_NEXT, "syscall");
+    if (!real_syscall_ptr) {
+      errno = ENOSYS;
+      return -1;
+    }
+  }
+  va_list ap;
+  va_start(ap, number);
+  long a = va_arg(ap, long);
+  long b = va_arg(ap, long);
+  long c = va_arg(ap, long);
+  long d = va_arg(ap, long);
+  long e = va_arg(ap, long);
+  long f = va_arg(ap, long);
+  va_end(ap);
+  return real_syscall_ptr(number, a, b, c, d, e, f);
+}
+
+int close_range(unsigned int first, unsigned int last, unsigned int flags) {
+  (void)first;
+  (void)last;
+  (void)flags;
+  errno = ENOSYS;
+  return -1;
+}
+C_SOURCE
+
+  clang -shared -fPIC -O2 -Wall -Wextra \
+    -Wl,-soname,libopencode-sigsys-compat.so \
+    -o "$shim" "$shim_src" -ldl || fail "could not build the Android seccomp compatibility shim"
+  rm -f "$shim_src"
+}
+
 termux() {
   # Keep the runtime mode separate from TERMUX_ENV, which is a multiline
   # launcher fragment and must not decide whether Android dependencies install.
@@ -221,12 +323,30 @@ termux() {
   "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync([process.execPath, "-e", "process.exit(0)"]); if (p.exitCode !== 0) { process.stderr.write(p.stderr); console.error("child Bun exit code:", p.exitCode); process.exit(1) }' >"$spawn_probe_log" 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then
     cat "$spawn_probe_log" >&2
-    echo "WARNING: Bun subprocess preflight failed; continuing installation so the Android OpenTUI fix and launcher are installed." >&2
-    echo "If opencode-pp still fails, the child-process error will need separate diagnosis." >&2
+    if [ "$status" -eq 159 ] || grep -qiE 'Bad system call|SIGSYS' "$spawn_probe_log"; then
+      install_sigsys_compat
+      echo "Retrying Bun subprocess compatibility with the seccomp shim…"
+      status=0
+      LD_PRELOAD="$PREFIX/lib/libopencode-sigsys-compat.so${LD_PRELOAD:+:$LD_PRELOAD}" \
+        "$PREFIX/bin/bun" -e 'const p = Bun.spawnSync([process.execPath, "-e", "process.exit(0)"]); if (p.exitCode !== 0) { process.stderr.write(p.stderr); console.error("child Bun exit code:", p.exitCode); process.exit(1) }' \
+        >"$spawn_probe_log" 2>&1 || status=$?
+      if [ "$status" -ne 0 ]; then
+        cat "$spawn_probe_log" >&2
+        fail "Bun subprocess still fails with the Android seccomp shim; refusing to install a launcher known to crash"
+      fi
+      TERMUX_SIGSYS_COMPAT=1
+      echo "Bun subprocess compatibility check passed with the seccomp shim."
+    else
+      fail "Bun subprocess preflight failed (exit $status); refusing to install a launcher known to be unreliable"
+    fi
   fi
   rm -f "$spawn_probe_log"
 
   install_termux_pty
+  if [ "${TERMUX_SIGSYS_COMPAT:-0}" = 1 ]; then
+    TERMUX_ENV="$TERMUX_ENV
+export LD_PRELOAD=\"$PREFIX/lib/libopencode-sigsys-compat.so\${LD_PRELOAD:+:\$LD_PRELOAD}\""
+  fi
   # Earlier installers put the launcher in ~/.local/bin, which Termux never puts on PATH.
   old="$HOME/.local/bin/opencode-pp"
   if [ "$old" != "$BIN/opencode-pp" ] && [ -f "$old" ] && grep -q 'installed by opencode-pp-install.sh' "$old"; then rm -f "$old"; fi
