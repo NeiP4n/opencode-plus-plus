@@ -5,9 +5,16 @@ set -eu
 
 REPO="${OPENCODE_PP_REPO:-https://github.com/NeiP4n/opencode-plus-plus.git}"
 DIR="${OPENCODE_PP_DIR:-$HOME/.local/share/opencode-pp}"
-BIN="${OPENCODE_PP_BIN:-$HOME/.local/bin}"
 BRANCH="${OPENCODE_PP_BRANCH:-lan-rooms}"
-TERMUX_BUN_VERSION="${OPENCODE_PP_TERMUX_BUN_VERSION:-1.4.0}"
+# 1.4.0-patched still calls close_range(436), which Android 12's seccomp policy
+# traps with SIGSYS ("Bad system call"); 1.4.3-patched replaces that syscall.
+TERMUX_BUN_VERSION="${OPENCODE_PP_TERMUX_BUN_VERSION:-1.4.3}"
+TERMUX_RELEASES="https://github.com/bd-loser/bun-termux/releases/download"
+case "${PREFIX:-}" in
+  # $PREFIX/bin is always on Termux's PATH, so no shell profile edits are needed.
+  */com.termux/*) BIN="${OPENCODE_PP_BIN:-$PREFIX/bin}" ;;
+  *) BIN="${OPENCODE_PP_BIN:-$HOME/.local/bin}" ;;
+esac
 
 fail() { echo "opencode-pp: $1" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1; }
@@ -183,25 +190,54 @@ termux() {
     echo "Found patched Bun package; probing runtime compatibility…"
   fi
 
-  if ! bun --version >/dev/null 2>&1; then
-    probe_log="$PREFIX/tmp/opencode-pp-bun-probe.log"
-    if bun --version >"$probe_log" 2>&1; then
-      :
-    elif grep -qi 'getrandom' "$probe_log"; then
-      cat "$probe_log" >&2
+  probe_log="$PREFIX/tmp/opencode-pp-bun-probe.log"
+  status=0
+  "$PREFIX/bin/bun" --version >"$probe_log" 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    cat "$probe_log" >&2
+    if grep -qi 'getrandom' "$probe_log"; then
       install_getrandom_compat
+    elif [ "$status" -eq 159 ]; then
+      fail "Bun was killed by Android seccomp (Bad system call); Android 10+ on aarch64 is required"
     else
-      cat "$probe_log" >&2
       fail "patched Termux Bun cannot start; see the loader error above"
     fi
-    rm -f "$probe_log"
   fi
-  bun --version || fail "patched Termux Bun cannot start"
+  rm -f "$probe_log"
+  "$PREFIX/bin/bun" --version || fail "patched Termux Bun cannot start"
 
-  mkdir -p "$BIN"
-  case ":$PATH:" in *":$BIN:"*) ;; *) PATH="$BIN:$PATH"; export PATH ;; esac
+  install_termux_pty
+  # Earlier installers put the launcher in ~/.local/bin, which Termux never puts on PATH.
+  old="$HOME/.local/bin/opencode-pp"
+  if [ "$old" != "$BIN/opencode-pp" ] && [ -f "$old" ] && grep -q 'installed by opencode-pp-install.sh' "$old"; then rm -f "$old"; fi
   install_opencode
   exit 0
+}
+
+# The npm prebuilts of bun-pty and opencode-pty target glibc and cannot load on
+# Bionic, so terminals need the Android builds published next to the Termux Bun.
+install_termux_pty() {
+  lib="$PREFIX/lib/opencode-pp"
+  mkdir -p "$lib"
+  fetch_checked "$TERMUX_RELEASES/bun-pty-v0.4.11" librust_pty_arm64_bionic.so "$lib/librust_pty_arm64_bionic.so"
+  fetch_checked "$TERMUX_RELEASES/opencode-pty-v0.2.0" opencode-pty-android-aarch64 "$lib/opencode-pty"
+  chmod 755 "$lib/opencode-pty"
+  TERMUX_ENV="export BUN_PTY_LIB=\"$lib/librust_pty_arm64_bionic.so\"
+export OPENCODE_PTY_BIN=\"$lib/opencode-pty\"
+# Android has no writable /tmp.
+export OPENCODE_PTY_SOCKET_DIR=\"\${OPENCODE_PTY_SOCKET_DIR:-\${TMPDIR:-$PREFIX/tmp}}\""
+}
+
+fetch_checked() {
+  base="$1"; name="$2"; dest="$3"
+  sums="$(curl -fsSL --retry 3 "$base/SHA256SUMS")" || fail "could not download $base/SHA256SUMS"
+  expected="$(printf '%s\n' "$sums" | awk -v n="$name" '$2 == n { print $1 }')"
+  [ -n "$expected" ] || fail "no checksum for $name"
+  if [ -f "$dest" ] && [ "$(sha256sum "$dest" | cut -d' ' -f1)" = "$expected" ]; then return 0; fi
+  echo "Downloading $name…"
+  curl -fL --retry 3 -o "$dest.tmp" "$base/$name" || fail "could not download $base/$name"
+  [ "$(sha256sum "$dest.tmp" | cut -d' ' -f1)" = "$expected" ] || { rm -f "$dest.tmp"; fail "checksum mismatch for $name"; }
+  mv "$dest.tmp" "$dest"
 }
 
 install_opencode() {
@@ -249,6 +285,7 @@ install_opencode() {
   cat >"$BIN/opencode-pp" <<WRAPPER
 #!/bin/sh
 # Opencode++ $VERSION, installed by opencode-pp-install.sh.
+${TERMUX_ENV:-}
 OPENCODE_COMMAND=opencode-pp exec "$(command -v bun)" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
 WRAPPER
   chmod +x "$BIN/opencode-pp"
@@ -264,14 +301,21 @@ WRAPPER
     *":$BIN:"*) ;;
     *)
       add_path "$HOME/.profile" "export PATH=\"$BIN:\$PATH\""
-      [ -f "$HOME/.bashrc" ] && add_path "$HOME/.bashrc" "export PATH=\"$BIN:\$PATH\""
-      [ -f "$HOME/.zshrc" ] && add_path "$HOME/.zshrc" "export PATH=\"$BIN:\$PATH\""
+      # bash reads ~/.bash_profile instead of ~/.profile when it exists.
+      [ -f "$HOME/.bash_profile" ] && add_path "$HOME/.bash_profile" "export PATH=\"$BIN:\$PATH\""
+      { [ -f "$HOME/.bashrc" ] || need bash; } && add_path "$HOME/.bashrc" "export PATH=\"$BIN:\$PATH\""
+      { [ -f "$HOME/.zshrc" ] || need zsh; } && add_path "$HOME/.zshrc" "export PATH=\"$BIN:\$PATH\""
       need fish && add_path "$HOME/.config/fish/config.fish" "fish_add_path \"$BIN\""
       ADDED=1 ;;
   esac
   echo
   echo "Opencode++ $VERSION is installed."
-  [ "${ADDED:-0}" = 1 ] && echo "Open a new terminal and run: opencode-pp" || echo "Run: opencode-pp"
+  if [ "${ADDED:-0}" = 1 ]; then
+    echo "PATH was updated for new terminals. To use it in this one, run:"
+    echo "  export PATH=\"$BIN:\$PATH\" && opencode-pp"
+  else
+    echo "Run: opencode-pp"
+  fi
 }
 
 case "${PREFIX:-}" in */com.termux/*) termux ;; esac
