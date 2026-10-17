@@ -762,7 +762,7 @@ export function Session(props: {
     const topics = outlineStore.sessions[route.sessionID]?.topics ?? []
     return topics.length ? topicOutline(topics, turns()) : turnOutline(turns())
   })
-  const outlineVisible = createMemo(() => turns().length > 1 && dimensions().width - props.verticalTabsWidth >= 60)
+  const outlineVisible = createMemo(() => turns().length > 0 && dimensions().width - props.verticalTabsWidth >= 60)
   createEffect(
     on(
       () => {
