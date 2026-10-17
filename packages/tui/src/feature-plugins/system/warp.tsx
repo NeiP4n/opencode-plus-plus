@@ -675,6 +675,7 @@ export default Plugin.define({
     process.once("SIGTERM", onTerm)
     const refreshProxy = async () => {
       const enabled = await readOpenCodeProxyEnabled(context)
+      if (enabled !== proxy.enabled) Warp.log(`opencode proxy flag: stored=${proxy.enabled} read=${String(enabled)} offReads=${offReads}`)
       if (enabled === undefined) return
       offReads = enabled ? 0 : offReads + 1
       if (enabled || offReads >= 2) updateProxy((draft) => { draft.enabled = enabled })

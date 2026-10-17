@@ -9,12 +9,26 @@
  * Nothing here runs a shell: warp-cli is always spawned with a fixed argument vector.
  */
 import { execFile, execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { createConnection } from "node:net"
 import path from "node:path"
 import { HttpsProxyAgent } from "https-proxy-agent"
+
+/** Diagnostic trail of state-changing warp-cli calls and proxy-flag changes, kept small. Never contains keys. */
+export const LOG_FILE = path.join(homedir(), ".opencode-warp.log")
+
+export function log(message: string) {
+  try {
+    try {
+      if (statSync(LOG_FILE).size > 200_000) rmSync(LOG_FILE, { force: true })
+    } catch {}
+    appendFileSync(LOG_FILE, `${new Date().toISOString()} pid=${process.pid} ${message}` + String.fromCharCode(10))
+  } catch {}
+}
+
+const STATE_CHANGING = new Set(["connect", "disconnect", "mode", "registration", "register", "delete", "tunnel", "proxy", "set-mode"])
 
 export const DEFAULT_PORT = 40000
 export const PROXY_BYPASS = ["localhost", "127.0.0.1", "::1"] as const
@@ -179,6 +193,7 @@ function execCli(cli: string, args: readonly string[], timeout = COMMAND_TIMEOUT
 export async function run(args: readonly string[]): Promise<string> {
   const cli = resolveCli()
   if (!cli) throw new WarpError("cli-missing", "Cloudflare WARP CLI (warp-cli) was not found. Install Cloudflare WARP first.")
+  if (STATE_CHANGING.has(args[0] ?? "")) log(`warp-cli ${args.join(" ")}`)
   try {
     // Linux/macOS require accepting the terms once; the flag is harmless where it is not needed.
     return await execCli(cli, ["--accept-tos", ...args])
