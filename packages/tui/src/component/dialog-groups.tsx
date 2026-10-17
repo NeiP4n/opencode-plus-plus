@@ -98,6 +98,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
           { action: "edit", resource: "*", effect: "deny" },
           { action: "shell", resource: "*", effect: "deny" },
           { action: "sessions", resource: "*", effect: "deny" },
+          { action: "dod", resource: "*", effect: "deny" },
           { action: "federation", resource: "*", effect: "ask" },
         ],
       })
