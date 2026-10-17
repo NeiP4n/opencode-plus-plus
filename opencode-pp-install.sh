@@ -13,9 +13,10 @@ TERMUX_BUN_VERSION="${OPENCODE_PP_TERMUX_BUN_VERSION:-1.4.3}"
 # Keep this override available for testing a later compatible AndroidTUI set.
 TERMUX_OPENTUI_VERSION="${OPENCODE_PP_TERMUX_OPENTUI_VERSION:-0.5.17}"
 TERMUX_RELEASES="https://github.com/bd-loser/bun-termux/releases/download"
+TERMUX_MODE=0
 case "${PREFIX:-}" in
   # $PREFIX/bin is always on Termux's PATH, so no shell profile edits are needed.
-  */com.termux/*) BIN="${OPENCODE_PP_BIN:-$PREFIX/bin}" ;;
+  */com.termux/*) BIN="${OPENCODE_PP_BIN:-$PREFIX/bin}"; TERMUX_MODE=1 ;;
   *) BIN="${OPENCODE_PP_BIN:-$HOME/.local/bin}" ;;
 esac
 
@@ -162,6 +163,9 @@ BUNX_WRAPPER
 }
 
 termux() {
+  # Keep the runtime mode separate from TERMUX_ENV, which is a multiline
+  # launcher fragment and must not decide whether Android dependencies install.
+  TERMUX_MODE=1
   echo "Configuring native Termux/Android runtime…"
   pkg update -y >/dev/null 2>&1 || true
   pkg install -y git curl ca-certificates dpkg || fail "could not install Termux prerequisites"
@@ -399,7 +403,8 @@ install_opencode() {
   if ! git -C "$DIR" checkout --quiet --detach "$TARGET"; then restore; fail "git checkout failed"; fi
   restore
 
-  if [ -n "${TERMUX_ENV:-}" ]; then
+  if [ "${TERMUX_MODE:-0}" = 1 ]; then
+    echo "Termux detected: preparing Android/Bionic OpenTUI renderer…"
     prepare_termux_opentui
     echo "Installing Android-compatible OpenTUI packages…"
     # The Android aliases require a lockfile refresh; frozen-lockfile would
