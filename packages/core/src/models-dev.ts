@@ -9,6 +9,7 @@ import { Bus } from "./bus.js"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { httpClient } from "@opencode/util/effect/app-node-platform"
 import { Model } from "./model.js"
+import { isRecord } from "@opencode/ai/utils/record"
 import { AISDKNative } from "./aisdk-native.js"
 import { Provider } from "./provider.js"
 import { Variant } from "./variant.js"
@@ -82,6 +83,91 @@ export type Snapshot = {
   readonly environment: readonly string[]
 }
 
+/**
+ * Public, no-account free routes. Kilo's `kilo-auto/free` is a stable dynamic route;
+ * individual `:free` models are discovered from its public /models endpoint below.
+ * Keep the static fallbacks here so the picker remains useful during network outages.
+ */
+function freeModel(id: string, name: string, contextLength = 32_000, outputLength = 4_096): SourceModel {
+  return {
+    id,
+    name,
+    release_date: "",
+    attachment: false,
+    reasoning: false,
+    tool_call: true,
+    limit: { context: contextLength, input: contextLength, output: outputLength },
+    modalities: { input: ["text"], output: ["text"] },
+  }
+}
+
+function zeroPrice(value: unknown) {
+  if (typeof value !== "number" && typeof value !== "string") return false
+  const number = Number(value)
+  return value !== "" && Number.isFinite(number) && number === 0
+}
+
+/** Parse Kilo models tagged :free or explicitly listed at zero input/output price. */
+export function parseKiloFreeModels(input: unknown): Record<string, SourceModel> {
+  if (!isRecord(input) || !Array.isArray(input.data)) return {}
+  const models: Record<string, SourceModel> = {}
+  for (const item of input.data) {
+    if (!isRecord(item) || typeof item.id !== "string") continue
+    const pricing = isRecord(item.pricing) ? item.pricing : undefined
+    const freeByPrice = pricing && zeroPrice(pricing.prompt) && zeroPrice(pricing.completion)
+    if (!item.id.endsWith(":free") && !freeByPrice) continue
+
+    const id = item.id
+    const contextLength =
+      typeof item.context_length === "number" && Number.isFinite(item.context_length) && item.context_length > 0
+        ? Math.floor(item.context_length)
+        : 32_000
+    const topProvider = isRecord(item.top_provider) ? item.top_provider : undefined
+    const outputLength =
+      typeof topProvider?.max_completion_tokens === "number" &&
+      Number.isFinite(topProvider.max_completion_tokens) &&
+      topProvider.max_completion_tokens > 0
+        ? Math.floor(topProvider.max_completion_tokens)
+        : 4_096
+    const displayName = typeof item.name === "string" && item.name.trim() ? item.name.trim() : id
+    const supported = Array.isArray(item.supported_parameters) ? item.supported_parameters : undefined
+    models[id] = {
+      ...freeModel(id, displayName.startsWith("[FREE]") ? displayName : `[FREE] ${displayName}`, contextLength, outputLength),
+      ...(supported
+        ? { tool_call: supported.some((value) => value === "tools" || value === "tool_choice" || value === "function_calling") }
+        : {}),
+    }
+  }
+  return models
+}
+
+export function parseKiloFreeModelsText(text: string): Record<string, SourceModel> | undefined {
+  try {
+    return parseKiloFreeModels(JSON.parse(text))
+  } catch {
+    return undefined
+  }
+}
+
+const ANONYMOUS_FREE_PROVIDERS: readonly SourceProvider[] = [
+  {
+    id: "kilo-free",
+    name: "Kilo Gateway [FREE · NO ACCOUNT]",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    api: "https://ai-gateway.kilo.ai/api/v1",
+    models: {
+      "kilo-auto/free": freeModel("kilo-auto/free", "[FREE] Kilo Auto Free"),
+      "minimax/minimax-m2.1:free": freeModel("minimax/minimax-m2.1:free", "[FREE] MiniMax M2.1"),
+      "z-ai/glm-5:free": freeModel("z-ai/glm-5:free", "[FREE] GLM-5"),
+      "google/gemma-4-26b-a4b-it:free": freeModel(
+        "google/gemma-4-26b-a4b-it:free",
+        "[FREE] Gemma 4 26B A4B",
+      ),
+    },
+  },
+]
+
 function nativePackage(provider: SourceProvider, model?: SourceModel) {
   const npm = model?.provider?.npm ?? provider.npm
   return (
@@ -93,9 +179,18 @@ function nativePackage(provider: SourceProvider, model?: SourceModel) {
   )
 }
 
-function normalize(input: Record<string, SourceProvider>): readonly Snapshot[] {
+export function normalize(
+  input: Record<string, SourceProvider>,
+  kiloFreeModels: Record<string, SourceModel> = {},
+): readonly Snapshot[] {
+  const catalog = { ...input }
+  for (const item of ANONYMOUS_FREE_PROVIDERS) {
+    catalog[item.id] =
+      item.id === "kilo-free" ? { ...item, models: { ...item.models, ...kiloFreeModels } } : item
+  }
+
   const providers: Snapshot[] = []
-  for (const item of Object.values(input)) {
+  for (const item of Object.values(catalog)) {
     const providerID = Provider.ID.make(item.id)
     const packageName = nativePackage(item)
     const info = {
@@ -280,17 +375,17 @@ const defaultSource = "https://models.opencode.ai"
 
 // Bundled snapshot of https://models.opencode.ai/api.json, committed at
 // packages/core/src/models-dev/snapshot.txt and refreshed via
-// `bun run script/update-models-snapshot.ts`. Decoded and normalized once per
-// isolate: the snapshot is a multi-MB module-level constant and one isolate can
-// host many runtimes (Cloudflare colocates Durable Object instances), so
-// per-runtime decoding would multiply the cost.
-let bundledCache: readonly Snapshot[] | undefined
+// `bun run script/update-models-snapshot.ts`. Decoded once per isolate: the snapshot
+// is a multi-MB module-level constant and one isolate can host many runtimes
+// (Cloudflare colocates Durable Object instances), so per-runtime decoding would
+// multiply the cost.
+let bundledCache: Record<string, SourceProvider> | undefined
 const bundledSnapshot = Effect.suspend(() =>
   bundledCache
     ? Effect.succeed(bundledCache)
     : decodeCatalog(snapshotText).pipe(
         Effect.map((catalog) => {
-          bundledCache = normalize(catalog)
+          bundledCache = catalog
           return bundledCache
         }),
       ),
@@ -327,6 +422,25 @@ export const layer = (options?: Options) =>
       const fetch = options?.fetch ?? true
       const userAgent = App.useragent(app)
       const key = cacheKey(source)
+      const kiloSource = "https://ai-gateway.kilo.ai/api/v1"
+      const kiloTTL = Duration.minutes(5)
+      let kiloFreeModels: Record<string, SourceModel> = {}
+      let kiloUpdatedAt = 0
+
+      const fetchKiloModels = Effect.fn("ModelsDev.fetchKiloFreeModels")(function* () {
+        return yield* HttpClientRequest.get(`${kiloSource}/models`).pipe(
+          HttpClientRequest.setHeader("User-Agent", userAgent),
+          http.execute,
+          Effect.flatMap((res) => res.text),
+          Effect.timeout("5 seconds"),
+          Effect.map((text) => parseKiloFreeModelsText(text)),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Failed to refresh Kilo's public free-model catalog", { cause }).pipe(
+              Effect.as(undefined),
+            ),
+          ),
+        )
+      })
       const ttl = Duration.minutes(5)
       const lock = Semaphore.makeUnsafe(1)
 
@@ -384,11 +498,11 @@ export const layer = (options?: Options) =>
 
       const populate = Effect.gen(function* () {
         const fromFile = yield* loadFromFile
-        if (fromFile) return normalize(fromFile)
+        if (fromFile) return normalize(fromFile, kiloFreeModels)
         const cached = options?.file ? undefined : yield* loadFromCache()
-        if (cached) return normalize(cached.catalog)
+        if (cached) return normalize(cached.catalog, kiloFreeModels)
         const bundled = yield* loadSnapshot
-        if (bundled) return bundled
+        if (bundled) return normalize(bundled, kiloFreeModels)
         if (!fetch) return []
         const catalog = yield* lock.withPermit(
           Effect.gen(function* () {
@@ -397,7 +511,7 @@ export const layer = (options?: Options) =>
             return yield* fetchAndWrite()
           }),
         )
-        return normalize(catalog)
+        return normalize(catalog, kiloFreeModels)
       }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
 
       const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)
@@ -409,21 +523,53 @@ export const layer = (options?: Options) =>
           .withPermit(
             Effect.gen(function* () {
               const stored = yield* loadFromCache()
-              if (!force && stored && Date.now() - stored.updatedAt < Duration.toMillis(ttl)) return
-              const text = yield* fetchApi()
-              const digest = bodyDigest(text)
-              // models.dev rarely changes between polls; skip the cache write,
-              // invalidation, and Refreshed event for a byte-identical body so
-              // downstream provider/model update listeners stay quiet.
-              if (!force && stored?.digest === digest) return
-              yield* decodeCatalog(text)
-              yield* writeCache(text, digest)
-              yield* invalidate
-              yield* bus.publish(ModelsDev.Event.Refreshed, {})
+              const now = Date.now()
+              const shouldRefreshModelsDev = force || !stored || now - stored.updatedAt >= Duration.toMillis(ttl)
+              const shouldRefreshKilo = force || now - kiloUpdatedAt >= Duration.toMillis(kiloTTL)
+              if (!shouldRefreshModelsDev && !shouldRefreshKilo) return
+
+              let catalogChanged = false
+              if (shouldRefreshModelsDev) {
+                // Model discovery is best-effort: a models.dev outage must not stop
+                // the independent anonymous Kilo catalog from refreshing.
+                const text = yield* fetchApi().pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Failed to refresh models.dev catalog", { cause }).pipe(Effect.as(undefined)),
+                  ),
+                )
+                if (text !== undefined) {
+                  const digest = bodyDigest(text)
+                  // models.dev rarely changes between polls; skip its cache write
+                  // when the raw catalog is byte-identical.
+                  if (force || stored?.digest !== digest) {
+                    yield* decodeCatalog(text)
+                    yield* writeCache(text, digest)
+                    catalogChanged = true
+                  }
+                }
+              }
+
+              let kiloChanged = false
+              if (shouldRefreshKilo) {
+                const liveModels = yield* fetchKiloModels()
+                // Keep the last known-good model list when Kilo is temporarily unavailable.
+                if (liveModels !== undefined) {
+                  kiloUpdatedAt = now
+                  if (JSON.stringify(liveModels) !== JSON.stringify(kiloFreeModels)) {
+                    kiloFreeModels = liveModels
+                    kiloChanged = true
+                  }
+                }
+              }
+
+              if (catalogChanged || kiloChanged || force) {
+                yield* invalidate
+                yield* bus.publish(ModelsDev.Event.Refreshed, {})
+              }
             }),
           )
           .pipe(
-            Effect.tapCause((cause) => Effect.logError("Failed to fetch models.dev", { cause: cause })),
+            Effect.tapCause((cause) => Effect.logError("Failed to refresh model catalogs", { cause: cause })),
             Effect.ignore,
           )
       })
