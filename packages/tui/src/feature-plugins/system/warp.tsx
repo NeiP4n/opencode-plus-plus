@@ -654,6 +654,8 @@ export default Plugin.define({
     // The global config is rewritten by other tools too, so a single "off" read is not trusted:
     // the indicator only flips off after two consecutive reads agree.
     let offReads = 0
+    // After the user toggles routing the config reload lags behind; until then the stored value is the truth.
+    let trustUntil = 0
     let leaving = false
     // Set when the user pressed Disconnect, so the watchdog respects it; cleared by any action that connects.
     let userDisconnected = false
@@ -677,6 +679,7 @@ export default Plugin.define({
       const enabled = await readOpenCodeProxyEnabled(context)
       if (enabled !== proxy.enabled) Warp.log(`opencode proxy flag: stored=${proxy.enabled} read=${String(enabled)} offReads=${offReads}`)
       if (enabled === undefined) return
+      if (Date.now() < trustUntil && enabled !== proxy.enabled) return
       offReads = enabled ? 0 : offReads + 1
       if (enabled || offReads >= 2) updateProxy((draft) => { draft.enabled = enabled })
       if (enabled) {
@@ -705,6 +708,10 @@ export default Plugin.define({
     const perform = async (action: WarpAction) => {
       if (busy.action !== null) return
       setSharedBusy(updateBusy, action)
+      if (action === "proxy" || action === "disableProxy") {
+        offReads = 0
+        trustUntil = Date.now() + 30_000
+      }
       if (action === "disconnect") userDisconnected = true
       else if (action !== "refresh") userDisconnected = false
       try {
