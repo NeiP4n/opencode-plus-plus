@@ -276,7 +276,7 @@ describe("search tools", () => {
               error: {
                 type: "tool.execution",
                 message:
-                  'Invalid arguments for tool "grep":\n- pattern: Pattern must not be empty\n\nArguments provided:\n{\n  "pattern": ""\n}\n\nUpdate the arguments and call the tool again.',
+                  'Invalid arguments for tool "grep":\n- pattern: Pattern must not be empty\n\nExpected arguments: { pattern: string, path?: string, include?: string, literal?: boolean, caseSensitive?: boolean, limit?: integer }\n\nArguments provided:\n{\n  "pattern": ""\n}\n\nUpdate the arguments and call the tool again.',
               },
             })
           }),

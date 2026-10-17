@@ -14,6 +14,8 @@ import { Instructions } from "../instructions/index.js"
 import { InstructionBuiltIns } from "../instructions/builtins.js"
 import { Location } from "../location.js"
 import { McpInstructions } from "../mcp/instructions.js"
+import { Memory } from "../memory/index.js"
+import { MemoryInstructions } from "../memory/instructions.js"
 import { NoteInstructions } from "../note-instructions.js"
 import { McpTool } from "../tool/mcp.js"
 import { ReferenceInstructions } from "../reference/instructions.js"
@@ -87,6 +89,7 @@ const layer = Layer.effect(
     const projectDod = Dod.instructions(location.project.directory)
     const mcpInstructions = yield* McpInstructions.Service
     const mcpTools = yield* McpTool.Service
+    const memory = MemoryInstructions.make(yield* Memory.Service)
     const noteInstructions = yield* NoteInstructions.Service
     const models = yield* SessionRunnerModel.Service
     const request = yield* SessionModelRequest.Service
@@ -162,6 +165,7 @@ const layer = Layer.effect(
           loaded.references,
           loaded.skills,
           loaded.discovery,
+          memory,
           loaded.builtins,
           loaded.entries,
           loaded.canvas,
@@ -208,6 +212,7 @@ export const node = makeLocationNode({
     Location.node,
     McpInstructions.node,
     McpTool.node,
+    Memory.node,
     NoteInstructions.node,
     ReferenceInstructions.node,
     SessionRunnerModel.node,

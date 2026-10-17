@@ -89,6 +89,8 @@ import { QuestionTool } from "../tool/plugin/question.js"
 import { ReadToolFileSystem } from "../tool/read-filesystem.js"
 import { ReadTool } from "../tool/plugin/read.js"
 import { ShellTool } from "../tool/plugin/shell.js"
+import { MemoryTool } from "../tool/plugin/memory.js"
+import { Memory } from "../memory/index.js"
 import { NoteTool } from "../tool/plugin/note.js"
 import { NoteStore } from "../note.js"
 import { SkillMarketplace } from "../skill-marketplace/index.js"
@@ -168,6 +170,7 @@ const services = [
   ShellSelect.Service,
   Snapshot.Service,
   NoteStore.Service,
+  Memory.Service,
   SkillMarketplace.Service,
   Skill.Service,
   SkillDiscovery.Service,
@@ -226,6 +229,7 @@ export const requirements = LayerNode.group([
   ShellSelect.node,
   Snapshot.node,
   NoteStore.node,
+  Memory.node,
   SkillMarketplace.node,
   Skill.node,
   SkillDiscovery.node,
@@ -281,6 +285,7 @@ const pre = [
   SkillTool.Plugin,
   SkillCatalogTool.Plugin,
   NoteTool.Plugin,
+  MemoryTool.Plugin,
   SubagentTool.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,
