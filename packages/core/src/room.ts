@@ -3,6 +3,7 @@ export * as Room from "./room.js"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { Room } from "@opencode/schema/room"
+import { RoomRules } from "@opencode/schema/room-rules"
 import { SessionID } from "@opencode/schema/session-id"
 import { KV } from "./kv.js"
 
@@ -33,6 +34,7 @@ export const CreateInput = Schema.Struct({
   defaultRole: Room.DefaultRole.pipe(Schema.optional),
   directory: Schema.String.pipe(Schema.optional),
   open: Schema.Boolean.pipe(Schema.optional),
+  rules: RoomRules.Rules.pipe(Schema.optional),
 }).annotate({ identifier: "Room.CreateInput" })
 export type CreateInput = typeof CreateInput.Type
 
@@ -43,6 +45,8 @@ export const UpdateInput = Schema.Struct({
   guestApprovals: Schema.Boolean.pipe(Schema.optional),
   defaultRole: Room.DefaultRole.pipe(Schema.optional),
   open: Schema.Boolean.pipe(Schema.optional),
+  // Replaces the room's rules whole; an empty object lifts them.
+  rules: RoomRules.Rules.pipe(Schema.optional),
 }).annotate({ identifier: "Room.UpdateInput" })
 export type UpdateInput = typeof UpdateInput.Type
 
@@ -131,6 +135,7 @@ const layer = Layer.effect(
           defaultRole: input.defaultRole ?? "member",
           directory: input.directory,
           open: input.open ?? false,
+          rules: input.rules,
           created: Date.now(),
         })
       }),
@@ -144,6 +149,7 @@ const layer = Layer.effect(
           guestApprovals: input.guestApprovals ?? room.guestApprovals,
           defaultRole: input.defaultRole ?? room.defaultRole,
           open: input.open ?? room.open ?? false,
+          rules: input.rules ?? room.rules,
         })
       }),
       remove: Effect.fn("Room.remove")(function* (id: ID) {

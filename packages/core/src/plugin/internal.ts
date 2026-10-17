@@ -87,6 +87,10 @@ import { PlaytestTool } from "../tool/plugin/playtest.js"
 import { Peer } from "../peer.js"
 import { PlotTool } from "../tool/plugin/plot.js"
 import { Plot } from "../plot.js"
+import { Federation } from "../federation.js"
+import { Room } from "../room.js"
+import { RoomRulesPlugin } from "./room-rules.js"
+import { FederationTool } from "../tool/plugin/federation.js"
 import { QuestionTool } from "../tool/plugin/question.js"
 import { ReadToolFileSystem } from "../tool/read-filesystem.js"
 import { ReadTool } from "../tool/plugin/read.js"
@@ -152,7 +156,9 @@ const services = [
   Integration.Service,
   Job.Service,
   KV.Service,
+  Federation.Service,
   Orchestra.Service,
+  Room.Service,
   Peer.Service,
   Plot.Service,
   LLMClient.Service,
@@ -212,7 +218,9 @@ export const requirements = LayerNode.group([
   Integration.node,
   Job.node,
   KV.node,
+  Federation.node,
   Orchestra.node,
+  Room.node,
   Peer.node,
   Plot.node,
   llmClient,
@@ -258,6 +266,7 @@ const pre = [
   VcsGitPlugin.Plugin,
   AgentPlugin.Plugin,
   TeamPlugin.Plugin,
+  RoomRulesPlugin.Plugin,
   SandboxPlugin.Plugin,
   PlanPlugin.Plugin,
   CommandPlugin.Plugin,
@@ -289,6 +298,7 @@ const pre = [
   PeerTool.Plugin,
   DodTool.Plugin,
   PlotTool.Plugin,
+  FederationTool.Plugin,
   ShellTool.Plugin,
   SkillTool.Plugin,
   SkillCatalogTool.Plugin,

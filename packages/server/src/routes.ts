@@ -32,6 +32,7 @@ import { SdkPlugins } from "@opencode/core/plugin/sdk"
 import { WellKnown } from "@opencode/core/wellknown"
 import { Workspace } from "@opencode/core/workspace"
 import { Room } from "@opencode/core/room"
+import { Federation } from "@opencode/core/federation"
 import { Orchestra } from "@opencode/core/orchestra"
 import { Peer } from "@opencode/core/peer"
 import { Plot } from "@opencode/core/plot"
@@ -79,6 +80,7 @@ const applicationServiceNodes = [
   ServerRooms.node,
   ServerMesh.node,
   Room.node,
+  Federation.node,
   Orchestra.node,
   Peer.node,
   Plot.node,

@@ -1,5 +1,6 @@
 import { Orchestra } from "@opencode/core/orchestra"
 import { Dod } from "@opencode/core/dod"
+import { Federation } from "@opencode/core/federation"
 import { Session } from "@opencode/core/session"
 import { InvalidRequestError, ProjectNotFoundError } from "@opencode/protocol/errors"
 import { Effect } from "effect"
@@ -44,10 +45,43 @@ function badDod(error: Dod.DodError) {
 export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (handlers) =>
   Effect.gen(function* () {
     const orchestra = yield* Orchestra.Service
+    const federation = yield* Federation.Service
     const sessions = yield* Session.Service
 
     return handlers
       .handle("orchestra.project.list", () => orchestra.projects())
+      .handle("orchestra.group.list", () => federation.groups())
+      .handle("orchestra.group.save", (ctx) =>
+        federation.setGroup(ctx.payload).pipe(
+          Effect.as(HttpApiSchema.NoContent.make()),
+          Effect.catchTag("Federation.Error", (error) => Effect.fail(new InvalidRequestError({ message: error.message }))),
+        ),
+      )
+      .handle(
+        "orchestra.group.remove",
+        Effect.fn(function* (ctx) {
+          yield* federation.removeGroup(ctx.params.name)
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle("orchestra.group.link", (ctx) =>
+        federation.linkGroup(ctx.params.name).pipe(
+          Effect.map((pairs) => ({ pairs })),
+          Effect.catchTag("Federation.Error", (error) => Effect.fail(new InvalidRequestError({ message: error.message }))),
+        ),
+      )
+      .handle(
+        "orchestra.link.set",
+        Effect.fn(function* (ctx) {
+          if (ctx.payload.linked)
+            yield* federation
+              .link(ctx.payload.a, ctx.payload.b)
+              .pipe(Effect.catchTag("Federation.Error", (error) => Effect.fail(new InvalidRequestError({ message: error.message }))))
+          else yield* federation.unlink(ctx.payload.a, ctx.payload.b)
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle("orchestra.link.list", (ctx) => federation.linked(ctx.params.projectID))
       .handle("orchestra.template.list", () => orchestra.templates())
       .handle("orchestra.template.create", (ctx) =>
         orchestra.saveTemplate(undefined, ctx.payload).pipe(Effect.catchTag("Orchestra.TeamError", badTeam)),

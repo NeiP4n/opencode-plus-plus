@@ -2482,7 +2482,11 @@ export type ConfigUpdateInput = {
   readonly shell?: string | null
   readonly model?: string | null
   readonly mcpServers?: { readonly [x: string]: Mcp.LocalConfig | Mcp.RemoteConfig | null }
-  readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
+  readonly proxy?: {
+    readonly http?: string | undefined
+    readonly https?: string | undefined
+    readonly no_proxy?: ReadonlyArray<string> | undefined
+  } | null
   readonly compatibilityEnabled?: boolean | null
 }
 export type ConfigUpdateOutput = void
@@ -2574,6 +2578,14 @@ export type RoomCreateInput = {
   readonly guestApprovals?: boolean | undefined
   readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
   readonly open?: boolean | undefined
+  readonly rules?:
+    | {
+        readonly hidePaths?: boolean | undefined
+        readonly blockCommands?: ReadonlyArray<string> | undefined
+        readonly protectedFiles?: ReadonlyArray<string> | undefined
+        readonly noOutbound?: boolean | undefined
+      }
+    | undefined
   readonly directory?: string | undefined
 }
 export type RoomCreateOutput = Room.Info
@@ -2587,6 +2599,14 @@ export type RoomUpdateInput = {
   readonly guestApprovals?: boolean | undefined
   readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
   readonly open?: boolean | undefined
+  readonly rules?:
+    | {
+        readonly hidePaths?: boolean | undefined
+        readonly blockCommands?: ReadonlyArray<string> | undefined
+        readonly protectedFiles?: ReadonlyArray<string> | undefined
+        readonly noOutbound?: boolean | undefined
+      }
+    | undefined
 }
 export type RoomUpdateOutput = Room.Info
 export type RoomUpdateOperation<E = never> = (input: RoomUpdateInput) => Effect.Effect<RoomUpdateOutput, E>
@@ -4516,6 +4536,46 @@ export type OrchestraCategoryOperation<E = never> = (
   input: OrchestraCategoryInput,
 ) => Effect.Effect<OrchestraCategoryOutput, E>
 
+export type OrchestraGroupListOutput = ReadonlyArray<{
+  readonly name: string
+  readonly projects: ReadonlyArray<Orchestra.ProjectID>
+}>
+export type OrchestraGroupListOperation<E = never> = () => Effect.Effect<OrchestraGroupListOutput, E>
+
+export type OrchestraGroupSaveInput = { readonly name: string; readonly projects: ReadonlyArray<Orchestra.ProjectID> }
+export type OrchestraGroupSaveOutput = void
+export type OrchestraGroupSaveOperation<E = never> = (
+  input: OrchestraGroupSaveInput,
+) => Effect.Effect<OrchestraGroupSaveOutput, E>
+
+export type OrchestraGroupRemoveInput = { readonly name: string }
+export type OrchestraGroupRemoveOutput = void
+export type OrchestraGroupRemoveOperation<E = never> = (
+  input: OrchestraGroupRemoveInput,
+) => Effect.Effect<OrchestraGroupRemoveOutput, E>
+
+export type OrchestraGroupLinkInput = { readonly name: string }
+export type OrchestraGroupLinkOutput = { readonly pairs: number }
+export type OrchestraGroupLinkOperation<E = never> = (
+  input: OrchestraGroupLinkInput,
+) => Effect.Effect<OrchestraGroupLinkOutput, E>
+
+export type OrchestraLinkSetInput = {
+  readonly a: Orchestra.ProjectID
+  readonly b: Orchestra.ProjectID
+  readonly linked: boolean
+}
+export type OrchestraLinkSetOutput = void
+export type OrchestraLinkSetOperation<E = never> = (
+  input: OrchestraLinkSetInput,
+) => Effect.Effect<OrchestraLinkSetOutput, E>
+
+export type OrchestraLinkListInput = { readonly projectID: Orchestra.ProjectID }
+export type OrchestraLinkListOutput = ReadonlyArray<{ readonly id: Orchestra.ProjectID; readonly name: string }>
+export type OrchestraLinkListOperation<E = never> = (
+  input: OrchestraLinkListInput,
+) => Effect.Effect<OrchestraLinkListOutput, E>
+
 export interface OrchestraApi<E = never> {
   readonly project: {
     readonly list: OrchestraProjectListOperation<E>
@@ -4540,6 +4600,13 @@ export interface OrchestraApi<E = never> {
   readonly owner: { readonly list: OrchestraOwnerListOperation<E>; readonly set: OrchestraOwnerSetOperation<E> }
   readonly access: OrchestraAccessOperation<E>
   readonly category: OrchestraCategoryOperation<E>
+  readonly group: {
+    readonly list: OrchestraGroupListOperation<E>
+    readonly save: OrchestraGroupSaveOperation<E>
+    readonly remove: OrchestraGroupRemoveOperation<E>
+    readonly link: OrchestraGroupLinkOperation<E>
+  }
+  readonly link: { readonly set: OrchestraLinkSetOperation<E>; readonly list: OrchestraLinkListOperation<E> }
 }
 
 export interface AppApi<E = never> {

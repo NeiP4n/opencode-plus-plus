@@ -459,6 +459,8 @@ export type WebSearchProvider = { id: string; name: string }
 
 export type WebSearchResult = { url: string; title?: string; content?: string; time: { published?: number } }
 
+export type ConfigProxy = { http?: string; https?: string; no_proxy?: Array<string> }
+
 export type McpProtocol = "legacy" | "auto" | "2026-07-28"
 
 export type ConfigWorktree = { directory: string }
@@ -490,17 +492,11 @@ export type ConfigCompatibilityLoaded = {
 
 export type ConfigCompatibilitySkipped = { source: string; reason: string }
 
-export type RoomInfo = {
-  id: string
-  sessionID: string
-  name: string
-  hostName?: string | undefined
-  ai: "linked" | "discovered"
-  guestApprovals: boolean
-  defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
-  directory?: string | undefined
-  open?: boolean | undefined
-  created: number
+export type RoomRules = {
+  hidePaths?: boolean | undefined
+  blockCommands?: Array<string> | undefined
+  protectedFiles?: Array<string> | undefined
+  noOutbound?: boolean | undefined
 }
 
 export type RoomDodItem = {
@@ -533,17 +529,11 @@ export type RoomJoinCode = { code: string; expires_in: number }
 
 export type RoomGuest = { id: string; name: string }
 
-export type RoomInfo1 = {
-  id: string
-  sessionID: string
-  name: string
-  hostName?: string | null
-  ai: "linked" | "discovered"
-  guestApprovals: boolean
-  defaultRole?: "viewer" | "member" | "helper" | "cohost" | null
-  directory?: string | null
-  open?: boolean | null
-  created: number | "Infinity" | "-Infinity" | "NaN"
+export type RoomRules1 = {
+  hidePaths?: boolean | null
+  blockCommands?: Array<string> | null
+  protectedFiles?: Array<string> | null
+  noOutbound?: boolean | null
 }
 
 export type RoomLink = { url: string; roomID: string; token: string; name: string; guest: string }
@@ -616,6 +606,8 @@ export type OrchestraMember = { agent: string; title: string; category: string }
 export type OrchestraOrigin = "builtin" | "edited" | "custom"
 
 export type OrchestraAccess = "hidden" | "read" | "write" | "full"
+
+export type FederationGroup = { name: string; projects: Array<string> }
 
 export type SessionMessageLocationSwitched = {
   id: string
@@ -1902,6 +1894,20 @@ export type ConfigCompatibilityFound = {
   awaitingTrust?: number
 }
 
+export type RoomInfo = {
+  id: string
+  sessionID: string
+  name: string
+  hostName?: string | undefined
+  ai: "linked" | "discovered"
+  guestApprovals: boolean
+  defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
+  directory?: string | undefined
+  open?: boolean | undefined
+  rules?: RoomRules | undefined
+  created: number
+}
+
 export type RoomDod = {
   items: Array<RoomDodItem>
   status?: "ready" | "disabled" | undefined
@@ -1912,11 +1918,18 @@ export type RoomDod = {
 
 export type RoomFeed = { events: Array<RoomEvent> }
 
-export type RoomJoined = {
-  token: string
-  guest: RoomGuest
-  role: "viewer" | "member" | "helper" | "cohost" | "trusted"
-  room: RoomInfo
+export type RoomInfo1 = {
+  id: string
+  sessionID: string
+  name: string
+  hostName?: string | null
+  ai: "linked" | "discovered"
+  guestApprovals: boolean
+  defaultRole?: "viewer" | "member" | "helper" | "cohost" | null
+  directory?: string | null
+  open?: boolean | null
+  rules?: RoomRules1 | null
+  created: number | "Infinity" | "-Infinity" | "NaN"
 }
 
 export type RoomMeshSnapshot = {
@@ -2254,6 +2267,13 @@ export type ConfigCompatibilityReport = {
   ecosystems: Array<ConfigCompatibilityFound>
 }
 
+export type RoomJoined = {
+  token: string
+  guest: RoomGuest
+  role: "viewer" | "member" | "helper" | "cohost" | "trusted"
+  room: RoomInfo
+}
+
 export type OrchestraProject = {
   id: string
   name: string
@@ -2359,7 +2379,7 @@ export type ConfigEntry =
         shell?: string
         model?: string | { providerID: string; model: string; variant?: string }
         default_agent?: string
-        proxy?: { http?: string; https?: string; no_proxy?: Array<string> }
+        proxy?: ConfigProxy
         update?: "disable" | "notify" | "auto"
         share?: "manual" | "auto" | "disabled"
         enterprise?: { url?: string }
@@ -7290,7 +7310,12 @@ export type ConfigUpdateInput = {
           }
         | null
     }
-      readonly compatibilityEnabled?: boolean | null
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
+    readonly compatibilityEnabled?: boolean | null
   }["shell"]
   readonly model?: {
     readonly shell?: string | null
@@ -7328,7 +7353,11 @@ export type ConfigUpdateInput = {
           }
         | null
     }
-    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
     readonly compatibilityEnabled?: boolean | null
   }["model"]
   readonly mcpServers?: {
@@ -7367,7 +7396,11 @@ export type ConfigUpdateInput = {
           }
         | null
     }
-    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
     readonly compatibilityEnabled?: boolean | null
   }["mcpServers"]
   readonly proxy?: {
@@ -7406,7 +7439,11 @@ export type ConfigUpdateInput = {
           }
         | null
     }
-    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
     readonly compatibilityEnabled?: boolean | null
   }["proxy"]
   readonly compatibilityEnabled?: {
@@ -7445,7 +7482,11 @@ export type ConfigUpdateInput = {
           }
         | null
     }
-    readonly proxy?: { readonly http?: string; readonly https?: string; readonly no_proxy?: ReadonlyArray<string> } | null
+    readonly proxy?: {
+      readonly http?: string
+      readonly https?: string
+      readonly no_proxy?: ReadonlyArray<string>
+    } | null
     readonly compatibilityEnabled?: boolean | null
   }["compatibilityEnabled"]
 }
@@ -7490,6 +7531,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["sessionID"]
   readonly name?: {
@@ -7500,6 +7549,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["name"]
   readonly hostName?: {
@@ -7510,6 +7567,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["hostName"]
   readonly ai?: {
@@ -7520,6 +7585,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["ai"]
   readonly guestApprovals?: {
@@ -7530,6 +7603,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["guestApprovals"]
   readonly defaultRole?: {
@@ -7540,6 +7621,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["defaultRole"]
   readonly open?: {
@@ -7550,8 +7639,34 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["open"]
+  readonly rules?: {
+    readonly sessionID: string
+    readonly name?: string | undefined
+    readonly hostName?: string | undefined
+    readonly ai?: "linked" | "discovered" | undefined
+    readonly guestApprovals?: boolean | undefined
+    readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
+    readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
+    readonly directory?: string | undefined
+  }["rules"]
   readonly directory?: {
     readonly sessionID: string
     readonly name?: string | undefined
@@ -7560,6 +7675,14 @@ export type RoomCreateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
     readonly directory?: string | undefined
   }["directory"]
 }
@@ -7575,6 +7698,14 @@ export type RoomUpdateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
   }["name"]
   readonly hostName?: {
     readonly name?: string | undefined
@@ -7583,6 +7714,14 @@ export type RoomUpdateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
   }["hostName"]
   readonly ai?: {
     readonly name?: string | undefined
@@ -7591,6 +7730,14 @@ export type RoomUpdateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
   }["ai"]
   readonly guestApprovals?: {
     readonly name?: string | undefined
@@ -7599,6 +7746,14 @@ export type RoomUpdateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
   }["guestApprovals"]
   readonly defaultRole?: {
     readonly name?: string | undefined
@@ -7607,6 +7762,14 @@ export type RoomUpdateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
   }["defaultRole"]
   readonly open?: {
     readonly name?: string | undefined
@@ -7615,7 +7778,31 @@ export type RoomUpdateInput = {
     readonly guestApprovals?: boolean | undefined
     readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
     readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
   }["open"]
+  readonly rules?: {
+    readonly name?: string | undefined
+    readonly hostName?: string | undefined
+    readonly ai?: "linked" | "discovered" | undefined
+    readonly guestApprovals?: boolean | undefined
+    readonly defaultRole?: "viewer" | "member" | "helper" | "cohost" | undefined
+    readonly open?: boolean | undefined
+    readonly rules?:
+      | {
+          readonly hidePaths?: boolean | undefined
+          readonly blockCommands?: ReadonlyArray<string> | undefined
+          readonly protectedFiles?: ReadonlyArray<string> | undefined
+          readonly noOutbound?: boolean | undefined
+        }
+      | undefined
+  }["rules"]
 }
 
 export type RoomUpdateOutput = { data: RoomInfo }["data"]
@@ -8770,3 +8957,32 @@ export type OrchestraCategoryInput = {
 }
 
 export type OrchestraCategoryOutput = void
+
+export type OrchestraGroupListOutput = Array<FederationGroup>
+
+export type OrchestraGroupSaveInput = {
+  readonly name: { readonly name: string; readonly projects: ReadonlyArray<string> }["name"]
+  readonly projects: { readonly name: string; readonly projects: ReadonlyArray<string> }["projects"]
+}
+
+export type OrchestraGroupSaveOutput = void
+
+export type OrchestraGroupRemoveInput = { readonly name: { readonly name: string }["name"] }
+
+export type OrchestraGroupRemoveOutput = void
+
+export type OrchestraGroupLinkInput = { readonly name: { readonly name: string }["name"] }
+
+export type OrchestraGroupLinkOutput = { pairs: number }
+
+export type OrchestraLinkSetInput = {
+  readonly a: { readonly a: string; readonly b: string; readonly linked: boolean }["a"]
+  readonly b: { readonly a: string; readonly b: string; readonly linked: boolean }["b"]
+  readonly linked: { readonly a: string; readonly b: string; readonly linked: boolean }["linked"]
+}
+
+export type OrchestraLinkSetOutput = void
+
+export type OrchestraLinkListInput = { readonly projectID: { readonly projectID: string }["projectID"] }
+
+export type OrchestraLinkListOutput = Array<{ id: string; name: string }>

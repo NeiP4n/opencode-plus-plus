@@ -712,6 +712,23 @@ export function DialogHost(props: { onClose?: () => void }) {
                   {t(ROLE_LABEL[joinRole(room)])}
                 </Button>
               </Setting>
+              <Setting
+                label={t("Rules")}
+                help={t("What nobody in the room may do or see: project path, commands, files, sending out.")}
+              >
+                <Button
+                  onClick={() => {
+                    dialog.replace(
+                      () => <DialogRoomRules roomID={room.id} name={room.name} onClose={() => dialog.clear()} />,
+                      undefined,
+                      { size: "large" },
+                    )
+                    dialog.setCentered(true)
+                  }}
+                >
+                  {t("Open")}
+                </Button>
+              </Setting>
               <Setting label={t("People")} help={t("Who joined, their roles; remove or ban a guest.")}>
                 <Button
                   onClick={() => {
@@ -1313,6 +1330,100 @@ export function DialogPeople(props: { roomID: string; name: string; onClose?: ()
   )
 }
 
+// Rules the host sets for everyone in a room, the host's AI included. The host's server applies
+// them, so a guest's client cannot switch one off. They are about data and commands, not roles.
+export function DialogRoomRules(props: { roomID: string; name: string; onClose?: () => void }) {
+  const client = useClient()
+  const config = useConfig().data
+  const theme = useTheme().surface("dialog")
+  const toast = useToast()
+  const t = useT()
+  const fields: Record<string, InputRenderable> = {}
+  const [rooms, { refetch }] = createResource(() => client.api.room.list())
+  const room = () => (rooms.error ? undefined : rooms.latest)?.find((item) => item.id === props.roomID)
+  const rules = () => room()?.rules ?? {}
+  const list = (value: string) =>
+    value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+  // An update replaces the rules whole, so every save sends the full set.
+  const save = (patch: NonNullable<RoomInfo["rules"]>) =>
+    void client.api.room
+      .update({ roomID: props.roomID, rules: { ...rules(), ...patch } })
+      .then(() => refetch())
+      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+
+  const field = (key: "blockCommands" | "protectedFiles", placeholder: string) => (
+    <>
+      <input
+        width={30}
+        cursorStyle={config.cursor}
+        ref={(element: InputRenderable) => {
+          fields[key] = element
+          element.value = (rules()[key] ?? []).join(", ")
+        }}
+        onMouseDown={() => fields[key]?.focus()}
+        placeholder={placeholder}
+        placeholderColor={theme.text.muted}
+        textColor={theme.text.formfield.base}
+        focusedTextColor={theme.text.formfield.focused}
+        cursorColor={theme.text.formfield.focused}
+        backgroundColor={theme.background.formfield.base}
+        focusedBackgroundColor={theme.background.formfield.focused}
+        onSubmit={() => save({ [key]: list(fields[key]?.value ?? "") })}
+      />
+      <Button onClick={() => save({ [key]: list(fields[key]?.value ?? "") })}>{t("Save")}</Button>
+    </>
+  )
+
+  return (
+    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+      <Header title={`${t("Room rules")} · ${props.name}`} onClose={props.onClose} />
+      <text fg={theme.text.muted} wrapMode="word">
+        {t("Rules apply to everyone in the room, including the host's AI. They come before any role.")}
+      </text>
+      <Show when={rooms.error}>
+        {(error) => (
+          <text fg={theme.text.feedback.error.base} wrapMode="word">
+            {errorMessage(error())}
+          </text>
+        )}
+      </Show>
+      <Show when={room()}>
+        <Setting
+          label={t("Project path")}
+          help={t("Guests see <project> instead of the folder on your computer.")}
+        >
+          <Button onClick={() => save({ hidePaths: !rules().hidePaths })}>
+            {rules().hidePaths ? t("Hidden") : t("Visible")}
+          </Button>
+        </Setting>
+        <Setting
+          label={t("Sending out")}
+          help={t("The room's AI cannot make web requests or message other computers and projects.")}
+        >
+          <Button onClick={() => save({ noOutbound: !rules().noOutbound })}>
+            {rules().noOutbound ? t("Forbidden") : t("Allowed")}
+          </Button>
+        </Setting>
+        <Setting
+          label={t("Forbidden commands")}
+          help={t("Comma-separated. A command that starts with one, or contains it, does not run. * matches any text.")}
+        >
+          {field("blockCommands", "rm -rf, git push*, curl")}
+        </Setting>
+        <Setting
+          label={t("Off-limits files")}
+          help={t("Comma-separated names or folders the AI may not read or edit, for example .env*, secrets/*.")}
+        >
+          {field("protectedFiles", ".env*, secrets/*")}
+        </Setting>
+      </Show>
+    </box>
+  )
+}
 // Windows Firewall drops room traffic for an app the user never allowed, and the
 // prompt that would ask never shows for the background service. The window reads which
 // of its rules exist and offers one elevated PowerShell run only when some are missing
@@ -1443,7 +1554,7 @@ function encode(script: string) {
   return Buffer.from(script, "utf16le").toString("base64")
 }
 
-function Header(props: { title: string; onClose?: () => void }) {
+export function Header(props: { title: string; onClose?: () => void }) {
   const theme = useTheme().surface("dialog")
   return (
     <box flexDirection="row" justifyContent="space-between">

@@ -6,6 +6,7 @@ import { Room } from "@opencode/core/room"
 import { Peer } from "@opencode/core/peer"
 import { Plot } from "@opencode/core/plot"
 import { Passport } from "@opencode/core/passport"
+import { RoomRules } from "@opencode/schema/room-rules"
 import { Dod } from "@opencode/core/dod"
 import path from "node:path"
 import { Session } from "@opencode/core/session"
@@ -676,8 +677,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, undefined)
           const directory = joined.room.directory ?? session.location.directory
           const held = yield* plots.list(directory)
+          const passport = Passport.read(directory)
           return {
-            ...Passport.read(directory),
+            ...passport,
+            // A room that hides paths shows guests "<project>" where the host's directory would be.
+            project: joined.room.rules?.hidePaths
+              ? { ...passport.project, directory: RoomRules.redactPath(passport.project.directory, directory) }
+              : passport.project,
             plots: held.map((plot) => ({
               team: plot.team,
               machine: plot.machine,
@@ -695,6 +701,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
+          // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
+          const blocked = RoomRules.blockedCommand(joined.room.rules, command)
+          if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           // A host assigns Trusted per device when its commands should run unattended.
           // Everyone else, including ordinary cohosts, still gets the usual confirmation.
           if (joined.member.role !== "trusted") {
@@ -818,6 +827,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
+          const blocked = RoomRules.blockedCommand(joined.room.rules, command)
+          if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           // Normal guests need approval for each check because dod.yaml can change under the host.
           // Trusted members were explicitly admitted for unattended work.

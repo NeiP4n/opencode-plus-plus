@@ -3,6 +3,7 @@ export * as Room from "./room.js"
 import { Schema } from "effect"
 import { ascending } from "./identifier.js"
 import { PositiveInt, statics } from "./schema.js"
+import { Rules } from "./room-rules.js"
 import { SessionID } from "./session-id.js"
 
 // A Room shares one host Session with other devices on the network. Guests
@@ -45,6 +46,8 @@ export const Info = Schema.Struct({
   directory: Schema.String.pipe(Schema.optional),
   // Whether guests may join without a code; absent on rooms saved before the option existed.
   open: Schema.Boolean.pipe(Schema.optional),
+  // What nobody in the room may do or see, the host's AI included; see RoomRules.
+  rules: Rules.pipe(Schema.optional),
   created: Schema.Number,
 }).annotate({ identifier: "Room.Info" })
 export interface Info extends Schema.Schema.Type<typeof Info> {}

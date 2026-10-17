@@ -15,6 +15,7 @@ import { Agent } from "@opencode/core/agent"
 import { Job } from "@opencode/core/job"
 import { LocationServiceMap } from "@opencode/core/location-service-map"
 import { Orchestra } from "@opencode/core/orchestra"
+import { Federation } from "@opencode/core/federation"
 import { Dod } from "@opencode/core/dod"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
@@ -165,6 +166,7 @@ const it = testEffect(
       SessionExecution.node,
       LocationServiceMap.node,
       Orchestra.node,
+      Federation.node,
       Agent.node,
     ]),
     [

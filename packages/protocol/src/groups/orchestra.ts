@@ -1,3 +1,4 @@
+import { Federation } from "@opencode/schema/federation"
 import { Orchestra } from "@opencode/schema/orchestra"
 import { Session } from "@opencode/schema/session"
 import { Schema } from "effect"
@@ -255,4 +256,77 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
       }),
     ),
   )
-  .annotateMerge(OpenApi.annotations({ title: "orchestra", description: "Operator projects and their main sessions." }))
+  .add(
+    HttpApiEndpoint.get("orchestra.group.list", "/api/orchestra/group", {
+      success: Schema.Array(Federation.Group),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.list",
+        summary: "List project groups",
+        description: "Named sets of projects the operator keeps together.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.put("orchestra.group.save", "/api/orchestra/group", {
+      payload: Federation.Group,
+      success: HttpApiSchema.NoContent,
+      error: InvalidRequestError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.save",
+        summary: "Save project group",
+        description: "Create a group of projects or replace the one with the same name.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.delete("orchestra.group.remove", "/api/orchestra/group/:name", {
+      params: { name: Schema.String },
+      success: HttpApiSchema.NoContent,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.remove",
+        summary: "Remove project group",
+        description: "Delete a group. The projects and their links stay.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.group.link", "/api/orchestra/group/:name/link", {
+      params: { name: Schema.String },
+      success: Schema.Struct({ pairs: Schema.Number }),
+      error: InvalidRequestError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.link",
+        summary: "Link a group",
+        description: "Link every pair of projects in the group so each knows the others and may ask them questions.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post("orchestra.link.set", "/api/orchestra/link", {
+      payload: Schema.Struct({ a: Orchestra.ProjectID, b: Orchestra.ProjectID, linked: Schema.Boolean }),
+      success: HttpApiSchema.NoContent,
+      error: InvalidRequestError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.link.set",
+        summary: "Link or unlink projects",
+        description: "Tie two projects together so each knows the other and may ask it questions, or undo it.",
+      }),
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("orchestra.link.list", "/api/orchestra/link/:projectID", {
+      params: { projectID: Orchestra.ProjectID },
+      success: Schema.Array(Schema.Struct({ id: Orchestra.ProjectID, name: Schema.String })),
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.link.list",
+        summary: "List linked projects",
+        description: "The projects linked to this one.",
+      }),
+    ),
+  )  .annotateMerge(OpenApi.annotations({ title: "orchestra", description: "Operator projects and their main sessions." }))

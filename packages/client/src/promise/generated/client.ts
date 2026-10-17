@@ -416,6 +416,17 @@ import type {
   OrchestraAccessOutput,
   OrchestraCategoryInput,
   OrchestraCategoryOutput,
+  OrchestraGroupListOutput,
+  OrchestraGroupSaveInput,
+  OrchestraGroupSaveOutput,
+  OrchestraGroupRemoveInput,
+  OrchestraGroupRemoveOutput,
+  OrchestraGroupLinkInput,
+  OrchestraGroupLinkOutput,
+  OrchestraLinkSetInput,
+  OrchestraLinkSetOutput,
+  OrchestraLinkListInput,
+  OrchestraLinkListOutput,
 } from "./types.js"
 import { ClientError } from "./client-error.js"
 
@@ -2555,6 +2566,7 @@ export function make(options: ClientOptions) {
               guestApprovals: input["guestApprovals"],
               defaultRole: input["defaultRole"],
               open: input["open"],
+              rules: input["rules"],
               directory: input["directory"],
             },
             successStatus: 200,
@@ -2575,6 +2587,7 @@ export function make(options: ClientOptions) {
               guestApprovals: input["guestApprovals"],
               defaultRole: input["defaultRole"],
               open: input["open"],
+              rules: input["rules"],
             },
             successStatus: 200,
             declaredStatuses: [400, 401, 404],
@@ -3443,6 +3456,78 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ),
+      group: {
+        list: (requestOptions?: RequestOptions) =>
+          request<OrchestraGroupListOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/group`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        save: (input: OrchestraGroupSaveInput, requestOptions?: RequestOptions) =>
+          request<OrchestraGroupSaveOutput>(
+            {
+              method: "PUT",
+              path: `/api/orchestra/group`,
+              body: { name: input["name"], projects: input["projects"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+        remove: (input: OrchestraGroupRemoveInput, requestOptions?: RequestOptions) =>
+          request<OrchestraGroupRemoveOutput>(
+            {
+              method: "DELETE",
+              path: `/api/orchestra/group/${encodeURIComponent(input.name)}`,
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+        link: (input: OrchestraGroupLinkInput, requestOptions?: RequestOptions) =>
+          request<OrchestraGroupLinkOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/group/${encodeURIComponent(input.name)}/link`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
+      link: {
+        set: (input: OrchestraLinkSetInput, requestOptions?: RequestOptions) =>
+          request<OrchestraLinkSetOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/link`,
+              body: { a: input["a"], b: input["b"], linked: input["linked"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401],
+              empty: true,
+            },
+            requestOptions,
+          ),
+        list: (input: OrchestraLinkListInput, requestOptions?: RequestOptions) =>
+          request<OrchestraLinkListOutput>(
+            {
+              method: "GET",
+              path: `/api/orchestra/link/${encodeURIComponent(input.projectID)}`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+      },
     },
   }
 }

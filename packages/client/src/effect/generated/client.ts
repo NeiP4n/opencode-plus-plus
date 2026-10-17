@@ -418,6 +418,17 @@ import type {
   OrchestraAccessOutput,
   OrchestraCategoryInput,
   OrchestraCategoryOutput,
+  OrchestraGroupListOutput,
+  OrchestraGroupSaveInput,
+  OrchestraGroupSaveOutput,
+  OrchestraGroupRemoveInput,
+  OrchestraGroupRemoveOutput,
+  OrchestraGroupLinkInput,
+  OrchestraGroupLinkOutput,
+  OrchestraLinkSetInput,
+  OrchestraLinkSetOutput,
+  OrchestraLinkListInput,
+  OrchestraLinkListOutput,
 } from "../api/api.js"
 import { ClientError } from "./client-error.js"
 
@@ -1872,6 +1883,7 @@ const EndpointRoomCreate = (raw: RawClient["server.room"]) => (input: RoomCreate
         guestApprovals: input["guestApprovals"],
         defaultRole: input["defaultRole"],
         open: input["open"],
+        rules: input["rules"],
         directory: input["directory"],
       },
     }).pipe(
@@ -1891,6 +1903,7 @@ const EndpointRoomUpdate = (raw: RawClient["server.room"]) => (input: RoomUpdate
         guestApprovals: input["guestApprovals"],
         defaultRole: input["defaultRole"],
         open: input["open"],
+        rules: input["rules"],
       },
     }).pipe(
       Effect.mapError(mapClientError),
@@ -2480,6 +2493,38 @@ const EndpointOrchestraCategory = (raw: RawClient["server.orchestra"]) => (input
     }).pipe(Effect.mapError(mapClientError)),
   )
 
+const EndpointOrchestraGroupList = (raw: RawClient["server.orchestra"]) => () =>
+  preserveEffect<OrchestraGroupListOutput>()(raw["orchestra.group.list"]({}).pipe(Effect.mapError(mapClientError)))
+
+const EndpointOrchestraGroupSave = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupSaveInput) =>
+  preserveEffect<OrchestraGroupSaveOutput>()(
+    raw["orchestra.group.save"]({ payload: { name: input["name"], projects: input["projects"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointOrchestraGroupRemove = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupRemoveInput) =>
+  preserveEffect<OrchestraGroupRemoveOutput>()(
+    raw["orchestra.group.remove"]({ params: { name: input["name"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointOrchestraGroupLink = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupLinkInput) =>
+  preserveEffect<OrchestraGroupLinkOutput>()(
+    raw["orchestra.group.link"]({ params: { name: input["name"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
+const EndpointOrchestraLinkSet = (raw: RawClient["server.orchestra"]) => (input: OrchestraLinkSetInput) =>
+  preserveEffect<OrchestraLinkSetOutput>()(
+    raw["orchestra.link.set"]({ payload: { a: input["a"], b: input["b"], linked: input["linked"] } }).pipe(
+      Effect.mapError(mapClientError),
+    ),
+  )
+
+const EndpointOrchestraLinkList = (raw: RawClient["server.orchestra"]) => (input: OrchestraLinkListInput) =>
+  preserveEffect<OrchestraLinkListOutput>()(
+    raw["orchestra.link.list"]({ params: { projectID: input["projectID"] } }).pipe(Effect.mapError(mapClientError)),
+  )
+
 const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
   project: {
     list: EndpointOrchestraProjectList(raw),
@@ -2504,6 +2549,13 @@ const adaptGroupOrchestra = (raw: RawClient["server.orchestra"]) => ({
   owner: { list: EndpointOrchestraOwnerList(raw), set: EndpointOrchestraOwnerSet(raw) },
   access: EndpointOrchestraAccess(raw),
   category: EndpointOrchestraCategory(raw),
+  group: {
+    list: EndpointOrchestraGroupList(raw),
+    save: EndpointOrchestraGroupSave(raw),
+    remove: EndpointOrchestraGroupRemove(raw),
+    link: EndpointOrchestraGroupLink(raw),
+  },
+  link: { set: EndpointOrchestraLinkSet(raw), list: EndpointOrchestraLinkList(raw) },
 })
 
 const adaptClient = (raw: RawClient) => ({

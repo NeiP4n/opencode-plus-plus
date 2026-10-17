@@ -61,7 +61,15 @@ export const Output = Schema.Struct({ output: Schema.String })
 
 // A forging session keeps designing teams: each time its run ends, it is woken for the next one,
 // until the operator stops it or the requested number of teams exists.
-type Forge = { remaining?: number; focus: string }
+type Forge = { remaining: number; focus: string; newRoles: number; progress: boolean }
+
+// Without a count the forge adds one team, never an endless stream. A team may bring a couple of
+// new roles at most, and the registry keeps a ceiling on custom roles, so the role list stays
+// something an operator can still read.
+const DEFAULT_TEAMS = 1
+const MAX_TEAMS = 5
+const MAX_NEW_ROLES_PER_TEAM = 2
+const MAX_CUSTOM_ROLES = 12
 
 export const Plugin = {
   id: "opencode.tool.team-forge",
@@ -171,6 +179,28 @@ export const Plugin = {
                   }
                 }
                 case "role": {
+                  const existing = yield* orchestra.roles()
+                  const name = (input.name ?? "").trim().toLowerCase()
+                  const duplicate = existing.find(
+                    (item) =>
+                      item.name.trim().toLowerCase() === name ||
+                      (input.description !== undefined &&
+                        item.description.trim().toLowerCase() === input.description.trim().toLowerCase()),
+                  )
+                  if (duplicate)
+                    return yield* new ToolFailure({
+                      message: `Role ${duplicate.name} (${duplicate.id}) already covers this. Use its id in the team instead of adding a new role.`,
+                    })
+                  if (existing.filter((item) => item.origin === "custom").length >= MAX_CUSTOM_ROLES)
+                    return yield* new ToolFailure({
+                      message: `The registry already has ${MAX_CUSTOM_ROLES} custom roles. Reuse existing roles; the operator can delete unused ones with delete_role.`,
+                    })
+                  const forge = forging.get(context.sessionID)
+                  if (forge && forge.newRoles >= MAX_NEW_ROLES_PER_TEAM)
+                    return yield* new ToolFailure({
+                      message: `A team may add at most ${MAX_NEW_ROLES_PER_TEAM} new roles. Build the team from existing roles.`,
+                    })
+                  if (forge) forge.newRoles += 1
                   const role = yield* orchestra
                     .saveRole(undefined, {
                       name: input.name ?? "",
@@ -266,14 +296,16 @@ export const Plugin = {
                     })
                     .pipe(Effect.mapError((error) => new ToolFailure({ message: error.message, error })))
                   const forge = forging.get(context.sessionID)
-                  if (forge?.remaining !== undefined) forge.remaining -= 1
+                  if (forge) {
+                    forge.remaining -= 1
+                    forge.newRoles = 0
+                    forge.progress = true
+                  }
                   const left =
-                    forge?.remaining === undefined
-                      ? " Continue with the next team."
-                      : forge.remaining > 0
-                        ? ` ${forge.remaining} more to go; continue with the next team.`
-                        : " That was the last requested team: summarize what you added and stop."
-                  if (forge?.remaining === 0) forging.delete(context.sessionID)
+                    !forge || forge.remaining <= 0
+                      ? " That was the last requested team: summarize what you added and stop."
+                      : ` ${forge.remaining} more to go; continue with the next team.`
+                  if (forge && forge.remaining <= 0) forging.delete(context.sessionID)
                   return { output: `Added team ${template.name} (${template.members.length} members).${left}` }
                 }
                 case "edit_team": {
@@ -363,9 +395,10 @@ export const Plugin = {
               })
               .pipe(Effect.asVoid)
           }
-          const count = first && /^\d+$/.test(first) ? Number(first) : undefined
-          const focus = (count === undefined ? input.prompt.text : rest.join(" ")).trim()
-          forging.set(input.sessionID, { remaining: count, focus })
+          const given = first && /^\d+$/.test(first) ? Number(first) : undefined
+          const count = Math.min(Math.max(given ?? DEFAULT_TEAMS, 1), MAX_TEAMS)
+          const focus = (given === undefined ? input.prompt.text : rest.join(" ")).trim()
+          forging.set(input.sessionID, { remaining: count, focus, newRoles: 0, progress: false })
           return ctx.session
             .prompt({
               ...input.prompt,
@@ -391,6 +424,12 @@ export const Plugin = {
             forging.delete(event.data.sessionID)
             return Effect.void
           }
+          // A run that added no team means the forge has nothing more to add: stop instead of re-prompting.
+          if (!forge.progress) {
+            forging.delete(event.data.sessionID)
+            return Effect.void
+          }
+          forge.progress = false
           return ctx.session
             .prompt({
               sessionID: event.data.sessionID,
@@ -399,7 +438,7 @@ export const Plugin = {
                 "<team-forge>",
                 "Design and add the next team now: call team_forge list, find a kind of work the registry still serves poorly, and add the best team for it with action team (adding any missing roles first).",
                 forge.focus ? `Focus: ${forge.focus}` : "",
-                forge.remaining !== undefined ? `${forge.remaining} more teams requested.` : "Keep going until the operator stops you.",
+                `${forge.remaining} more teams requested.`,
                 "</team-forge>",
               ]
                 .filter(Boolean)
@@ -414,17 +453,15 @@ export const Plugin = {
   }),
 }
 
-function prompt(count: number | undefined, focus: string) {
+function prompt(count: number, focus: string) {
   return [
-    "You are the team forge: you design the best possible AI teams and add them to the team registry the operator opens projects from, one after another.",
-    count === undefined
-      ? "Keep designing teams without end: after each one, start the next. Only the operator stops you."
-      : `Add ${count} teams, then stop.`,
+    "You are the team forge: you design AI teams and add them to the team registry the operator opens projects from.",
+    `Add ${count} ${count === 1 ? "team" : "teams"}, then stop.`,
     focus ? `Focus on: ${focus}` : "Cover the kinds of software work people really do: web, mobile, desktop, games, data/ML, infrastructure, security, documentation, migrations, performance, research.",
     "",
     "For each team:",
     "1. Call team_forge list. Never add a team whose name or set of roles already exists; find a gap instead.",
-    "2. Pick one kind of work and decide the smallest set of roles that does it well (usually 3-6): who plans, who builds, who checks. Reuse existing roles when they fit.",
+    `2. Pick one kind of work and decide the smallest set of roles that does it well (usually 3-6): who plans, who builds, who checks. Build the team from existing roles first; add a new role only when no existing one can do the job, at most ${MAX_NEW_ROLES_PER_TEAM} per team. A role that differs from an existing one only in wording is a duplicate, not a new role.`,
     "3. Add each missing role with action role: a precise description the Orchestrator can route on, concrete one-line rules (mission, what to read first, how to work, what evidence to report), readOnly for roles that must not edit, and the tool groups it really needs (a reviewer does not need edit; a researcher needs web).",
     "4. Add the team with action team: a clear name and description, members with titles and categories, and a playbook: phases, which role does what, what runs in parallel, and the definition of done with the checks that prove it.",
     "5. Say in one line what you added and why it is better than what existed, then go straight to the next team.",

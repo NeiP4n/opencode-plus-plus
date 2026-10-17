@@ -1,5 +1,6 @@
 import { Room } from "@opencode/schema/room"
 import { RoomMesh } from "@opencode/schema/room-mesh"
+import { RoomRules } from "@opencode/schema/room-rules"
 import { Session } from "@opencode/schema/session"
 import { SessionEvent } from "@opencode/schema/session-event"
 import { SessionInbox } from "@opencode/schema/session-inbox"
@@ -126,6 +127,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         guestApprovals: Schema.Boolean.pipe(Schema.optional),
         defaultRole: Room.DefaultRole.pipe(Schema.optional),
         open: Schema.Boolean.pipe(Schema.optional),
+        rules: RoomRules.Rules.pipe(Schema.optional),
         // Share the whole project under this directory, not just the session.
         directory: Schema.String.pipe(Schema.optional),
       }),
@@ -149,6 +151,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
         guestApprovals: Schema.Boolean.pipe(Schema.optional),
         defaultRole: Room.DefaultRole.pipe(Schema.optional),
         open: Schema.Boolean.pipe(Schema.optional),
+        rules: RoomRules.Rules.pipe(Schema.optional),
       }),
       success: Schema.Struct({ data: Room.Info }),
       error: [RoomNotFoundError, InvalidRequestError],
