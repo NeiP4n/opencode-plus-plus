@@ -85,6 +85,25 @@ test("a session in several rooms gets the strictest rules", () => {
   expect(RoomRules.merge([undefined])).toBeUndefined()
 })
 
+test("hard room policy blocks outbound actions, arbitrary MCP tools, commands and protected files", () => {
+  const restricted: RoomRules.Rules = {
+    noOutbound: true,
+    protectedFiles: [".env*"],
+  }
+  expect(RoomRules.violation(restricted, { action: "webfetch", resources: ["*"] })).toContain("send anything out")
+  expect(RoomRules.violation(restricted, {
+    action: "github_create_issue",
+    resources: ["*"],
+    metadata: { transport: "mcp" },
+  })).toContain("send anything out")
+  expect(RoomRules.violation(restricted, { action: "read", resources: [".env.local"] })).toContain("off limits")
+  expect(RoomRules.violation(restricted, { action: "read", resources: ["src/index.ts"] })).toBeUndefined()
+  expect(RoomRules.violation({ blockCommands: ["git push*"] }, {
+    action: "shell",
+    resources: ["git push origin main"],
+  })).toContain("forbids commands")
+})
+
 test("outbound policy includes shell and MCP resource access", () => {
   expect(RoomRules.outbound).toContain("shell")
   expect(RoomRules.outbound).toContain("desktop")
