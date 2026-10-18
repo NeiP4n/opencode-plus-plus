@@ -147,12 +147,7 @@ const HOST_ONLY = new Set([
   "room.run",
   "room.check",
   "room.program",
-  "shell",
-  "hub",
-  "desktop",
-  "playtest",
-  "peers",
-  "federation",
+  ...RoomRules.outbound,
 ])
 const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.shell.started",
@@ -971,7 +966,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             const request = yield* permission.get(ctx.params.requestID)
             if (!request || request.sessionID !== session.id) return yield* missingRequest(ctx.params.requestID)
             const rules = yield* effectiveRules(joined.room, session.location.directory)
-            if (HOST_ONLY.has(request.action))
+            // Guests may help with local file permissions, but never approve outbound,
+            // connected-account, MCP or otherwise unclassified actions on the host's behalf.
+            if (
+              HOST_ONLY.has(request.action) ||
+              request.metadata?.transport === "mcp" ||
+              !RoomRules.isLocalOnlyAction(request.action)
+            )
               return yield* new ForbiddenError({ message: "Only the host answers this request" })
             if (rules?.hideExecution)
               return yield* new ForbiddenError({ message: "This room hides tool execution details; only the host may answer permission requests" })
