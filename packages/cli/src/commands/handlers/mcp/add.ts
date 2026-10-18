@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto"
 import { EOL } from "node:os"
 import path from "node:path"
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { Effect, Option } from "effect"
-import { applyEdits, modify } from "jsonc-parser"
+import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from "jsonc-parser"
 import { Global } from "@opencode/util/global"
 import { Commands } from "../../commands"
 import { Runtime } from "../../../framework/runtime"
@@ -32,7 +33,7 @@ export default Runtime.handler(
 
     const global = yield* Global.Service
     const configPath = yield* Effect.promise(() => resolveConfigPath(input.global ? global.config : process.cwd()))
-    yield* Effect.promise(() => write(configPath, input.name, server))
+    yield* Effect.promise(() => writeConfig(configPath, input.name, server))
     process.stdout.write(`MCP server "${input.name}" added to ${configPath}` + EOL)
   }),
 )
@@ -56,13 +57,39 @@ export async function resolveConfigPath(directory: string) {
   return candidates[0]
 }
 
-async function write(configPath: string, name: string, server: unknown) {
+export async function writeConfig(configPath: string, name: string, server: unknown) {
   const text = await readFile(configPath, "utf8").catch((error) => {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return "{}"
     throw error
   })
+
+  // Never turn a malformed existing config into a silently rewritten file.
+  const errors: ParseError[] = []
+  const document: unknown = parse(text, errors, { allowTrailingComma: true })
+  if (errors.length || typeof document !== "object" || document === null || Array.isArray(document)) {
+    const details = errors.length ? ` (${errors.map((error) => printParseErrorCode(error.error)).join(", ")})` : ""
+    throw new Error(`Invalid OpenCode configuration: ${configPath}${details}`)
+  }
+  const mcp = "mcp" in document ? document.mcp : undefined
+  if (mcp !== undefined && (typeof mcp !== "object" || mcp === null || Array.isArray(mcp))) {
+    throw new Error(`Invalid MCP configuration in ${configPath}: "mcp" must be an object`)
+  }
+  const servers = mcp && "servers" in mcp ? mcp.servers : undefined
+  if (servers !== undefined && (typeof servers !== "object" || servers === null || Array.isArray(servers))) {
+    throw new Error(`Invalid MCP configuration in ${configPath}: "mcp.servers" must be an object`)
+  }
+
   const edits = modify(text, ["mcp", "servers", name], server, {
     formattingOptions: { tabSize: 2, insertSpaces: true },
   })
-  await writeFile(configPath, applyEdits(text, edits))
+  const updated = applyEdits(text, edits)
+  await mkdir(path.dirname(configPath), { recursive: true })
+  const temporary = `${configPath}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    await writeFile(temporary, updated.endsWith("\\n") ? updated : updated + "\\n", { flag: "wx", mode: 0o600 })
+    await rename(temporary, configPath)
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined)
+    throw error
+  }
 }
