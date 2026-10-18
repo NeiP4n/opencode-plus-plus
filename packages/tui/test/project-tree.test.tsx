@@ -217,6 +217,25 @@ test("the left panel lists the operator's projects with the orchestrator and ses
   await setup.waitFor(() => calls.some((call) => call.path === `/api/orchestra/project/${project.id}/main`))
 })
 
+test("opening project settings from the gear stays open after the mouse is released", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project])
+
+  const frame = await setup.waitForFrame((frame) => frame.includes("Projects") && frame.includes("Demo"))
+  const name = cell(frame, "Demo")
+  await setup.mockMouse.moveTo(name.x + 1, name.y)
+  await setup.renderOnce()
+
+  const hovered = await setup.waitForFrame((frame) => frame.includes("Demo") && frame.includes("⚙"))
+  const gear = cell(hovered, "⚙")
+  await setup.mockMouse.click(gear.x, gear.y)
+
+  const dialog = await setup.waitForFrame((frame) => frame.includes("Edit project") && frame.includes("Path"))
+  await setup.renderOnce()
+  expect(setup.captureCharFrame()).toContain("Edit project")
+})
+
 test("deleting a session takes two clicks on its ×", async () => {
   await using state = await tmpdir()
   const calls: Call[] = []
