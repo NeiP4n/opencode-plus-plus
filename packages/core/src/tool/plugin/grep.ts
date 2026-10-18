@@ -157,7 +157,7 @@ export const Plugin = {
                     result
                       .filter((match) => {
                         const file = path.relative(location.directory, path.resolve(cwd, match.entry.path)).replaceAll("\\", "/")
-                        return !RoomRules.protectedFile(rules, file)
+                        return !rules || !RoomRules.protectedFile(rules, file)
                       })
                       .map((match) =>
                       FileSystem.Match.make({
