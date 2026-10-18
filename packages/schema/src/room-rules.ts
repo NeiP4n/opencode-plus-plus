@@ -108,9 +108,60 @@ function segments(command: string) {
     .filter(Boolean)
 }
 
+const COMMAND_WRAPPERS = new Set(["sudo", "doas", "command", "builtin", "nohup", "time", "nice", "stdbuf", "env", "exec"])
+const WRAPPER_OPTIONS_WITH_VALUE: Record<string, ReadonlySet<string>> = {
+  sudo: new Set(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--chdir"]),
+  doas: new Set(["-u", "-C"]),
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  nice: new Set(["-n", "--adjustment"]),
+  stdbuf: new Set(["-i", "--input", "-o", "--output", "-e", "--error"]),
+  time: new Set(["-f", "--format", "-o", "--output"]),
+}
+
+function commandTokens(command: string) {
+  return command.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) ?? []
+}
+
+function unquoteToken(token: string) {
+  return token.replace(/^['"]|['"]$/g, "")
+}
+
+// Strip common command launchers and their options so sudo -u root git push still matches
+// the host's git push* rule and is attributed to the git executable.
+function commandAfterWrappers(command: string) {
+  const tokens = commandTokens(command)
+  let index = 0
+  while (index < tokens.length) {
+    const token = unquoteToken(tokens[index])
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+      index++
+      continue
+    }
+    const base = token.split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat|ps1|com)$/i, "").toLowerCase()
+    if (!base || !COMMAND_WRAPPERS.has(base)) break
+    index++
+    const options = WRAPPER_OPTIONS_WITH_VALUE[base] ?? new Set<string>()
+    while (index < tokens.length) {
+      const option = unquoteToken(tokens[index])
+      if (base === "env" && /^[A-Za-z_][A-Za-z0-9_]*=/.test(option)) {
+        index++
+        continue
+      }
+      if (!option.startsWith("-")) break
+      const equals = option.indexOf("=")
+      const name = equals > 0 ? option.slice(0, equals) : option
+      index++
+      if (options.has(name) && equals < 0 && index < tokens.length) index++
+    }
+  }
+  return tokens.slice(index).map(unquoteToken).join(" ")
+}
+
 function matchesCommand(pattern: string, command: string) {
   const start = glob(pattern, "^")
-  if (segments(command).some((part) => start.test(part))) return true
+  if (
+    segments(command).some((part) => start.test(part) || start.test(commandAfterWrappers(part)))
+  ) return true
   // Retain the old matching behavior for rules such as "rm -rf" wrapped by "bash -c".
   return !pattern.includes("*") && command.toLowerCase().includes(pattern.toLowerCase())
 }
@@ -118,23 +169,11 @@ function matchesCommand(pattern: string, command: string) {
 // Extract the executable name rather than the full command: "git push" means approval to use
 // git, not approval for that exact invocation. Wrapper prefixes and assignments are ignored.
 export function programName(command: string): string | undefined {
-  const tokens = command.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) ?? []
-  const wrappers = new Set(["sudo", "doas", "command", "builtin", "nohup", "time", "nice", "stdbuf", "env", "exec"])
-  let index = 0
-  while (index < tokens.length) {
-    const token = tokens[index].replace(/^['"]|['"]$/g, "")
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
-      index++
-      continue
-    }
-    const base = token.split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat|ps1|com)$/i, "").toLowerCase()
-    if (base && wrappers.has(base)) {
-      index++
-      continue
-    }
-    return base || undefined
-  }
-  return undefined
+  const source = commandAfterWrappers(command)
+  const token = commandTokens(source)[0]
+  if (!token) return undefined
+  const base = unquoteToken(token).split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat|ps1|com)$/i, "").toLowerCase()
+  return base || undefined
 }
 
 // Returns each configured program whose use needs explicit approval. The approval is later stored
