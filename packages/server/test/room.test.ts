@@ -798,6 +798,50 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect((yield* Fiber.join(dynamicPending)).status).toBe(403)
     expect(yield* Effect.promise(() => Bun.file(path.join(directory, "dynamic-rule")).exists())).toBe(false)
 
+    // A path-hiding toggle made while a command is waiting must sanitize that command's
+    // eventual response, not only responses from requests that start after the toggle.
+    const pathCommand = `echo ${JSON.stringify(directory)}`
+    const pathPending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: otherGuest,
+      body: { command: pathCommand },
+    }).pipe(Effect.forkScoped)
+    const pathRequest = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) =>
+          item.action === "room.program" &&
+          item.metadata?.guest === "Other Phone" &&
+          item.metadata?.command === pathCommand,
+        ),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("5 seconds"),
+      Effect.map((requests) => requests.find((item) =>
+        item.action === "room.program" &&
+        item.metadata?.guest === "Other Phone" &&
+        item.metadata?.command === pathCommand,
+      )!),
+    )
+    yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { blockCommands: ["echo*"], protectedFiles: ["dynamic-rule"], hidePaths: true } },
+    })
+    yield* call(`/api/session/${session.id}/permission/${pathRequest.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+    const pathResult = yield* Fiber.join(pathPending)
+    expect(pathResult.status).toBe(200)
+    expect(pathResult.body.output).not.toContain(directory)
+    expect(pathResult.body.output).toContain("<project>")
+
     yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
       method: "PATCH",
       headers: host,
