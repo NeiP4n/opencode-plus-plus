@@ -5,6 +5,8 @@ import type { Context } from "@opencode/plugin/effect/plugin"
 import { Federation as FederationSchema } from "@opencode/schema/federation"
 import { Effect, Option, Schema } from "effect"
 import { Federation } from "../../federation.js"
+import { Database } from "../../database/database.js"
+import { SessionHistory } from "../../session/history.js"
 import { Orchestra } from "../../orchestra.js"
 import { Permission } from "../../permission.js"
 import { Session } from "../../session.js"
@@ -16,6 +18,18 @@ export const name = "federation"
 export function groupActionAllowed(mode: "lead" | "council", action: string) {
   const common = ["peers", "policy", "inbox", "outbox", "linked", "groups", "group_status"]
   return mode === "council" ? [...common, "consult_all"].includes(action) : common.includes(action)
+}
+
+export function hasExplicitCouncilTask(messages: readonly { type: string; metadata?: Record<string, unknown> }[]) {
+  const latest = messages.findLast((message) => message.type === "user")
+  if (!latest) return false
+  if (latest.metadata?.["opencode-pp:group-supervisor-bootstrap"] === true) return false
+  const federation = latest.metadata?.federation
+  if (federation && typeof federation === "object" && !Array.isArray(federation)) {
+    const value = federation as Record<string, unknown>
+    if (value.complete === true || typeof value.councilRound === "string" || value.requestedBy === "council") return false
+  }
+  return true
 }
 
 const description = [
@@ -63,6 +77,7 @@ export const Plugin = {
     const orchestra = yield* Orchestra.Service
     const sessions = yield* Session.Service
     const permission = yield* Permission.Service
+    const database = yield* Database.Service
 
     const describe = (ticket: Federation.Ticket) =>
       `${ticket.id} · ${ticket.kind} · ${ticket.from} → ${ticket.to} · ${ticket.status} · ${ticket.subject}${ticket.answer ? ` · answer: ${ticket.answer}` : ""}`
@@ -286,6 +301,11 @@ export const Plugin = {
                 case "consult_all": {
                   if (!groupSupervisor || groupSupervisor.mode !== "council")
                     return yield* new ToolFailure({ message: "consult_all is available only from a registered Council session." })
+                  const history = yield* SessionHistory.load(database.db, context.sessionID, "latest")
+                  if (!hasExplicitCouncilTask(history))
+                    return yield* new ToolFailure({
+                      message: "Society can contact member Orchestrators only in response to a task or question explicitly written by the operator. The current message is setup or an internal Council result; wait for the operator's next message.",
+                    })
                   if (!input.subject?.trim() || !input.body?.trim())
                     return yield* new ToolFailure({ message: "consult_all needs a short subject and the task in body." })
                   const result = yield* federation.consultGroup({
