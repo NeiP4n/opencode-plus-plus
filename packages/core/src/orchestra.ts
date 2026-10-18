@@ -35,6 +35,7 @@ export const allows = Orchestra.allows
 export const contains = Orchestra.contains
 export const ownerOf = Orchestra.ownerOf
 export const sessionOwner = Orchestra.sessionOwner
+export const groupSupervisorPermissions = Orchestra.groupSupervisorPermissions
 export const Project = Orchestra.Project
 export type Project = Orchestra.Project
 export const ProjectID = Orchestra.ProjectID

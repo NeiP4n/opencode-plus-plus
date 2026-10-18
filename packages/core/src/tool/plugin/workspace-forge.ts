@@ -220,7 +220,7 @@ export const Plugin = {
               case "create_group": {
                 const groupName = input.name?.trim()
                 if (!groupName) return yield* new ToolFailure({ message: "create_group requires a non-empty name." })
-                const inputMembers = input.members
+                const inputMembers = input.members ?? []
                 const memberCountError = groupMemberCountError(inputMembers)
                 if (memberCountError) return yield* new ToolFailure({ message: memberCountError })
                 if ((yield* federation.groups()).some((group) => group.name === groupName))
