@@ -75,18 +75,16 @@ function releaseVersion() {
   return FALLBACK_VERSION
 }
 
-// Keep an explicit build channel override when the release system supplies one. For a tagged
-// release checkout, however, the source is a release build even when it is launched directly
-// from the checkout rather than through the packaged binary. Leaving the channel as "local"
-// makes the hosted free-tier gateway classify the otherwise valid OpenCode request as a dev
-// checkout. Untagged development checkouts remain local and therefore keep the development
-// semantics instead of pretending to be a release.
-const channel =
+// The update service exposes the stable production CLI as the `latest` channel.
+// `prod` is a client/build label used by this fork, not an update-service route.
+// Normalize it here so /upgrade does not request the non-existent /update/api/prod/... path.
+const rawChannel =
   typeof OPENCODE_CHANNEL === "string" && OPENCODE_CHANNEL !== "undefined"
     ? OPENCODE_CHANNEL
     : release !== FALLBACK_VERSION
-      ? "prod"
+      ? "latest"
       : "local"
+const channel = rawChannel === "prod" ? "latest" : rawChannel
 const artifact = typeof OPENCODE_ARTIFACT === "string" ? OPENCODE_ARTIFACT : "cli"
 
 export { version as OPENCODE_VERSION, channel as OPENCODE_CHANNEL, artifact as OPENCODE_ARTIFACT }
