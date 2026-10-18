@@ -274,27 +274,32 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
   }),
 )
 
-async function pathsInside(directory: string, targets: readonly string[]) {
+async function canonicalInside(directory: string, target: string): Promise<string | undefined> {
   const root = await realpath(directory)
-  for (const target of targets) {
-    let current = target
-    let resolved: string | undefined
-    while (resolved === undefined) {
-      try {
-        resolved = await realpath(current)
-      } catch (cause) {
-        const code =
-          typeof cause === "object" && cause !== null && "code" in cause ? String(cause.code) : ""
-        if (code !== "ENOENT" && code !== "ENOTDIR") throw cause
-        const parent = path.dirname(current)
-        if (parent === current) throw cause
-        current = parent
-      }
+  let current = path.resolve(target)
+  const missing: string[] = []
+  while (true) {
+    try {
+      const resolved = await realpath(current)
+      const canonical = path.resolve(resolved, ...missing.reverse())
+      const relative = path.relative(root, canonical)
+      if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return undefined
+      return canonical
+    } catch (cause) {
+      const code =
+        typeof cause === "object" && cause !== null && "code" in cause ? String(cause.code) : ""
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw cause
+      const parent = path.dirname(current)
+      if (parent === current) throw cause
+      missing.push(path.basename(current))
+      current = parent
     }
-    const relative = path.relative(root, resolved)
-    if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return false
   }
-  return true
+}
+
+async function pathsInside(directory: string, targets: readonly string[]) {
+  const resolved = await Promise.all(targets.map((target) => canonicalInside(directory, target)))
+  return resolved.every((target) => target !== undefined)
 }
 
 function ancestors(target: string, boundary: string): string[] {
