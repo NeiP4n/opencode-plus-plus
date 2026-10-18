@@ -2,6 +2,22 @@ import { describe, expect, test } from "bun:test"
 import { Passport } from "@opencode/core/passport"
 import { tmpdir } from "./fixture/tmpdir"
 
+describe("Passport.guestEnv", () => {
+  test("removes secrets and credential-bearing configuration variables", () => {
+    expect(
+      Passport.guestEnv({
+        PATH: "/usr/bin",
+        SAFE_VALUE: "visible",
+        OPENAI_API_KEY: "secret",
+        HTTP_PROXY: "http://user:password@proxy.test",
+        AWS_PROFILE: "production",
+        KUBECONFIG: "/home/host/.kube/config",
+        GIT_ASKPASS: "/home/host/askpass",
+      }),
+    ).toEqual({ PATH: "/usr/bin", SAFE_VALUE: "visible" })
+  })
+})
+
 describe.skipIf(process.platform === "win32")("Passport.run", () => {
   test("returns when the command exits although it left a child in the background", async () => {
     await using dir = await tmpdir()
