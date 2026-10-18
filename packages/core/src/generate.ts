@@ -8,25 +8,7 @@ import { App } from "./app.js"
 import { llmClient } from "./effect/app-node-platform.js"
 import { ModelResolver } from "./model-resolver.js"
 import { Model } from "./model.js"
-
-// OpenCode Zen's free tier rejects a request whose tool list lacks `read` and `shell`, as Session requests
-// handle in SessionModelRequest. A one-shot generation runs no tools, so it advertises their schemas and
-// forbids calling them.
-const ZEN_COMPATIBILITY = {
-  tools: [
-    {
-      name: "read",
-      description: "Read a file.",
-      inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
-    },
-    {
-      name: "shell",
-      description: "Run a shell command.",
-      inputSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
-    },
-  ],
-  toolChoice: "none",
-} as const
+import { prepare as prepareProviderCompatibility } from "./provider-request-compatibility.js"
 
 export interface TextInput {
   readonly prompt: string
@@ -82,17 +64,24 @@ export const layer = Layer.effect(
             ? `Model unavailable: ${input.model.providerID}/${input.model.id}`
             : "No model specified and no supported model is available",
         })
+
+      const compatibility = prepareProviderCompatibility({
+        providerID: resolved.ref.providerID,
+        stateless: true,
+      })
       const response = yield* llm
         .generate(
           LLM.request({
             model: resolved.model,
             prompt: input.prompt,
-            ...(resolved.ref.providerID === "opencode" ? ZEN_COMPATIBILITY : {}),
+            tools: compatibility.tools,
+            toolChoice: compatibility.toolChoice,
             // Gateways require session attribution even for a stateless call; no Session is stored. OpenCode Zen's
             // free tier also checks the client identity that Session requests send.
             http: {
               headers: {
                 "x-opencode-session": SessionID.create(),
+                "x-opencode-session-id": SessionID.create(),
                 "User-Agent": App.useragent(app),
                 "x-opencode-client": app.name,
               },
