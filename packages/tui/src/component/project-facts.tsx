@@ -259,10 +259,9 @@ function FactsWindow() {
           <Match when={entry()}>
             {(facts) => (
               <markdown
-                syntaxStyle={syntax()}
                 content={facts().text}
+                syntaxStyle={syntax()}
                 conceal
-                internalBlockMode="top-level"
                 fg={theme.markdown.text}
                 bg={theme.background.raised.base}
               />

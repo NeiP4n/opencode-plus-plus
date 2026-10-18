@@ -161,10 +161,9 @@ function QuickWindow(props: { mode: QuickMode }) {
     props.mode === "explain" ? t("Explain selection") : props.mode === "essence" ? t("Project essence") : t("Quick chat")
   const markdown = (content: string) => (
     <markdown
-      syntaxStyle={syntax()}
       content={content}
+      syntaxStyle={syntax()}
       conceal
-      internalBlockMode="top-level"
       fg={theme.markdown.text}
       bg={theme.background.raised.base}
     />
