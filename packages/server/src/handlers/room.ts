@@ -271,6 +271,20 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       return session.location.directory
     })
 
+    // A shared session can be exposed through multiple rooms. Guest command routes must enforce
+    // the same strictest combined rules as the host AI, not only the room used for this request.
+    const effectiveRules = Effect.fnUntraced(function* (room: Room.Info, directory: string) {
+      return RoomRules.merge(
+        (yield* rooms.list()).flatMap((candidate) =>
+          candidate.rules &&
+          (candidate.sessionID === room.sessionID ||
+            (candidate.directory !== undefined && Orchestra.contains(candidate.directory, directory)))
+            ? [candidate.rules]
+            : [],
+        ),
+      )
+    })
+
     // A member keeps a DoD item while it stays in some room on this server and was heard
     // from within the lease; a restart counts as hearing from everyone once.
     const live = Effect.fnUntraced(function* () {
@@ -733,15 +747,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
+          const rules = yield* effectiveRules(joined.room, session.location.directory)
           // noOutbound is fail-closed: arbitrary shell commands can exfiltrate data even when
           // they do not match a configured blockCommands pattern.
-          if (joined.room.rules?.noOutbound)
+          if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
-          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile)
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
-          const blocked = RoomRules.blockedCommand(joined.room.rules, command)
+          const blocked = RoomRules.blockedCommand(rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           // A host assigns Trusted per device when its commands should run unattended.
           // Everyone else, including ordinary cohosts, still gets the usual confirmation.
@@ -763,7 +778,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           codes.record(joined.room.id, {
             kind: "run",
             who: joined.member.name,
-            detail: joined.room.rules?.hidePaths
+            detail: rules?.hidePaths
               ? RoomRules.redactPath(command, session.location.directory)
               : command,
           })
@@ -771,11 +786,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             try: (signal) => Passport.run(command, session.location.directory, signal),
             catch: (error) =>
               new InvalidRequestError({
-                message: `Could not run the command: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), session.location.directory) : String(error)}`,
+                message: `Could not run the command: ${rules?.hidePaths ? RoomRules.redactPath(String(error), session.location.directory) : String(error)}`,
               }),
           })
           // Command output is sent to a remote guest; redact the project path just like room metadata.
-          if (joined.room.rules?.hidePaths)
+          if (rules?.hidePaths)
             return { ...result, output: RoomRules.redactPath(result.output, session.location.directory) }
           return result
         }),
@@ -878,15 +893,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
-          if (joined.room.rules?.noOutbound)
+          if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
-          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile)
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
-          const blocked = RoomRules.blockedCommand(joined.room.rules, command)
+          const blocked = RoomRules.blockedCommand(rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           // Normal guests need approval for each check because dod.yaml can change under the host.
           // Trusted members were explicitly admitted for unattended work.
@@ -913,10 +929,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             try: (signal) => Passport.run(command, directory, signal),
             catch: (error) =>
               new InvalidRequestError({
-                message: `Could not run the check: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
+                message: `Could not run the check: ${rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
               }),
           })
-          const output = joined.room.rules?.hidePaths
+          const output = rules?.hidePaths
             ? RoomRules.redactPath(result.output, directory)
             : result.output
           const dod = yield* Dod.accept({
