@@ -556,7 +556,7 @@ it.live("a following guest log carries the session's permission requests as they
     const synthetic = yield* call(`/api/session/${session.id}/synthetic`, {
       method: "POST",
       headers: host,
-      body: { id: "synthetic_private_01", text: "PRIVATE_SYNTHETIC_CONTEXT" },
+      body: { id: "msg_syntheticprivate01", text: "PRIVATE_SYNTHETIC_CONTEXT" },
     })
     expect(synthetic.status).toBe(200)
 
