@@ -160,7 +160,35 @@ test("authoritative room policy denies protected data and asks for program use",
 test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toContain("Credential and secret files")
   expect(RoomRules.describe({ noOutbound: true })).toContain("Outbound access is denied by default")
-  expect(RoomRules.describe({ hideExecution: true })).toContain("screenshots to other guests")
+  expect(RoomRules.describe({ hideExecution: true })).toContain("command execution details")
+  expect(RoomRules.describe({ hideScreenshots: true })).toContain("image attachments or screenshots")
   expect(RoomRules.describe({ denyGuestPrompts: true })).toContain("must not submit prompts")
   expect(RoomRules.describe({ denyGuestCommands: true })).toContain("must not invoke slash commands")
+})
+
+
+test("screenshot privacy merges restrictively across all rooms", () => {
+  expect(RoomRules.merge([{ hideScreenshots: false }, { hideScreenshots: true }])?.hideScreenshots).toBe(true)
+  expect(RoomRules.merge([{}])?.hideScreenshots).toBe(false)
+})
+
+test("screenshot privacy removes nested image payloads while retaining text", () => {
+  const payload = {
+    files: [
+      { mime: "image/png", data: "YWJj" },
+      { mime: "text/plain", data: "visible notes" },
+    ],
+    content: [
+      { type: "image", url: "https://example.test/capture.png" },
+      { type: "text", text: "capture complete" },
+    ],
+    screenshot: { uri: "/tmp/capture.png" },
+    text: "ordinary text",
+  }
+  expect(RoomRules.sanitizeScreenshots(payload, true)).toEqual({
+    files: [{ mime: "text/plain", data: "visible notes" }],
+    content: [{ type: "text", text: "capture complete" }],
+    text: "ordinary text",
+  })
+  expect(RoomRules.sanitizeScreenshots(payload, false)).toEqual(payload)
 })
