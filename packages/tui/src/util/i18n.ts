@@ -429,7 +429,7 @@ const ru: Record<string, string> = {
   "Pick at least one project.": "Выберите хотя бы один проект.",
   "Nothing to link: a group needs two projects.": "Нечего связывать: в группе нужно два проекта.",
   "Linked {count} pair(s).": "Связано пар: {count}.",
-  "Blocks known network commands and connected-account tools. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.": "Блокирует известные сетевые команды и инструменты подключённых аккаунтов. Произвольный код всё ещё может открывать сокеты; для жёсткой сетевой изоляции нужен системный файрвол или песочница.",
+  "Blocks connected-account and unknown tools plus common network commands. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.": "Блокирует инструменты подключённых аккаунтов, неизвестные инструменты и типовые сетевые команды. Произвольный код всё ещё может открывать сокеты; для жёсткой сетевой изоляции нужен системный файрвол или песочница.",
   "Commands requiring approval": "Команды, требующие разрешения",
   "Comma-separated command/program patterns. A matching program asks the host before use; Always allow applies only to that room member. * matches any text.": "Шаблоны команд/программ через запятую. Перед использованием совпавшей программы хост должен дать разрешение; «Всегда разрешать» действует только для этого участника. * заменяет любой текст.",
   "Hide command and tool execution": "Скрывать выполнение команд и инструментов",
