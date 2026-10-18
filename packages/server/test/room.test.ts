@@ -718,6 +718,67 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
   }).pipe(Effect.scoped),
 )
 
+it.live("room protected-file rules block trusted guest shell commands", () =>
+  Effect.gen(function* () {
+    const { call, session } = yield* setup
+    const room = (
+      yield* call("/api/room", {
+        method: "POST",
+        headers: host,
+        body: { sessionID: session.id, rules: { protectedFiles: [".env*", "secrets/*"] } },
+      })
+    ).body.data
+    const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
+    const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "trusted" },
+    })
+
+    // Trusted skips the approval prompt, never the room's file policy.
+    for (const command of ["cat .env", "cat secrets/key.pem", "tool --config=.env.local"]) {
+      const response = yield* call(`/api/room/${room.id}/guest/run`, {
+        method: "POST",
+        headers: guest,
+        body: { command },
+      })
+      expect(response.status).toBe(403)
+    }
+  }).pipe(Effect.scoped),
+)
+
+it.live("hidePaths redacts the host directory from trusted guest command output", () =>
+  Effect.gen(function* () {
+    const { call, session, directory } = yield* setup
+    const room = (
+      yield* call("/api/room", {
+        method: "POST",
+        headers: host,
+        body: { sessionID: session.id, rules: { hidePaths: true } },
+      })
+    ).body.data
+    const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
+    const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "trusted" },
+    })
+
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guest,
+      body: { command: "pwd" },
+    })
+    expect(result.status).toBe(200)
+    expect(result.body.output).not.toContain(directory)
+    expect(result.body.output).toContain("<project>")
+  }).pipe(Effect.scoped),
+)
+
 it.live("guests share the host project's DoD: one takes an item with a plot, the host frees it", () =>
   Effect.gen(function* () {
     const { call, room, code, directory } = yield* setup
