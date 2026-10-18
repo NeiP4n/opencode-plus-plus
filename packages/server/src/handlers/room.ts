@@ -167,6 +167,7 @@ function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
   // These events contain private model context, not user-facing chat.
   if (
     value.type === "session.reasoning.delta" ||
+    value.type === "session.synthetic" ||
     value.type === "session.skill.activated" ||
     (typeof value.type === "string" && value.type.startsWith("session.compaction."))
   )
