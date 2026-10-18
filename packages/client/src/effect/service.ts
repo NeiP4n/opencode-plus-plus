@@ -116,7 +116,7 @@ export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOpti
         return Option.some(service)
       }
       if (decision._tag === "replace") {
-        yield* announce("version-mismatch", service.version)
+        yield* announce(matchesVersion(service.version, options) ? "missing" : "version-mismatch", service.version)
         if (service.state !== "ready")
           yield* Effect.logWarning("Background service is not ready; replacement cannot preserve persistent terminals")
         yield* stop({ file: options.file, pty: decision.pty }).pipe(Effect.ignore)
