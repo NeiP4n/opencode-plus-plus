@@ -691,6 +691,7 @@ export function DialogHost(props: { onClose?: () => void }) {
                   </Labeled>
                 )}
               </Show>
+              <Section title={t("Access & roles")} />
               <Setting
                 label={t("Entry")}
                 help={t("Whether guests need the join code or may join straight from the room list.")}
@@ -712,9 +713,10 @@ export function DialogHost(props: { onClose?: () => void }) {
                   {t(ROLE_LABEL[joinRole(room)])}
                 </Button>
               </Setting>
+              <Section title={t("Room management")} />
               <Setting
-                label={t("Rules")}
-                help={t("What nobody in the room may do or see: project path, commands, files, sending out.")}
+                label={t("Safety rules")}
+                help={t("Privacy, guest actions, command restrictions and protected files.")}
               >
                 <Button
                   onClick={() => {
@@ -729,7 +731,7 @@ export function DialogHost(props: { onClose?: () => void }) {
                   {t("Open")}
                 </Button>
               </Setting>
-              <Setting label={t("People")} help={t("Who joined, their roles; remove or ban a guest.")}>
+              <Setting label={t("Participants")} help={t("Manage joined people, roles, removals and bans.")}>
                 <Button
                   onClick={() => {
                     dialog.replace(
@@ -1408,6 +1410,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
             {rules().hideExecution ? t("Hidden") : t("Visible")}
           </Button>
         </Setting>
+        <Section title={t("Privacy & network")} />
         <Setting
           label={t("Sending out")}
           help={t("The room's AI cannot make web requests or message other computers and projects.")}
@@ -1416,6 +1419,22 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
             {rules().noOutbound ? t("Forbidden") : t("Allowed")}
           </Button>
         </Setting>
+        <Section title={t("Guest permissions")} />
+        <Setting
+          label={t("Guest prompts")}
+          help={t("Whether guests may send messages to the host's AI. This does not stop the host from chatting.")}>
+          <Button onClick={() => save({ denyGuestPrompts: !rules().denyGuestPrompts })}>
+            {rules().denyGuestPrompts ? t("Blocked") : t("Allowed")}
+          </Button>
+        </Setting>
+        <Setting
+          label={t("Guest commands")}
+          help={t("Whether guests may execute commands or submit command checks. This restriction applies to every role.")}>
+          <Button onClick={() => save({ denyGuestCommands: !rules().denyGuestCommands })}>
+            {rules().denyGuestCommands ? t("Blocked") : t("Allowed")}
+          </Button>
+        </Setting>
+        <Section title={t("Command & file restrictions")} />
         <Setting
           label={t("Forbidden commands")}
           help={t("Comma-separated. A command that starts with one, or contains it, does not run. * matches any text.")}
