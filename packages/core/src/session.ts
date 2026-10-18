@@ -17,7 +17,7 @@ import { Bus } from "./bus.js"
 import { Instance } from "./instance/service.js"
 import { Database } from "./database/database.js"
 import { SessionProjector } from "./session/projector.js"
-import { SessionMessageTable } from "./session/sql.js"
+import { SessionMessageTable, SessionTable } from "./session/sql.js"
 import { SessionSchema } from "./session/schema.js"
 import { RelativePath } from "./schema.js"
 import { Agent } from "@opencode/schema/agent"
@@ -132,6 +132,7 @@ export interface Interface {
   }) => Effect.Effect<SessionEnvironment.Variables | undefined, NotFoundError>
   readonly view: (input: { sessionID: SessionSchema.ID; idle: number }) => Effect.Effect<void, NotFoundError>
   readonly remove: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
+  readonly setArchived: (input: { sessionID: SessionSchema.ID; archived: boolean }) => Effect.Effect<void, NotFoundError>
   readonly messages: (
     input: SessionStore.MessagesInput,
   ) => Effect.Effect<SessionMessage.Info[], NotFoundError | MessageDecodeError>
@@ -395,6 +396,16 @@ const layer = Layer.effect(
       }),
       list: Effect.fn("Session.list")(function* (input) {
         return { data: yield* store.list(input) }
+      }),
+      setArchived: Effect.fn("Session.setArchived")(function* (input) {
+        const row = yield* db
+          .update(SessionTable)
+          .set({ time_archived: input.archived ? Date.now() : null })
+          .where(eq(SessionTable.id, input.sessionID))
+          .returning({ id: SessionTable.id })
+          .get()
+          .pipe(Effect.orDie)
+        if (!row) return yield* new NotFoundError({ sessionID: input.sessionID })
       }),
       messages: Effect.fn("Session.messages")(function* (input) {
         yield* result.get(input.sessionID)
