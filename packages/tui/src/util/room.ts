@@ -24,13 +24,16 @@ export function roomAuthor(metadata: unknown) {
 // Distinct guest names that posted into one room. There is no presence
 // tracking, so this counts who took part, not who is connected now.
 export function roomGuests(messages: readonly { type: string; metadata?: unknown }[], roomID: string) {
-  return new Set(
-    messages.flatMap((message) => {
-      if (message.type !== "user") return []
-      const author = roomAuthor(message.metadata)
-      return author?.id === roomID ? [author.guest.name] : []
-    }),
-  ).size
+  // Avoid flatMap/map/filter intermediate arrays: this runs against the whole transcript
+  // and is commonly called again when the live message list changes. Keep only the Set that
+  // the caller actually needs.
+  const guests = new Set<string>()
+  for (const message of messages) {
+    if (message.type !== "user") continue
+    const author = roomAuthor(message.metadata)
+    if (author?.id === roomID) guests.add(author.guest.name)
+  }
+  return guests.size
 }
 
 // Rooms change only through host actions in this client, so readers of the
