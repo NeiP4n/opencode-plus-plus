@@ -92,7 +92,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       if (!password) return yield* Effect.fail(new Error("Missing server password"))
       const instanceID = randomUUID()
       const transform = yield* WebUi.handler()
-      const launch = start(
+      const launch = () => start(
         {
           app: {
             name: process.env.OPENCODE_CLIENT ?? OPENCODE_ARTIFACT,
@@ -149,7 +149,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             },
         transform,
       )
-      const server = yield* launch.pipe(
+      const server = yield* launch().pipe(
         Effect.catch((error) => {
           if (findIncumbent === undefined || !addressInUse(error)) return Effect.fail(error)
           return Effect.gen(function* () {
@@ -160,7 +160,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
               yield* Effect.sleep("100 millis")
               if (Date.now() >= deadline) break
               // Failed binds close their scope; a successful bind may take longer than this window to boot.
-              const server = yield* launch.pipe(Effect.catchIf(addressInUse, () => Effect.void))
+              const server = yield* launch().pipe(Effect.catchIf(addressInUse, () => Effect.void))
               if (server !== undefined) return server
             }
             if (options.mode === "service") {
@@ -168,7 +168,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
                 `Managed service port ${port} on ${hostname} is occupied; retrying on an OS-assigned port`,
               )
               listenPort = 0
-              return yield* launch.pipe(
+              return yield* launch().pipe(
                 Effect.catch((fallbackError) =>
                   Effect.fail(
                     new Error(
