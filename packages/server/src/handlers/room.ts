@@ -115,8 +115,14 @@ function redactRoomValue<T>(value: T, directories: readonly string[]): T {
   const redact = (text: string) => directories.reduce((result, directory) => RoomRules.redactPath(result, directory), text)
   if (typeof value === "string") return redact(value) as T
   if (Array.isArray(value)) return value.map((item) => redactRoomValue(item, directories)) as T
-  if (value && typeof value === "object")
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactRoomValue(item, directories)])) as T
+  if (value && typeof value === "object") {
+    // Preserve Date/DateTime and other schema value objects; only redact plain API DTOs.
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return value
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactRoomValue(item, directories)]),
+    ) as T
+  }
   return value
 }
 const RANK: Record<Room.Role, number> = { viewer: 0, member: 1, helper: 2, cohost: 3, trusted: 4 }
