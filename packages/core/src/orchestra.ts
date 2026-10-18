@@ -27,6 +27,7 @@ import { Wildcard } from "./util/wildcard.js"
 import type { Permission } from "@opencode/schema/permission"
 
 export const agent = Orchestra.agent
+export const president = Orchestra.president
 export const role = Orchestra.role
 export const toolGroups = Orchestra.toolGroups
 export const Access = Orchestra.Access

@@ -210,7 +210,7 @@ describe("Federation", () => {
       const error = yield* federation
         .setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: a.main! })
         .pipe(Effect.flip)
-      expect(error.message).toContain("Group supervisor must be an Orchestrator session registered for this group")
+      expect(error.message).toContain("A President chat must be a President session registered for this group")
     }),
   )
 
@@ -221,9 +221,9 @@ describe("Federation", () => {
       const sessions = yield* Session.Service
       const supervisor = yield* sessions.create({
         title: "President · Shop",
-        agent: Orchestra.agent,
+        agent: Orchestra.president,
         location: { directory: AbsolutePath.make(a.directory) },
-        metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id } },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id, mode: "lead" } },
       })
       const supervisorTexts = Effect.gen(function* () {
         const inbox = yield* sessions.inbox(supervisor.id)
@@ -244,6 +244,82 @@ describe("Federation", () => {
       yield* federation.decide({ id: ticket.id, project: b.id, accept: false })
       expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "rejected")).toBe(true)
       expect((yield* supervisorTexts).some((text) => text.includes("<federation-event"))).toBe(false)
+    }),
+  )
+
+  it.live("delivers an Orchestrator report to the group President without a ticket", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const president = yield* sessions.create({
+        title: "President · Shop",
+        agent: Orchestra.president,
+        location: { directory: AbsolutePath.make(a.directory) },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id, mode: "lead" } },
+      })
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: president.id, mode: "lead" })
+      yield* federation.reportToPresident({
+        project: b.id,
+        subject: "API status",
+        body: "The route is deployed.",
+      })
+
+      const inbox = yield* sessions.inbox(president.id)
+      const text = inbox.flatMap((item) => ("text" in item.payload ? [item.payload.text] : [])).join("\n")
+      expect(text).toContain("<president-report")
+      expect(text).toContain("API status")
+      expect(text).toContain("Backend")
+      expect(yield* federation.outbox(b.id)).toEqual([])
+    }),
+  )
+
+  it.live("refuses an ambiguous report when the project is in several lead groups", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const first = yield* sessions.create({
+        title: "President · One",
+        agent: Orchestra.president,
+        location: { directory: AbsolutePath.make(a.directory) },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "One", leader: a.id, mode: "lead" } },
+      })
+      const second = yield* sessions.create({
+        title: "President · Two",
+        agent: Orchestra.president,
+        location: { directory: AbsolutePath.make(a.directory) },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "Two", leader: a.id, mode: "lead" } },
+      })
+      yield* federation.setGroup({ name: "One", projects: [a.id, b.id], supervisor: first.id, mode: "lead" })
+      yield* federation.setGroup({ name: "Two", projects: [a.id, b.id], supervisor: second.id, mode: "lead" })
+
+      const error = yield* federation
+        .reportToPresident({ project: b.id, subject: "API status", body: "Done." })
+        .pipe(Effect.flip)
+      expect(error.message).toContain("several lead-mode groups")
+      yield* federation.reportToPresident({ project: b.id, group: "Two", subject: "API status", body: "Done." })
+      const inbox = yield* sessions.inbox(second.id)
+      expect(inbox.some((item) => "text" in item.payload && item.payload.text.includes("API status"))).toBe(true)
+    }),
+  )
+
+  it.live("refuses to report to a group whose chat is a Council", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const council = yield* sessions.create({
+        title: "Council · Shop",
+        agent: Orchestra.agent,
+        location: { directory: AbsolutePath.make(a.directory) },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id, mode: "council" } },
+      })
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: council.id, mode: "council" })
+      const error = yield* federation
+        .reportToPresident({ project: b.id, subject: "API status", body: "Done." })
+        .pipe(Effect.flip)
+      expect(error.message).toContain("no President chat")
     }),
   )
 

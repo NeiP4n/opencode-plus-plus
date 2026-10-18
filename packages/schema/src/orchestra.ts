@@ -28,6 +28,11 @@ export const defaultAccess: Access = "read"
 // switching it to another agent is ignored, so the orchestrator stays one.
 export const agent = Agent.ID.make("orchestrator")
 
+// The agent of a lead-mode group chat. Unlike the shared Council, the President
+// sits above the member Orchestrators: they report to it, and it coordinates the
+// group without owning any project's files or sessions.
+export const president = Agent.ID.make("president")
+
 // Team roles are built-in agents with a "team-" prefix, so an operator's own
 // agents of the same name (often subagents) never replace them.
 export const role = (name: string) => Agent.ID.make(`team-${name}`)
