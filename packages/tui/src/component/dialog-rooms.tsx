@@ -1344,7 +1344,6 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
   const [rooms, { refetch }] = createResource(() => client.api.room.list())
   const room = () => (rooms.error ? undefined : rooms.latest)?.find((item) => item.id === props.roomID)
   const rules = () => room()?.rules ?? {}
-  const noOutbound = () => rules().noOutbound !== false
   const list = (value: string) =>
     value
       .split(",")
