@@ -30,6 +30,10 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
   const deadline = Date.now() + timing.promiseTimeout
   const pool = contenderPool(timing)
   let timeouts: { readonly info: Info; readonly count: number } | undefined
+  let waiting: { readonly info: Info; readonly since: number } | undefined
+  // A server that keeps returning 503 while starting must not block the CLI forever.
+  // Allow slower machines time to boot, but recover well before the overall ensure deadline.
+  const waitingTimeout = Math.min(timing.promiseTimeout / 2, 30_000)
   let announced = false
 
   const announce = (reason: "missing" | "version-mismatch", previousVersion?: string) => {
@@ -68,7 +72,23 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
         }
       } else timeouts = undefined
 
-      if (registration.service !== undefined) {
+      const service = registration.service
+      if (service?.state === "waiting") {
+        if (waiting === undefined || !same(waiting.info, service.info))
+          waiting = { info: service.info, since: Date.now() }
+        if (Date.now() - waiting.since >= waitingTimeout) {
+          announce("missing")
+          console.warn("Background service remained in startup state; replacing it")
+          await PtyHandoff.clear(options.file ?? fallback())
+          await terminate(service.info, options, timing)
+          pool.evict(service.info.pid)
+          pool.recruitNow()
+          waiting = undefined
+          continue
+        }
+      } else waiting = undefined
+
+      if (service !== undefined) {
         pool.serviceAnswered()
         const service = registration.service
         const decision = decide(service, options)
