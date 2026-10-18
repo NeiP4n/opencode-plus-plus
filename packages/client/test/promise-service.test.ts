@@ -101,15 +101,23 @@ test("waits for a live contender when another native contender fails", async () 
   expect(endpoint.url).toBe(info.url)
 })
 
-test("reports a failed registered service", async () => {
+test("restarts a failed registered service", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
-  fixture.spawn("failed-owner")
+  const failed = fixture.spawn("failed-owner")
   await fixture.waitForFile()
 
-  await expect(ensure({ file: registration, version: "test", command: [] })).rejects.toThrow(
-    "Background service failed to start",
-  )
+  const endpoint = await ensure({
+    file: registration,
+    version: "test",
+    command: fixture.command("delayed", "10"),
+  })
+  const replacement = await Bun.file(registration).json()
+  fixture.track(replacement.pid)
+
+  expect(await failed.exited).toBe(0)
+  expect(replacement.pid).not.toBe(failed.pid)
+  expect(endpoint.url).toBe(replacement.url)
 })
 
 test("reports overlapping contender failures without recruiting replacements", async () => {
