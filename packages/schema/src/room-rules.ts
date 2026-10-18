@@ -10,7 +10,8 @@ export const Rules = Schema.Struct({
   hidePaths: Schema.Boolean.pipe(Schema.optional),
   // Other guests do not receive raw tool inputs/outputs, command execution details, or screenshots.
   hideExecution: Schema.Boolean.pipe(Schema.optional),
-  // Commands nobody runs in the room, by the host's AI, guests' commands or checks.
+  // Command patterns that ask the host to approve use of the matching program for a non-Trusted room member.
+  // "Always allow" grants this program to that room member only.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
   // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`);
   // direct shell references are checked too, but indirect access still needs OS sandboxing.
@@ -276,7 +277,7 @@ export function describe(rules: Rules | undefined) {
     "Credential and secret files (including .env, SSH/cloud auth, API tokens and private keys) are protected by default.",
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
     rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles all tool approvals." : undefined,
-    rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
+    rules.blockCommands?.length ? `These program patterns require host approval: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound !== false ? "Outbound access is denied by default: no web, MCP, connected-account, shell/hub or remote tools unless the host explicitly allows them." : undefined,
     rules.denyGuestPrompts ? "Guests must not submit prompts to the host's AI." : undefined,
