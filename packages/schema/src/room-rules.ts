@@ -314,6 +314,7 @@ export function commandLeaksCredentials(command: string) {
     /\bpython(?:3)?\b.*(?:os\.environb?|os\.getenv|environ\s*\[|printenv)/is.test(normalized) ||
     /\bnode\b.*(?:process\.env|Object\.keys\s*\(\s*process\.env)/is.test(normalized) ||
     /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(normalized) ||
+    /%[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*%/i.test(normalized) ||
     /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i.test(normalized)
   )
 }
