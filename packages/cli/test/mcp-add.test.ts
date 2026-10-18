@@ -29,7 +29,7 @@ test("MCP config writes preserve existing JSONC comments and settings", async ()
 
     const updated = await readFile(file, "utf8")
     expect(updated).toContain("// Keep user settings and comments")
-    expect(parse(updated)).toEqual({
+    expect(parse(updated, [], { allowTrailingComma: true })).toEqual({
       model: "provider/model",
       mcp: { servers: { example: { type: "local", command: ["node", "server.js"] } } },
     })
@@ -71,7 +71,7 @@ test("MCP config writes create missing parent directories", async () => {
   try {
     const file = path.join(directory.path, ".opencode", "opencode.json")
     await writeConfig(file, "example", { type: "remote", url: "https://example.test/mcp" })
-    expect(parse(await readFile(file, "utf8"))).toEqual({
+    expect(parse(await readFile(file, "utf8"), [], { allowTrailingComma: true })).toEqual({
       mcp: { servers: { example: { type: "remote", url: "https://example.test/mcp" } } },
     })
   } finally {
