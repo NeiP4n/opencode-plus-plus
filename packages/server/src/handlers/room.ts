@@ -778,12 +778,21 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Stream.map((event) => Option.getOrUndefined(decodeGuestRoomEvent(event))!),
             )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
-          if (!ctx.query.follow) {
-            const visible = durable.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution)))
-            return rules?.hidePaths
-              ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
-              : visible
-          }
+          // Re-read the room rules for every item: the room stays connected while the host changes
+          // visibility or privacy settings, and the next streamed event must obey the new policy.
+          const withCurrentVisibility = <A, E, R>(source: Stream.Stream<A, E, R>) =>
+            source.pipe(
+              Stream.mapEffect((event) =>
+                Effect.gen(function* () {
+                  const current = yield* effectiveRules(joined.room, session.location.directory)
+                  if (hiddenRoomEvent(event, !!current?.hideExecution)) return undefined
+                  return current?.hidePaths ? redactRoomValue(event, directories) : event
+                }),
+              ),
+              Stream.filter((event) => event !== undefined),
+              Stream.map((event) => event!),
+            )
+          if (!ctx.query.follow) return withCurrentVisibility(durable)
           // Permission requests are not in the durable log; a following guest hears this session's
           // live ones too, instead of polling for them.
           const live = Stream.callback<typeof RoomLiveEvent.Type>((queue) =>
@@ -820,10 +829,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ),
           )
           const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
-          const visible = stream.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution)))
-          return rules?.hidePaths
-            ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
-            : visible
+          return withCurrentVisibility(stream)
         }),
       )
       .handle(
