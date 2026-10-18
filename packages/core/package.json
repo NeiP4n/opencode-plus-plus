@@ -27,6 +27,7 @@
     "typecheck": "tsgo -b tsconfig.json tsconfig.tests.json"
   },
   "exports": {
+    "./warp": "./src/warp-recovery.ts",
     "./*": "./src/*.ts"
   },
   "imports": {
@@ -71,7 +72,7 @@
       "bun": "./src/database/v1-migration.bun.ts",
       "node": "./src/database/v1-migration.noop.ts",
       "workerd": "./src/database/v1-migration.noop.ts",
-      "default": "./src/database/v1-migration.noop.ts"
+      "default": "./src/database/v1-migration.bun.ts"
     }
   },
   "devDependencies": {
