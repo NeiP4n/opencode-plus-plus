@@ -60,11 +60,19 @@ test("redacting a path covers slash styles and Windows casing", () => {
 
 test("a session in several rooms gets the strictest rules", () => {
   const merged = RoomRules.merge([
-    { hidePaths: true, hideExecution: true, blockCommands: ["a"] },
-    { noOutbound: true, blockCommands: ["a", "b"] },
+    { hidePaths: true, hideExecution: true, denyGuestPrompts: true, blockCommands: ["a"] },
+    { noOutbound: true, denyGuestCommands: true, blockCommands: ["a", "b"] },
     undefined,
   ])
-  expect(merged).toEqual({ hidePaths: true, hideExecution: true, noOutbound: true, blockCommands: ["a", "b"], protectedFiles: [] })
+  expect(merged).toEqual({
+    hidePaths: true,
+    hideExecution: true,
+    noOutbound: true,
+    denyGuestPrompts: true,
+    denyGuestCommands: true,
+    blockCommands: ["a", "b"],
+    protectedFiles: [],
+  })
   expect(RoomRules.merge([undefined])).toBeUndefined()
 })
 
@@ -78,4 +86,6 @@ test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toBeUndefined()
   expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
   expect(RoomRules.describe({ hideExecution: true })).toContain("screenshots to guests")
+  expect(RoomRules.describe({ denyGuestPrompts: true })).toContain("must not submit prompts")
+  expect(RoomRules.describe({ denyGuestCommands: true })).toContain("must not execute shell commands")
 })
