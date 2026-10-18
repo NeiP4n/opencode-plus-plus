@@ -40,10 +40,6 @@ const FEED_LIMIT = 200
 export const FEED_WAIT_MS = 25_000
 // Readers one room may hold waiting at once; past it, a read answers at once instead of waiting.
 const FEED_WAITERS = 100
-// Presence is only useful for leases up to LEASE_MS. Sweep infrequently to avoid
-// turning every guest request into a full-map walk while still bounding stale entries.
-const PRESENCE_SWEEP_INTERVAL = 256
-
 export class Service extends Context.Service<Service, Interface>()("@opencode/ServerRooms") {}
 
 const noLookup = () => Effect.die(new Error("ServerRooms cache must be used via set/getOption, never get"))
@@ -54,24 +50,10 @@ const layer = Layer.effect(
     const codes = yield* Cache.make<string, Room.ID>({ capacity: 1_000, lookup: noLookup, timeToLive: CODE_TTL })
     // Each room's newest code, so a new code retires the one before it.
     const issued = new Map<Room.ID, string>()
+    // Keep last-seen timestamps even for offline members: room.member.list exposes
+    // this value, so deleting old entries would change the API's observable behavior.
     const presence = new Map<string, number>()
-    let presenceTouches = 0
-    let lastPresenceAt = Number.NEGATIVE_INFINITY
-    const touch = (guestID: string) => {
-      const now = (lastPresenceAt = Math.max(lastPresenceAt, Date.now()))
-      // Keep insertion order aligned with last-seen order so a sweep can stop at
-      // the first live guest instead of walking every active guest.
-      presence.delete(guestID)
-      presence.set(guestID, now)
-      // A missing timestamp and a timestamp older than LEASE_MS are both offline
-      // for every lease decision, so pruning these entries does not change semantics.
-      if (++presenceTouches % PRESENCE_SWEEP_INTERVAL !== 0) return
-      const staleBefore = now - LEASE_MS
-      for (const [id, seen] of presence) {
-        if (seen >= staleBefore) break
-        presence.delete(id)
-      }
-    }
+    const touch = (guestID: string) => void presence.set(guestID, Date.now())
     const feeds = new Map<Room.ID, Room.Event[]>()
     const waiters = new Map<Room.ID, Set<() => void>>()
     const after = (roomID: Room.ID, seq: number) => (feeds.get(roomID) ?? []).filter((event) => event.seq > seq)
