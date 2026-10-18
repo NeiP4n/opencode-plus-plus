@@ -303,7 +303,7 @@ it.live("the server stamps the guest as author and keeps approvals with the host
     const reply = yield* call(`/api/room/${room.id}/guest/permission/per_missing/reply`, {
       method: "POST",
       headers: guest,
-      body: { decision: "always" },
+      body: { decision: "once" },
     })
     expect(reply.status).toBe(403)
   }).pipe(Effect.scoped),
