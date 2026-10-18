@@ -21,12 +21,11 @@
     "fix-node-pty": "bun run script/fix-node-pty.ts",
     "benchmark:location": "bun run script/benchmark-location.ts",
     "benchmark:location-memory": "bun run script/benchmark-location-memory.ts",
-    "build": "bun run script/build.ts",
-    "update-models-snapshot": "bun run script/update-models-snapshot.ts",
     "test": "bun run script/test.ts",
     "typecheck": "tsgo -b tsconfig.json tsconfig.tests.json"
   },
   "exports": {
+    "./warp": "./src/warp-recovery.ts",
     "./*": "./src/*.ts"
   },
   "imports": {
@@ -51,7 +50,7 @@
     "#fff": {
       "workerd": "./src/filesystem/fff.workerd.ts",
       "bun": "./src/filesystem/fff.bun.ts",
-      "node": "./src/filesystem/fff.node.ts",
+      "node": "./src/filesystem/fff.bun.ts",
       "default": "./src/filesystem/fff.bun.ts"
     },
     "#photon-wasm": {
@@ -71,7 +70,7 @@
       "bun": "./src/database/v1-migration.bun.ts",
       "node": "./src/database/v1-migration.noop.ts",
       "workerd": "./src/database/v1-migration.noop.ts",
-      "default": "./src/database/v1-migration.noop.ts"
+      "default": "./src/database/v1-migration.bun.ts"
     }
   },
   "devDependencies": {
