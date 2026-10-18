@@ -7,13 +7,10 @@ import { useRoute } from "../context/route"
 import { useTheme } from "../context/theme"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
-import { useT } from "../util/i18n"
+import { useGroupT } from "../util/i18n-groups"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
 
-// Groups keep related projects together, such as the web, API and mobile projects of one product.
-// Linking a group ties every pair in it: each project then knows the others and may ask them
-// questions, while requests and anything beyond that still wait for a person on the receiving side.
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
   const config = useConfig().data
@@ -21,7 +18,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const route = useRoute()
   const theme = useTheme().surface("dialog")
   const toast = useToast()
-  const t = useT()
+  const t = useGroupT()
   let nameField: InputRenderable | undefined
   const [groups, { refetch }] = createResource(() => client.api.orchestra.group.list())
   const [picked, setPicked] = createSignal<readonly string[]>([])
@@ -33,12 +30,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const supervisorOf = (group: { name: string; projects: readonly string[]; supervisor?: string }) => group.supervisor
 
   const act = (action: () => Promise<unknown>) =>
-    void action()
-      .then(() => refetch())
-      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+    void action().then(() => refetch()).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
 
-  const toggle = (id: string) =>
-    setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
 
   const save = () => {
     const name = nameField?.value.trim()
@@ -57,14 +51,10 @@ export function DialogGroups(props: { onClose?: () => void }) {
     setCoordinationMode(mode)
   }
 
-  const link = (name: string) =>
-    act(async () => {
-      const { pairs } = await client.api.orchestra.group.link({ name })
-      toast.show({
-        message: pairs === 0 ? t("Nothing to link: a group needs two projects.") : t("Linked {count} pair(s).", { count: pairs }),
-        variant: "success",
-      })
-    })
+  const link = (name: string) => act(async () => {
+    const { pairs } = await client.api.orchestra.group.link({ name })
+    toast.show({ message: pairs === 0 ? t("Nothing to link: a group needs two projects.") : t("Linked {count} pair(s).", { count: pairs }), variant: "success" })
+  })
 
   const remove = (name: string) => {
     if (armed() !== name) return setArmed(name)
@@ -87,16 +77,13 @@ export function DialogGroups(props: { onClose?: () => void }) {
       toast.show({ message: t("The group's coordinator project is not available on this device."), variant: "error" })
       return
     }
-
     setOpening(group.name)
     try {
       const created = await client.api.session.create({
         title: (mode === "council" ? "Orchestrator Council · " : "Group Orchestrator · ") + group.name,
         agent: "orchestrator",
         location: { directory: leader.directory },
-        metadata: {
-          "opencode-pp:group-supervisor": { groupName: group.name, leader: leaderID, mode },
-        },
+        metadata: { "opencode-pp:group-supervisor": { groupName: group.name, leader: leaderID, mode } },
         permissions: [
           { action: "edit", resource: "*", effect: "deny" },
           { action: "shell", resource: "*", effect: "deny" },
@@ -155,11 +142,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
           : t("One dedicated Group Orchestrator monitors the projects and coordinates their decisions.")}
       </text>
       <Show when={groups.error}>
-        {(error) => (
-          <text fg={theme.text.feedback.error.base} wrapMode="word">
-            {errorMessage(error())}
-          </text>
-        )}
+        {(error) => <text fg={theme.text.feedback.error.base} wrapMode="word">{errorMessage(error())}</text>}
       </Show>
       <Show when={listed().length > 0} fallback={<text fg={theme.text.muted}>{t("No groups yet.")}</text>}>
         <For each={listed()}>
@@ -173,52 +156,23 @@ export function DialogGroups(props: { onClose?: () => void }) {
               </box>
               <Button onClick={() => edit(group.name, group.projects, group.mode ?? "lead")}>{t("Edit")}</Button>
               <Button onClick={() => void startSupervisor(group)}>
-                {opening() === group.name
-                  ? t("Starting...")
-                  : supervisorOf(group)
-                    ? group.mode === "council" ? t("Open council") : t("Open AI")
-                    : group.mode === "council" ? t("Start council") : t("Start AI")}
+                {opening() === group.name ? t("Starting...") : supervisorOf(group) ? group.mode === "council" ? t("Open council") : t("Open AI") : group.mode === "council" ? t("Start council") : t("Start AI")}
               </Button>
               <Button onClick={() => link(group.name)}>{t("Link all")}</Button>
-              <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>
-                {armed() === group.name ? t("Delete?") : t("Delete")}
-              </Button>
+              <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>{armed() === group.name ? t("Delete?") : t("Delete")}</Button>
             </box>
           )}
         </For>
       </Show>
-      <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>
-        {t("New or edited group")}
-      </text>
+      <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New or edited group")}</text>
       <box flexDirection="row" gap={1}>
-        <input
-          width={24}
-          cursorStyle={config.cursor}
-          ref={(element: InputRenderable) => {
-            nameField = element
-          }}
-          onMouseDown={() => nameField?.focus()}
-          placeholder={t("Group name")}
-          placeholderColor={theme.text.muted}
-          textColor={theme.text.formfield.base}
-          focusedTextColor={theme.text.formfield.focused}
-          cursorColor={theme.text.formfield.focused}
-          backgroundColor={theme.background.formfield.base}
-          focusedBackgroundColor={theme.background.formfield.focused}
-          onSubmit={save}
-        />
-        <Button variant="primary" onClick={save}>
-          {t("Save group")}
-        </Button>
+        <input width={24} cursorStyle={config.cursor} ref={(element: InputRenderable) => { nameField = element }} onMouseDown={() => nameField?.focus()} placeholder={t("Group name")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={save} />
+        <Button variant="primary" onClick={save}>{t("Save group")}</Button>
       </box>
       <Show when={projects.list().length > 0} fallback={<text fg={theme.text.muted}>{t("Create projects first.")}</text>}>
         <box flexDirection="row" flexWrap="wrap" gap={1}>
           <For each={projects.list()}>
-            {(project) => (
-              <Button variant={picked().includes(project.id) ? "primary" : undefined} onClick={() => toggle(project.id)}>
-                {`${picked().includes(project.id) ? "✓" : "○"} ${project.name}`}
-              </Button>
-            )}
+            {(project) => <Button variant={picked().includes(project.id) ? "primary" : undefined} onClick={() => toggle(project.id)}>{`${picked().includes(project.id) ? "✓" : "○"} ${project.name}`}</Button>}
           </For>
         </box>
       </Show>
