@@ -13,29 +13,35 @@ type Entry<T> = {
 export function createScopedCache<T>(createValue: (key: string) => T, options: ScopedCacheOptions<T> = {}) {
   const store = new Map<string, Entry<T>>()
   const now = options.now ?? Date.now
+  let lastNow = Number.NEGATIVE_INFINITY
+  const timestamp = () => (lastNow = Math.max(lastNow, now()))
 
   const dispose = (key: string, entry: Entry<T>) => {
     options.dispose?.(entry.value, key)
   }
 
-  const expired = (entry: Entry<T>) => {
+  const expired = (entry: Entry<T>, time = timestamp()) => {
     if (options.ttlMs === undefined) return false
 
-    return now() - entry.touchedAt >= options.ttlMs
+    return time - entry.touchedAt >= options.ttlMs
   }
 
   const sweep = () => {
     if (options.ttlMs === undefined) return
 
+    // Map order is LRU order: touched entries move to the end. With monotonic
+    // timestamps, expired entries are a prefix, so stop at the first live entry
+    // instead of checking every cached value on every lookup.
+    const time = timestamp()
     for (const [key, entry] of store) {
-      if (!expired(entry)) continue
+      if (!expired(entry, time)) break
       store.delete(key)
       dispose(key, entry)
     }
   }
 
   const touch = (key: string, entry: Entry<T>) => {
-    entry.touchedAt = now()
+    entry.touchedAt = timestamp()
     store.delete(key)
     store.set(key, entry)
   }
@@ -93,7 +99,7 @@ export function createScopedCache<T>(createValue: (key: string) => T, options: S
 
     const created = {
       value: createValue(key),
-      touchedAt: now(),
+      touchedAt: timestamp(),
     }
 
     store.set(key, created)
