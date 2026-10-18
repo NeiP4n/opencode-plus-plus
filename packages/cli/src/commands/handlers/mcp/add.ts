@@ -86,7 +86,7 @@ export async function writeConfig(configPath: string, name: string, server: unkn
   await mkdir(path.dirname(configPath), { recursive: true })
   const temporary = `${configPath}.${process.pid}.${randomUUID()}.tmp`
   try {
-    await writeFile(temporary, updated.endsWith("\\n") ? updated : updated + "\\n", { flag: "wx", mode: 0o600 })
+    await writeFile(temporary, updated.endsWith("\n") ? updated : updated + "\n", { flag: "wx", mode: 0o600 })
     await rename(temporary, configPath)
   } catch (error) {
     await unlink(temporary).catch(() => undefined)
