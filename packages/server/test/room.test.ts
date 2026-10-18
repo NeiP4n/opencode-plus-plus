@@ -749,6 +749,35 @@ it.live("room protected-file rules block trusted guest shell commands", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("noOutbound disables guest shell and verification commands, including for trusted members", () =>
+  Effect.gen(function* () {
+    const { call, session } = yield* setup
+    const room = (
+      yield* call("/api/room", {
+        method: "POST",
+        headers: host,
+        body: { sessionID: session.id, rules: { noOutbound: true } },
+      })
+    ).body.data
+    const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
+    const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "trusted" },
+    })
+
+    const run = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guest,
+      body: { command: "echo local-command" },
+    })
+    expect(run.status).toBe(403)
+    expect(run.body.message).toContain("outbound access is disabled")
+  }).pipe(Effect.scoped),
+)
+
 it.live("hidePaths redacts the host directory from trusted guest command output", () =>
   Effect.gen(function* () {
     const { call, session, directory } = yield* setup
