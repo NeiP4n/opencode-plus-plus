@@ -151,7 +151,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
   // attempts for this mount so a missing local project cannot cause a retry loop.
   const autoStarting = new Set<string>()
   createEffect(() => {
-    if (groups.loading || groups.error || projects.list().length === 0) return
+    if (groups.loading || groups.error || opening() || projects.list().length === 0) return
     for (const group of listed()) {
       if (group.supervisor || autoStarting.has(group.name)) continue
       autoStarting.add(group.name)
@@ -159,6 +159,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
         .then(() => refetch())
         .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
         .finally(() => autoStarting.delete(group.name))
+      // Only one supervisor may be created at a time. When opening clears or
+      // the refreshed group list arrives, the effect picks the next missing chat.
+      break
     }
   })
 
