@@ -119,7 +119,7 @@ export function describe(rules: Rules | undefined) {
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
-    rules.noOutbound ? "Send nothing out: no web requests, shell commands, or messages to other computers or projects." : undefined,
+    rules.noOutbound ? "Send nothing out: no web requests, MCP calls, shell commands, or messages to other computers or projects." : undefined,
   ].filter((line): line is string => line !== undefined)
   return lines.length > 0 ? lines.join("\n") : undefined
 }
