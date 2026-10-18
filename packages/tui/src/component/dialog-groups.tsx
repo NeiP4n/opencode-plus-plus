@@ -11,7 +11,6 @@ import { useGroupT } from "../util/i18n-groups"
 import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
-import { HoverAction } from "./hover-action"
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
@@ -27,6 +26,17 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const [armed, setArmed] = createSignal<string>()
   const [opening, setOpening] = createSignal<string>()
   const [draftMode, setDraftMode] = createSignal<"lead" | "council">("lead")
+  // Show the chosen mode immediately. Replacing a supervisor session can require several
+  // requests, and the UI must not look like the click was ignored while they run.
+  const [modeOverride, setModeOverride] = createSignal<Record<string, "lead" | "council">>({})
+  const modeOf = (group: { name: string; mode?: "lead" | "council" }) =>
+    modeOverride()[group.name] ?? group.mode ?? "lead"
+  const clearModeOverride = (name: string) =>
+    setModeOverride((current) => {
+      const next = { ...current }
+      delete next[name]
+      return next
+    })
   const listed = () => (groups.error ? undefined : groups.latest) ?? []
   const nameOf = (id: string) => projects.list().find((project) => project.id === id)?.name ?? id
   const supervisorOf = (group: { name: string; projects: readonly string[]; supervisor?: string }) => group.supervisor
@@ -154,12 +164,20 @@ export function DialogGroups(props: { onClose?: () => void }) {
   }
 
   const changeMode = (group: { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }, mode: "lead" | "council") => {
-    if (group.mode === mode) return
-    act(async () => {
-      if (group.supervisor) await client.api.session.remove({ sessionID: group.supervisor }).catch(() => {})
-      await client.api.orchestra.group.save({ name: group.name, projects: group.projects as never, mode, supervisor: undefined })
-      await startSupervisor({ name: group.name, projects: group.projects, mode }, false)
-    })
+    if (modeOf(group) === mode) return
+    setModeOverride((current) => ({ ...current, [group.name]: mode }))
+    void (async () => {
+      try {
+        if (group.supervisor) await client.api.session.remove({ sessionID: group.supervisor }).catch(() => {})
+        await client.api.orchestra.group.save({ name: group.name, projects: group.projects as never, mode, supervisor: undefined })
+        await startSupervisor({ name: group.name, projects: group.projects, mode }, false)
+      } catch (error) {
+        toast.show({ message: errorMessage(error), variant: "error" })
+      } finally {
+        await refetch().catch(() => {})
+        clearModeOverride(group.name)
+      }
+    })()
   }
 
   const openSupervisor = (group: GroupToStart) => {
@@ -217,32 +235,20 @@ export function DialogGroups(props: { onClose?: () => void }) {
 
               <box flexDirection="row" gap={1}>
                 <text fg={theme.text.muted}>{t("Mode") + ":"}</text>
-                <HoverAction
-                  paddingLeft={1}
-                  paddingRight={1}
+                <Button
+                  variant={modeOf(group) === "lead" ? "primary" : "secondary"}
+                  disabled={modeOf(group) === "lead"}
                   onClick={() => changeMode(group, "lead")}
-                  disabled={(group.mode ?? "lead") === "lead"}
                 >
-                  <text
-                    fg={(group.mode ?? "lead") === "lead" ? theme.text.action.primary.selected : theme.text.action.primary.base}
-                    attributes={(group.mode ?? "lead") === "lead" ? TextAttributes.BOLD : undefined}
-                  >
-                    {t("Single coordinator")}
-                  </text>
-                </HoverAction>
-                <HoverAction
-                  paddingLeft={1}
-                  paddingRight={1}
+                  {t("Single coordinator")}
+                </Button>
+                <Button
+                  variant={modeOf(group) === "council" ? "primary" : "secondary"}
+                  disabled={modeOf(group) === "council"}
                   onClick={() => changeMode(group, "council")}
-                  disabled={group.mode === "council"}
                 >
-                  <text
-                    fg={group.mode === "council" ? theme.text.action.primary.selected : theme.text.action.primary.base}
-                    attributes={group.mode === "council" ? TextAttributes.BOLD : undefined}
-                  >
-                    {t("Orchestrator council")}
-                  </text>
-                </HoverAction>
+                  {t("Orchestrator council")}
+                </Button>
               </box>
 
               <box flexDirection="row" gap={1}>
