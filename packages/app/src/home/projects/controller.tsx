@@ -74,8 +74,8 @@ export function createHomeProjectsController(home: HomeController) {
         if (!selected.length) return
 
         const contains = (parent: string, child: string) => {
-          const a = pathKey(parent).replace(/\\/$/, "")
-          const b = pathKey(child).replace(/\\/$/, "")
+          const a = pathKey(parent).replace(/\/$/, "")
+          const b = pathKey(child).replace(/\/$/, "")
           return a === b || b.startsWith(a + "/")
         }
         const candidates = home.project.list().flatMap((project) =>
