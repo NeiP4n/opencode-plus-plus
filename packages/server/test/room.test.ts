@@ -538,7 +538,7 @@ it.live("hideExecution changes apply to a room that is already open", () =>
     expect(run.status).toBe(200)
     expect(run.body.output).toContain("command-hidden-from-feed")
     const before = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
-    expect(before.body.events.some((item: { kind: string }) => item.kind === "run" && item.detail?.includes("command-hidden-from-feed"))).toBe(true)
+    expect(before.body.events.some((item: { kind: string; detail?: string }) => item.kind === "run" && item.detail?.includes("command-hidden-from-feed"))).toBe(true)
 
     // Toggle after the guest already joined and the command ran; no reconnect is needed.
     const changed = yield* call(`/api/room/${room.id}`, {
