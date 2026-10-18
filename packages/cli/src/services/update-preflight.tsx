@@ -4,9 +4,6 @@
 import { createCliRenderer, RGBA, TextAttributes, type CliRenderer } from "@opentui/core"
 import { render, useTerminalDimensions } from "@opentui/solid"
 import { OPENCODE_VERSION } from "../version"
-import { registerOpencodeSpinner } from "@opencode/tui/component/register-spinner"
-import { SPINNER_FRAMES } from "@opencode/tui/component/spinner"
-import { go } from "@opencode/tui/logo"
 import { setTimeout } from "node:timers/promises"
 import {
   batch,
@@ -21,6 +18,8 @@ import {
   Show,
   untrack,
 } from "solid-js"
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const
 
 const stages = ["Keeping your session safe", "Starting the new background service", "Loading Opencode++"] as const
 const stageFloor = 480
@@ -72,7 +71,6 @@ type Session = {
 }
 
 async function open(from?: string): Promise<Session> {
-  registerOpencodeSpinner()
   const [active, setActive] = createSignal(0)
   const [outcome, setOutcome] = createSignal<"running" | "success" | "failure">("running")
   const [failure, setFailure] = createSignal("")
@@ -185,7 +183,7 @@ const colors = {
   text: RGBA.fromHex("#eeeeee"),
 }
 
-const monogram = go.right.slice(1)
+const monogram = ["█▀▀█", "█__█", "▀▀▀▀"] as const
 const sweepBlend = 8
 const textDim = RGBA.fromHex("#4c4c4c")
 const rampSteps = 32
@@ -434,7 +432,7 @@ function UpdateFooter(props: {
           fallback={<CellLine cells={statusSweep.cells() ?? outcomeStatus()} />}
         >
           <box flexDirection="row" gap={1}>
-            <spinner frames={SPINNER_FRAMES} interval={80} color={colors.accent} />
+            <text fg={colors.accent}>{SPINNER_FRAMES[Math.floor(pulse() * SPINNER_FRAMES.length) % SPINNER_FRAMES.length]}</text>
             <CellLine cells={statusSweep.cells() ?? styled(stages[props.active()], colors.text)} />
           </box>
         </Show>
