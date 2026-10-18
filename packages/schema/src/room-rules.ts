@@ -53,6 +53,10 @@ const LOCAL_ONLY_ACTIONS = new Set([
   "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list",
   "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
 ])
+
+export function isLocalOnlyAction(action: string) {
+  return LOCAL_ONLY_ACTIONS.has(action)
+}
 const FILE_ACTIONS = new Set([
   "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit",
   "grep", "glob", "list", "delete", "remove", "rename", "move", "copy", "chmod", "chown",
