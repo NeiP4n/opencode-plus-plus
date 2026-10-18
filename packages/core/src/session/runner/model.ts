@@ -79,7 +79,8 @@ const layer = Layer.effect(
           if (resolved) return resolved
           return yield* new ModelNotSelectedError({ sessionID: session.id })
         }
-        const selected = (yield* available()).find(
+        const catalog = yield* available()
+        const selected = catalog.find(
           (model) => model.providerID === session.model?.providerID && model.id === session.model.id,
         )
         if (!selected)
@@ -87,6 +88,20 @@ const layer = Layer.effect(
             providerID: session.model.providerID,
             modelID: session.model.id,
           })
+
+        // Old OpenCode++ builds could persist the removed Zen free-tier Muse Spark
+        // reference in a session. Do not send that dead reference to the provider.
+        // Prefer another currently available model from the same provider; otherwise
+        // use the first currently available model. No specific replacement is hardcoded.
+        const legacyFreeTierMuse =
+          selected.providerID === "opencode" && selected.id === "muse-spark-1.3-contributor-free"
+        if (legacyFreeTierMuse) {
+          const replacement =
+            catalog.find((model) => model.providerID === selected.providerID && model.id !== selected.id) ??
+            catalog.find((model) => model.id !== selected.id)
+          if (replacement) return yield* resolver.resolveModel(replacement, undefined)
+        }
+
         return yield* resolver.resolveModel(selected, session.model.variant)
       }),
     })
