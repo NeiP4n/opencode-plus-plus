@@ -8,6 +8,7 @@ import { optional } from "@opencode/schema/schema"
 import { Effect, Schema } from "effect"
 import { Dod } from "../../dod.js"
 import { Location } from "../../location.js"
+import { Orchestra } from "../../orchestra.js"
 import { Passport } from "../../passport.js"
 import { Permission } from "../../permission.js"
 
@@ -72,6 +73,7 @@ export const Plugin = {
   id: "opencode.tool.dod",
   effect: Effect.fn("DodTool.Plugin")(function* (ctx: Context) {
     const location = yield* Location.Service
+    const orchestra = yield* Orchestra.Service
     const permission = yield* Permission.Service
     // The same root Dod.instructions reads, so the tool edits the board the prompt shows.
     const directory = location.project.directory
@@ -87,6 +89,20 @@ export const Plugin = {
           agent: context.agent,
           source,
         })
+
+      // A project has one DoD owner: its main Orchestrator session. Worker sessions are
+      // project-owned by Orchestra and must execute existing items instead of growing the
+      // board independently. This is enforced here, rather than only in the prompt, so a
+      // model cannot bypass the rule by deciding to call `dod add` anyway.
+      if (input.action === "add") {
+        const owners = yield* orchestra.owners()
+        if (owners[context.sessionID] !== undefined)
+          return yield* new ToolFailure({
+            message:
+              "DoD creation is owned by the project Orchestrator. This team session may use existing DoD items, but cannot add new ones. Report missing work to the Orchestrator instead.",
+          })
+      }
+
       switch (input.action) {
         case "show":
           return board(yield* Dod.read(directory))
