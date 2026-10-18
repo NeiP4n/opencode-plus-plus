@@ -41,6 +41,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
     const members = [...picked()]
     const mode = coordinationMode()
     const previous = listed().find((group) => group.name === name)
+    const sameProjects =
+      previous?.projects.length === members.length && previous.projects.every((id, index) => id === members[index])
     act(async () => {
       await client.api.orchestra.group.save({ name, projects: members as never, mode })
       // A group always has its mode's shared chat. Reuse it when the mode is
@@ -49,7 +51,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
         name,
         projects: members,
         mode,
-        supervisor: previous?.mode === mode ? previous.supervisor : undefined,
+        supervisor: previous?.mode === mode && sameProjects ? previous.supervisor : undefined,
       }, false)
       if (nameField) nameField.value = ""
       setPicked([])
@@ -137,7 +139,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
         props.onClose?.()
       }
     } catch (error) {
-      toast.show({ message: errorMessage(error), variant: "error" })
+      if (openAfterCreate) toast.show({ message: errorMessage(error), variant: "error" })
+      else throw error
     } finally {
       setOpening(undefined)
     }
