@@ -171,8 +171,8 @@ test("execution privacy removes tool calls but keeps the assistant's ordinary te
 
 test("project path redaction also masks ancestor roots and object keys", () => {
   expect(RoomRules.redactPath("project at /work/repo/src/sub", "/work/repo/src/sub")).toBe("project at <project>")
-  expect(RoomRules.redactPaths({ "/work/repo/src/sub/secrets.json": "path hidden" }, "/work/repo/src/sub"))
-    .toEqual({ "<project>/secrets.json": "path hidden" })
+  const paths: Record<string, string> = { "/work/repo/src/sub/secrets.json": "path hidden" }
+  expect(RoomRules.redactPaths(paths, "/work/repo/src/sub")).toEqual({ "<project>/secrets.json": "path hidden" })
 })
 
 test("outbound access is blocked by default in a room and must be explicitly enabled", () => {
