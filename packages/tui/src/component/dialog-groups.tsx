@@ -11,6 +11,7 @@ import { useGroupT } from "../util/i18n-groups"
 import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
+import { HoverAction } from "./hover-action"
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
@@ -161,6 +162,10 @@ export function DialogGroups(props: { onClose?: () => void }) {
     })
   }
 
+  const openSupervisor = (group: GroupToStart) => {
+    void startSupervisor(group, true).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+  }
+
   const link = (name: string) => act(async () => {
     const { pairs } = await client.api.orchestra.group.link({ name })
     toast.show({ message: pairs === 0 ? t("Nothing to link: a group needs two projects.") : t("Linked {count} pair(s).", { count: pairs }), variant: "success" })
@@ -209,12 +214,38 @@ export function DialogGroups(props: { onClose?: () => void }) {
               </box>
               <box flexDirection="row" gap={1}>
                 <text fg={theme.text.muted}>{t("Coordination") + ":"}</text>
-                <Button variant={(group.mode ?? "lead") === "lead" ? "primary" : undefined} onClick={() => changeMode(group, "lead")}>
-                  {t("Single coordinator")}
-                </Button>
-                <Button variant={group.mode === "council" ? "primary" : undefined} onClick={() => changeMode(group, "council")}>
-                  {t("Orchestrator council")}
-                </Button>
+                <HoverAction
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onClick={() => changeMode(group, "lead")}
+                >
+                  <text
+                    fg={(group.mode ?? "lead") === "lead" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+                    attributes={(group.mode ?? "lead") === "lead" ? TextAttributes.BOLD : undefined}
+                  >
+                    {t("Single coordinator")}
+                  </text>
+                </HoverAction>
+                <HoverAction
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onClick={() => changeMode(group, "council")}
+                >
+                  <text
+                    fg={group.mode === "council" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+                    attributes={group.mode === "council" ? TextAttributes.BOLD : undefined}
+                  >
+                    {t("Orchestrator council")}
+                  </text>
+                </HoverAction>
+              </box>
+              <box flexDirection="row" gap={1}>
+                <text fg={theme.text.muted}>{t("Group chat") + ":"}</text>
+                <HoverAction paddingLeft={1} paddingRight={1} onClick={() => openSupervisor({ name: group.name, projects: group.projects, supervisor: group.supervisor, mode: group.mode ?? "lead" })}>
+                  <text fg={theme.text.action.primary.base}>
+                    {group.supervisor ? (group.mode === "council" ? "★ Общество" : "★ Президент") : (group.mode === "council" ? "+ Создать Общество" : "+ Создать Президента")}
+                  </text>
+                </HoverAction>
               </box>
             </box>
           )}
@@ -227,12 +258,16 @@ export function DialogGroups(props: { onClose?: () => void }) {
       </box>
       <box flexDirection="row" gap={1}>
         <text fg={theme.text.muted}>{t("Coordination") + ":"}</text>
-        <Button variant={draftMode() === "lead" ? "primary" : undefined} onClick={() => setDraftMode("lead")}>
-          {t("Single coordinator")}
-        </Button>
-        <Button variant={draftMode() === "council" ? "primary" : undefined} onClick={() => setDraftMode("council")}>
-          {t("Orchestrator council")}
-        </Button>
+        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => setDraftMode("lead")}>
+          <text fg={draftMode() === "lead" ? theme.text.action.primary.selected : theme.text.action.primary.base} attributes={draftMode() === "lead" ? TextAttributes.BOLD : undefined}>
+            {t("Single coordinator")}
+          </text>
+        </HoverAction>
+        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => setDraftMode("council")}>
+          <text fg={draftMode() === "council" ? theme.text.action.primary.selected : theme.text.action.primary.base} attributes={draftMode() === "council" ? TextAttributes.BOLD : undefined}>
+            {t("Orchestrator council")}
+          </text>
+        </HoverAction>
       </box>
       <Show when={projects.list().length > 0} fallback={<text fg={theme.text.muted}>{t("Create projects first.")}</text>}>
         <box flexDirection="row" flexWrap="wrap" gap={1}>
