@@ -28,14 +28,24 @@ export function Dialog(
   const theme = useTheme().surface("dialog")
   const renderer = useRenderer()
 
+  // Only dismiss when the pointer press began on the backdrop. A control outside the
+  // dialog can open a dialog on mouse-down; its matching mouse-up must not immediately
+  // close the newly mounted dialog.
+  let backdropPressed = false
   let dismiss = false
   return (
     <ThemeContextProvider context="dialog">
       <box
       onMouseDown={() => {
+        backdropPressed = true
         dismiss = !!renderer.getSelection()
       }}
       onMouseUp={() => {
+        if (!backdropPressed) {
+          dismiss = false
+          return
+        }
+        backdropPressed = false
         if (dismiss) {
           dismiss = false
           return
@@ -54,9 +64,16 @@ export function Dialog(
       backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
     >
       <box
+        onMouseDown={(e: { stopPropagation(): void }) => {
+          // A click inside the content is never a backdrop click. This also handles a dialog
+          // mounted by a mouse-down event whose original pointer press began outside it.
+          backdropPressed = false
+          e.stopPropagation()
+        }}
         onMouseUp={(e: { stopPropagation(): void }) => {
-          // A selection release must bubble up to the copy-on-select handler in
-          // DialogProvider; the backdrop's dismiss flag keeps it from closing the dialog.
+          // Reset before checking selection. A selection release must bubble up to the
+          // copy-on-select handler in DialogProvider, but never dismiss this dialog.
+          backdropPressed = false
           if (renderer.getSelection()?.getSelectedText()) return
           dismiss = false
           e.stopPropagation()
