@@ -184,12 +184,13 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         // Lexical containment is not enough: a symlink inside the project can point outside it.
         // Resolve each target, or its nearest existing ancestor, before live() scans plot folders.
-        const contained = yield* Effect.tryPromise({
-          try: () => pathsInside(directory, paths),
-          catch: () => false,
+        const canonicalPaths = yield* Effect.tryPromise({
+          try: () => Promise.all(paths.map((item) => canonicalInside(directory, item))),
+          catch: () => [],
         })
-        if (!contained)
+        if (canonicalPaths.length !== paths.length || canonicalPaths.some((item) => item === undefined))
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
+        const safePaths = canonicalPaths as string[]
         const storage = path.join(directory, FOLDER)
         const safeStorage = yield* Effect.tryPromise({
           try: () => pathsInside(directory, [storage]),
@@ -197,17 +198,17 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         })
         if (!safeStorage)
           return yield* new TakenError({ message: "Plot storage must stay inside the project directory." })
-        const others = yield* live(paths, directory)
+        const others = yield* live(safePaths, directory)
         for (const { plot } of others) {
           if (yield* holds(plot, input.sessionID)) continue
-          if (plot.paths.some((held) => paths.some((wanted) => covers(held, wanted) || covers(wanted, held))))
+          if (plot.paths.some((held) => safePaths.some((wanted) => covers(held, wanted) || covers(wanted, held))))
             return yield* taken(plot)
         }
         const owner = yield* team(input.sessionID)
         const now = Date.now()
         const plot: Info = {
           id: `plot_${randomBytes(6).toString("hex")}`,
-          paths,
+          paths: safePaths,
           purpose: input.purpose.trim() || "work in progress",
           team: owner.name,
           members: owner.members,
@@ -254,15 +255,17 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
           const relative = path.relative(directory, file)
           return relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)
         })
-        const contained = !outside && (yield* Effect.tryPromise({
-          try: () => pathsInside(directory, files),
-          catch: () => false,
-        }))
-        if (!contained)
+        const canonicalFiles = !outside
+          ? yield* Effect.tryPromise({
+              try: () => Promise.all(files.map((file) => canonicalInside(directory, file))),
+              catch: () => [],
+            })
+          : []
+        if (canonicalFiles.length !== files.length || canonicalFiles.some((file) => file === undefined))
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
-        for (const { plot, folder } of yield* live(files, directory)) {
-          // Compare canonical absolute paths; callers may supply project-relative paths.
-          const touched = files.some((file) => plot.paths.some((held) => covers(held, file)))
+        const safeFiles = canonicalFiles as string[]
+        for (const { plot, folder } of yield* live(safeFiles, directory)) {
+          const touched = safeFiles.some((file) => plot.paths.some((held) => covers(held, file)))
           if (!touched) continue
           if (!(yield* holds(plot, input.sessionID))) return yield* taken(plot)
           // Working inside its own plot keeps it alive.
