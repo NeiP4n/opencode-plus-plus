@@ -98,6 +98,22 @@ try {
   }
 }
 
+# Ensure the tracked bootstrap source really matches the selected revision.
+# Some Windows Git/Bun combinations can retain an old workspace file even after checkout.
+$Preflight = Join-Path $Source "packages\cli\src\services\update-preflight.tsx"
+if (Test-Path $Preflight) {
+  $PreflightText = Get-Content -Raw -LiteralPath $Preflight
+  if ($PreflightText -match '@opencode/tui') {
+    Write-Host "Refreshing stale update-preflight.tsx..."
+    git -C $Source checkout --quiet $Target -- packages/cli/src/services/update-preflight.tsx
+    if ($LASTEXITCODE -ne 0) { throw "Could not refresh update-preflight.tsx." }
+    $PreflightText = Get-Content -Raw -LiteralPath $Preflight
+    if ($PreflightText -match '@opencode/tui') {
+      throw "The selected Opencode++ revision still contains an @opencode/tui import in update-preflight.tsx."
+    }
+  }
+}
+
 Write-Host "Installing CLI and TUI dependencies..."
 Push-Location $Source
 try {
@@ -125,18 +141,18 @@ try {
     throw "Cannot link @opencode/tui. Expected $TuiPackage"
   }
 
-  $ResolvedRoot = (Resolve-Path $TuiRoot -ErrorAction Stop).Path
-  $LinkItem = Get-Item $TuiLink -ErrorAction Stop
-  $LinkTarget = @($LinkItem.Target) | Select-Object -First 1
-  if (-not $LinkTarget) {
-    throw "@opencode/tui junction was created but its target cannot be read: $TuiLink"
-  }
-  $ResolvedTuiTarget = (Resolve-Path $LinkTarget -ErrorAction Stop).Path
-  if ($ResolvedTuiTarget.TrimEnd('\') -ne $ResolvedRoot.TrimEnd('\')) {
-    throw "@opencode/tui junction targets '$ResolvedTuiTarget' instead of '$ResolvedRoot'"
+  # Test the package through Bun's actual resolver from the CLI package.
+  Push-Location (Join-Path $Source "packages\cli")
+  try {
+    bun -e "import('@opencode/tui').then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1) })"
+    if ($LASTEXITCODE -ne 0) {
+      throw "Bun cannot resolve @opencode/tui from packages/cli even after repairing the workspace link."
+    }
+  } finally {
+    Pop-Location
   }
 
-  Write-Host "Verified @opencode/tui -> $ResolvedTuiTarget"
+  Write-Host "Verified @opencode/tui workspace resolution."
 } finally {
   Pop-Location
 }
