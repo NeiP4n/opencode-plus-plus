@@ -49,6 +49,9 @@ const LOCAL_ONLY_ACTIONS = new Set([
   "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list", "shell",
   "delete", "remove", "rename", "move", "copy", "chmod", "chown", "mkdir", "rmdir", "find", "cat", "readfile", "writefile",
   "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
+  // Room-run/check/program actions are host-gated local operations; the server separately
+  // checks the actual command against strict outbound rules before it reaches the shell.
+  "room.run", "room.check", "room.program",
 ])
 
 // Privacy mode is deny-by-default for tool actions: tools that are not explicitly known to be
