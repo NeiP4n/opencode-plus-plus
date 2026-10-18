@@ -260,7 +260,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
     // Track sanitized execution states for explicit group_status queries. Do not wake the
     // President/Society session automatically: a group session is a conversation bound to the
     // group, not an autonomous dispatcher that reacts to every project event.
-    const notifySupervisorActivity = Effect.fnUntraced(function* (
+    const recordActivity = Effect.fnUntraced(function* (
       allGroups: ReadonlyArray<Group>,
       projectID: Orchestra.ProjectID,
       scope: Activity["scope"],
@@ -289,7 +289,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
           const mainProject = allProjects.find((item) => item.main === event.data.sessionID)
           const projectID = owners[event.data.sessionID] ?? mainProject?.id
           if (!projectID) return
-          const interested = allGroups.filter((group) => group.supervisor && group.projects.includes(projectID))
+          const interested = allGroups.filter((group) => group.projects.includes(projectID))
           if (interested.length === 0) return
           // Worker starts are omitted; main Orchestrator starts and all terminal worker/main outcomes are observed.
           if (event.type === "session.execution.started" && !mainProject) return
@@ -302,7 +302,7 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
                 : event.type === "session.execution.failed"
                   ? "failed"
                   : "interrupted"
-          yield* notifySupervisorActivity(interested, projectID, scope, transition)
+          yield* recordActivity(interested, projectID, scope, transition)
         }).pipe(Effect.catchCause((cause) => Effect.logError("federation group monitor failed", { cause }))),
     ).pipe(Effect.forkScoped({ startImmediately: true }))
 
