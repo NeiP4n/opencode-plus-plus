@@ -86,6 +86,11 @@ test("a session in several rooms gets the strictest rules", () => {
   expect(RoomRules.merge([undefined])).toBeUndefined()
 })
 
+test("outbound access is denied by default whenever room rules are active", () => {
+  expect(RoomRules.merge([{ hidePaths: true }])?.noOutbound).toBe(true)
+  expect(RoomRules.merge([{ noOutbound: false }])?.noOutbound).toBe(false)
+})
+
 test("outbound policy includes shell and MCP resource access", () => {
   expect(RoomRules.outbound).toContain("shell")
   expect(RoomRules.outbound).toContain("desktop")
