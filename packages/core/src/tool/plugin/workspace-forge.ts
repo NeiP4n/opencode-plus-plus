@@ -290,6 +290,7 @@ export const Plugin = {
                   ].join("\n"),
                 }
               }
+            }
             }).pipe(
               Effect.map((result) => ({ output: result.output, content: result.output })),
               Effect.mapError((error) =>
