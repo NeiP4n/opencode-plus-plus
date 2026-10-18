@@ -1403,7 +1403,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Sending out")}
-          help={t("Blocks connected-account and unknown tools plus common network commands. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.")}
+          help={t("Blocks connected-account and unknown tools, common network commands, script interpreters and package managers. A custom native binary may still open sockets; use an OS firewall or network-isolated sandbox for a hard boundary.")}
         >
           <Button onClick={() => save({ noOutbound: !noOutbound() })}>
             {noOutbound() ? t("Forbidden") : t("Allowed")}
@@ -1417,7 +1417,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Off-limits files")}
-          help={t("Comma-separated names or folders. .env, auth/token files, SSH/cloud credentials, private keys, certificates and credential JSON are protected automatically too.")}
+          help={t("Comma-separated names or folders. .env, OpenCode/Claude/Codex auth stores, SSH/cloud credentials, private keys, certificates and credential JSON are protected automatically too.")}
         >
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
