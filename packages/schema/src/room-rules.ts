@@ -8,8 +8,10 @@ import { Schema } from "effect"
 export const Rules = Schema.Struct({
   // Guests and their AIs never see the project's path on the host.
   hidePaths: Schema.Boolean.pipe(Schema.optional),
-  // Other guests do not receive raw tool inputs/outputs, command execution details, or screenshots.
+  // Other guests do not receive raw tool inputs/outputs or command execution details.
   hideExecution: Schema.Boolean.pipe(Schema.optional),
+  // Hide embedded image/screenshot attachments in guest history and live events, independently.
+  hideScreenshots: Schema.Boolean.pipe(Schema.optional),
   // Command patterns that ask the host to approve use of the matching program for a non-Trusted room member.
   // "Always allow" grants this program to that room member only.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
@@ -32,6 +34,7 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   return {
     hidePaths: rules.some((item) => item.hidePaths),
     hideExecution: rules.some((item) => item.hideExecution),
+    hideScreenshots: rules.some((item) => item.hideScreenshots),
     // Outbound tools are denied by default in shared rooms; every overlapping room must opt in.
     noOutbound: rules.some((item) => item.noOutbound !== false),
     denyGuestPrompts: rules.some((item) => item.denyGuestPrompts),
@@ -43,23 +46,6 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
 
 // Both tools can execute local commands, so room command restrictions apply to both.
 export const commandActions: readonly string[] = ["shell", "hub"]
-
-const LOCAL_ONLY_ACTIONS = new Set([
-  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list",
-  "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
-])
-const FILE_ACTIONS = new Set([
-  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit",
-  "grep", "glob", "list", "delete", "remove", "rename", "move", "copy", "chmod", "chown",
-  "mkdir", "rmdir", "find", "cat", "readfile", "writefile",
-])
-
-export type PolicyInput = {
-  action: string
-  resources: readonly string[]
-  metadata?: Readonly<Record<string, unknown>>
-}
-export type PolicyDecision = { effect: "deny" | "ask"; message: string; save?: readonly string[] }
 
 // This is the authoritative room policy used after all plugin hooks. Hook results are advisory;
 // no extension may reverse a room denial or suppress a required program-approval prompt.
@@ -357,13 +343,59 @@ export function redactPath(text: string, directory: string) {
   }, text)
 }
 
+// Remove embedded image/screenshot data from values shared with room guests.
+// The function is deliberately recursive because images can appear in messages, tool results,
+// event metadata, attachments or nested response objects.
+export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
+  if (!enabled) return value
+  const imageExtension = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|avif)(?:[?#].*)?$/i
+  const visit = (item: unknown, key?: string): unknown => {
+    if (typeof item === "string") {
+      if (/^data:image\//i.test(item)) return undefined
+      if (key && /(image|screenshot|base64)/i.test(key)) return undefined
+      if (key && /^(?:url|uri|path|filename|name)$/i.test(key) && imageExtension.test(item)) return undefined
+      return item
+    }
+    if (Array.isArray(item)) {
+      return item.flatMap((child) => {
+        const result = visit(child)
+        return result === undefined ? [] : [result]
+      })
+    }
+    if (item === null || typeof item !== "object") return item
+    const prototype = Object.getPrototypeOf(item)
+    if (prototype !== Object.prototype && prototype !== null) return item
+    const record = item as Record<string, unknown>
+    const mime = typeof record.mime === "string" ? record.mime.toLowerCase() : ""
+    const mediaType = typeof record.mediaType === "string" ? record.mediaType.toLowerCase() : ""
+    const type = typeof record.type === "string" ? record.type.toLowerCase() : ""
+    const namedImage = [record.name, record.filename, record.path, record.uri, record.url].some(
+      (part) => typeof part === "string" && (imageExtension.test(part) || /screenshot/i.test(part)),
+    )
+    if (mime.startsWith("image/") || mediaType.startsWith("image/") || type.includes("screenshot") || type === "image") {
+      return undefined
+    }
+    if (namedImage && (type === "file" || type === "image" || type === "attachment" || "data" in record || "source" in record)) {
+      return undefined
+    }
+    const output: Record<string, unknown> = {}
+    for (const [childKey, child] of Object.entries(record)) {
+      const result = visit(child, childKey)
+      if (result !== undefined) output[childKey] = result
+    }
+    return output
+  }
+  return visit(value) as T
+}
+
 // A one-paragraph statement of the rules for the AI that has to follow them.
 export function describe(rules: Rules | undefined) {
   if (!rules) return undefined
   const lines = [
     "Credential and secret files (including .env, SSH/cloud auth, API tokens and private keys) are protected by default.",
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
-    rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles all tool approvals." : undefined,
+    rules.hideExecution ? "Do not broadcast raw tool inputs or outputs or command execution details to other guests. The host alone handles all tool approvals." : undefined,
+    rules.hideScreenshots ? "Do not expose image attachments or screenshots in guest history or live events." : undefined,
     rules.blockCommands?.length ? `These program patterns require host approval: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound !== false ? "Outbound access is denied by default: no web, MCP, connected-account, shell/hub or remote tools unless the host explicitly allows them." : undefined,
