@@ -66,7 +66,6 @@ function resultDetail(result: { code: number; stdout: string; stderr: string }) 
 export interface Interface {
   readonly run: (onInstall?: (version: string) => void) => Effect.Effect<RunResult | undefined>
   readonly check: () => Effect.Effect<CheckResult | undefined, Error>
-  // For a source install, what became of local edits it had (see SourceRelease.keepingEdits).
   readonly apply: (version: string) => Effect.Effect<SourceRelease.Kept | undefined, Error>
   readonly method: () => Effect.Effect<Method | undefined>
   readonly latest: (method?: Method) => Effect.Effect<string, Error>
@@ -79,8 +78,6 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/cli/Updater") {}
 
 export function decodePolicy(text: string): Policy | undefined {
-  // The CLI only projects this host-level preference instead of initializing
-  // the location-scoped server configuration graph.
   const errors: ParseError[] = []
   const input: unknown = parse(text, errors, { allowTrailingComma: true })
   if (errors.length || typeof input !== "object" || input === null) return
@@ -108,12 +105,10 @@ const make = Effect.gen(function* () {
     const manifest: { name: string; bin?: Record<string, string> } = yield* fs
       .readFileString(path.join(directory, "package.json"))
       .pipe(Effect.flatMap((text) => Effect.try(() => JSON.parse(text))))
-    // Source invocations run inside Bun or Node, which may themselves be npm packages.
     if (!/^@opencode(?:-ai)?\/cli(?:-node)?$/.test(manifest.name)) return
     if (Object.values(manifest.bin ?? {}).some((bin) => path.resolve(directory, bin) === executable))
       return manifest.name
   }).pipe(Effect.orElseSucceed(() => undefined))
-  // "opencode" is Homebrew Core's formula; the others are published to anomalyco/tap.
   const installedFormula = ["opencode", "opencode-beta", "opencode-v2"].find((name) =>
     executable.includes(`${path.sep}Cellar${path.sep}${name}${path.sep}`),
   )
@@ -151,7 +146,6 @@ const make = Effect.gen(function* () {
     process.platform === "win32" ? "opencode.exe" : "opencode",
   )
 
-  // On Windows a bare `bash` may be the WSL launcher, which cannot run the installer against Windows paths.
   const installerBash = Effect.fnUntraced(function* () {
     if (process.platform !== "win32") return "bash"
     if (process.env.OPENCODE_GIT_BASH_PATH) return process.env.OPENCODE_GIT_BASH_PATH
@@ -171,7 +165,6 @@ const make = Effect.gen(function* () {
     if (path.resolve(process.execPath) === curlBinary) return "curl"
     if (installedFormula) return "brew"
     if (!installedPackage) return
-
     const checks: ReadonlyArray<{ method: Method; command: string[] }> = [
       { method: "npm", command: ["npm", "list", "-g", "--depth=0", installedPackage] },
       { method: "pnpm", command: ["pnpm", "list", "-g", "--depth=0", installedPackage] },
@@ -190,7 +183,6 @@ const make = Effect.gen(function* () {
     )
     return results.find((result) => {
       if (result.check.method !== "vp") return result.result.stdout.includes(installedPackage)
-      // Vite+ repeats the filter in its successful no-match message, so substring detection would be a false positive.
       return Option.exists(decodeVpPackages(result.result.stdout), (packages) =>
         packages.some((item) => item.name === installedPackage),
       )
@@ -221,7 +213,6 @@ const make = Effect.gen(function* () {
 
   const release = Effect.fnUntraced(function* (method?: Method) {
     const distribution = method === "brew" ? "homebrew" : "npm"
-    // Homebrew Core builds its formula on its own schedule, so the tap release does not describe it.
     const core = method === "brew" && installedFormula === "opencode"
     const response = yield* Effect.tryPromise({
       try: (signal) =>
@@ -229,9 +220,7 @@ const make = Effect.gen(function* () {
           core
             ? "https://formulae.brew.sh/api/formula/opencode.json"
             : `https://opencode.ai/update/api/${encodeURIComponent(channel)}/${encodeURIComponent(OPENCODE_ARTIFACT)}/${distribution}?current=${encodeURIComponent(OPENCODE_VERSION)}`,
-          {
-            signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-          },
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]) },
         ),
       catch: (cause) =>
         new UpgradeError(
@@ -288,12 +277,8 @@ const make = Effect.gen(function* () {
       fs.remove(directory, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
-  // On Windows the installer must delete or replace the running binary, which only works
-  // while another link to it exists (see RetainedImage). Upgrades keep that link in the
-  // cache; uninstall has already removed the cache, so it uses the temporary directory.
   const retaining = <A, E, R>(method: Method, effect: Effect.Effect<A, E, R>, directory = global.cache) => {
     if (process.platform !== "win32" || method === "brew") return effect
-    // Only the installed binary is at stake; source checkouts run inside bun or node.
     const owned = method === "curl" ? path.resolve(process.execPath) === curlBinary : installedPackage !== undefined
     if (!owned) return effect
     return Effect.scoped(RetainedImage.retain(directory, "upgrade").pipe(Effect.andThen(effect))).pipe(
@@ -345,7 +330,6 @@ const make = Effect.gen(function* () {
       return yield* Effect.fail(new Error(`Reinstall ${target} with ${method} to migrate from ${installedPackage}.`))
     }
     const commands: Record<Exclude<Method, "bun" | "curl" | "brew">, string[]> = {
-      // Keep the old package: uninstalling it can unlink the replacement command.
       npm: [
         "npm",
         "install",
@@ -365,11 +349,8 @@ const make = Effect.gen(function* () {
     }
     yield* Effect.scoped(
       Effect.gen(function* () {
-        // Other OpenCode processes may be installing at the same time. Wait longer than the
-        // slowest install (curl runs two 5-minute commands).
         yield* flock.acquire("cli-upgrade", undefined, { timeoutMs: Duration.toMillis("15 minutes") })
         if (method === "bun") {
-          // Bun does not prune old versions from its shared package cache.
           yield* fs.makeDirectory(global.cache, { recursive: true })
           const cache = yield* temporaryDirectory("update-")
           return yield* retaining(
@@ -425,13 +406,23 @@ const make = Effect.gen(function* () {
 
   const inspect = Effect.fnUntraced(function* () {
     if (OPENCODE_LOCAL) {
-      // A release checkout only announces new releases; installing waits for the operator.
+      // Source installs use Opencode++ release tags or the development branch, never the public
+      // opencode.ai update service. A release checkout checks release/* first; a lan-rooms
+      // checkout then falls through to its own branch tracking.
       const release = yield* sourceRelease()
       if (release?.available) return { policy: "notify" as const, version: release.available }
+
+      const branch = yield* developmentBranch()
+      if (branch?.type === "available") return { policy: "notify" as const, version: branch.version }
+      if (branch?.type === "unavailable") {
+        yield* Effect.logWarning("Opencode++ update check unavailable", { message: branch.message })
+      }
+      return undefined
     }
-    if (OPENCODE_LOCAL || ["1", "true"].includes(process.env.OPENCODE_DISABLE_AUTOUPDATE?.toLowerCase() ?? "")) {
+
+    if (["1", "true"].includes(process.env.OPENCODE_DISABLE_AUTOUPDATE?.toLowerCase() ?? "")) {
       yield* Effect.logInfo("update check skipped", {
-        reason: OPENCODE_LOCAL ? "local-install" : "disabled",
+        reason: "disabled",
         version: OPENCODE_VERSION,
         channel: OPENCODE_CHANNEL,
       })
@@ -502,7 +493,6 @@ const make = Effect.gen(function* () {
     if (!parseReleaseVersion(version)) return yield* Effect.fail(new Error(`Invalid version: ${version}`))
     const current = yield* Ref.get(installedVersion)
     if (action(current, version, "auto") === "none") {
-      // An earlier check may have installed the update while this client is still running.
       return action(OPENCODE_VERSION, current, "auto") === "none"
         ? undefined
         : { type: "installed" as const, version: current }
@@ -522,8 +512,6 @@ const make = Effect.gen(function* () {
     Effect.catch((error) => Effect.logWarning("update check failed", { error }).pipe(Effect.as(undefined))),
   )
 
-  // Keep the Git diagnostics when a source checkout cannot contact or inspect its upstream.
-  // Bun's generic "Failed with exit code 128" hides the stderr that explains the real problem.
   const sourceCheck = <A>(operation: () => Promise<A>) =>
     Effect.tryPromise({
       try: operation,
@@ -538,8 +526,6 @@ const make = Effect.gen(function* () {
         ),
     })
 
-  // A development tree offers its upstream's new commits; the messages stay fixed text
-  // so the TUI can translate them.
   const developmentBranch = Effect.fnUntraced(function* () {
     const status = yield* sourceCheck(() => SourceRelease.branch())
     if (!status) return yield* installedBranch()
@@ -554,8 +540,6 @@ const make = Effect.gen(function* () {
     }
   })
 
-  // A detached install not pinned to a release, as the installer leaves one before the first
-  // release: it moves to the first release once one is out, and follows its branch until then.
   const installedBranch = Effect.fnUntraced(function* () {
     const newest = yield* Effect.tryPromise(() => SourceRelease.latest()).pipe(Effect.orElseSucceed(() => undefined))
     if (newest) return { type: "available" as const, version: newest }
@@ -568,8 +552,6 @@ const make = Effect.gen(function* () {
     }
   })
 
-  // The release this source checkout is pinned to and a newer published one, if any.
-  // Undefined for development trees, which update through developmentBranch.
   const sourceRelease = Effect.fnUntraced(function* () {
     const pinned = yield* sourceCheck(() => SourceRelease.current())
     if (!pinned) return undefined
