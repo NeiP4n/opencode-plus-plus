@@ -136,6 +136,8 @@ test("credential and environment dumps stay blocked even when outbound access is
   expect(RoomRules.commandLeaksCredentials("printenv")).toBe(true)
   expect(RoomRules.commandLeaksCredentials("echo $OPENAI_API_KEY")).toBe(true)
   expect(RoomRules.commandLeaksCredentials("Get-ChildItem Env:")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials('python -c "import os; print(os.environ)')).toBe(true)
+  expect(RoomRules.commandLeaksCredentials('node -e "console.log(process.env)"')).toBe(true)
   expect(RoomRules.commandLeaksCredentials("echo hello")).toBe(false)
 })
 
