@@ -339,12 +339,11 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/").replace(/\/+$/, "")
   const candidates = new Set<string>([directory, forward])
-  // A session may be nested under the actual project root. Hide parent roots too, since
-  // project metadata can reveal the same directory through a shorter canonical path.
+  // Redact the session directory and a small number of parent paths commonly used as project roots.
+  // Do not mask every ancestor: that would hide unrelated sibling directories such as /work/other.
   let parent = forward
-  while (parent.length > 1) {
+  for (let depth = 0; depth < 2 && parent.length > 1; depth++) {
     const index = parent.lastIndexOf("/")
-    // Do not add a POSIX root or a Windows drive root such as C colon.
     if (index <= 0 || (/^[A-Za-z]:/.test(parent) && index <= 2)) break
     parent = parent.slice(0, index)
     if (parent.length > 1) candidates.add(parent)
