@@ -340,7 +340,7 @@ it.live("a following guest log carries the session's permission requests as they
     const room = (yield* call("/api/room", {
       method: "POST",
       headers: host,
-      body: { sessionID: session.id, rules: { blockCommands: ["echo*"] } },
+      body: { sessionID: session.id },
     })).body.data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
@@ -652,8 +652,11 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
-    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id } })).body
-      .data
+    const room = (yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, rules: { blockCommands: ["echo*"] } },
+    })).body.data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
     const guest = { authorization: `Bearer ${joined.token}` }
@@ -686,7 +689,12 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     // nothing runs until the host answers the request in its session
     const pending = yield* run().pipe(Effect.forkScoped)
     const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
-      Effect.map((response) => response.body.data as { id: string; action: string }[]),
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        resources: string[]
+        metadata?: Record<string, unknown>
+      }[]),
       Effect.filterOrFail((requests) => requests.length > 0),
       Effect.retry(Schedule.spaced("20 millis")),
       Effect.timeout("5 seconds"),
@@ -705,7 +713,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
       method: "POST",
       headers: host,
-      body: { decision: "once" },
+      body: { decision: "always" },
     })
     const result = yield* Fiber.join(pending)
     expect(result.status).toBe(200)
@@ -713,6 +721,11 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect(result.body.output).toContain("from-the-host")
     // the output goes to the guest, so the host's keys are not in the command's environment
     expect(result.body.output).not.toContain("ROOM_TEST_API_KEY")
+
+    // The same executable runs for Phone without a second prompt after "Always allow".
+    const repeated = yield* run("echo member-specific")
+    expect(repeated.status).toBe(200)
+    expect(repeated.body.output).toContain("member-specific")
 
     // "Always allow" grants the executable only to Phone; another cohost still needs approval.
     const other = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Other Phone" } })).body
