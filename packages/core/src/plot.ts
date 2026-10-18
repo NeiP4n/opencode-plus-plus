@@ -190,6 +190,13 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         })
         if (!contained)
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
+        const storage = path.join(directory, FOLDER)
+        const safeStorage = yield* Effect.tryPromise({
+          try: () => pathsInside(directory, [storage]),
+          catch: () => false,
+        })
+        if (!safeStorage)
+          return yield* new TakenError({ message: "Plot storage must stay inside the project directory." })
         const others = yield* live(paths, directory)
         for (const { plot } of others) {
           if (yield* holds(plot, input.sessionID)) continue
@@ -208,11 +215,17 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
           created: now,
           expires: now + Duration.toMillis(TTL),
         }
-        yield* write(path.join(input.directory, FOLDER), plot)
+        yield* write(storage, plot)
         return plot
       }),
       release: Effect.fn("Plot.release")(function* (input) {
-        const folder = path.join(input.directory, FOLDER)
+        const directory = path.resolve(input.directory)
+        const folder = path.join(directory, FOLDER)
+        const safeStorage = yield* Effect.tryPromise({
+          try: () => pathsInside(directory, [folder]),
+          catch: () => false,
+        })
+        if (!safeStorage) return 0
         const plots = (yield* read(folder)).map((entry) => entry.plot)
         const mine = yield* Effect.filter(plots, (plot) =>
           holds(plot, input.sessionID).pipe(Effect.map((held) => held && (!input.id || plot.id === input.id))),
