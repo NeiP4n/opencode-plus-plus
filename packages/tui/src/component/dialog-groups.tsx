@@ -110,7 +110,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
           { action: "federation", resource: "*", effect: "ask" },
         ],
       })
-      const sessionID = created.data.id
+      const sessionID = created.id
       await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: sessionID, mode })
       await client.api.session.prompt({
         sessionID,
