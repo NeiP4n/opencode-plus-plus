@@ -213,6 +213,8 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
       })
     }
     if (item === null || typeof item !== "object") return item
+    const prototype = Object.getPrototypeOf(item)
+    if (prototype !== Object.prototype && prototype !== null) return item
     const record = item as Record<string, unknown>
     const mime = typeof record.mime === "string" ? record.mime.toLowerCase() : ""
     if (mime.startsWith("image/")) {
@@ -250,6 +252,8 @@ function sanitizeExecutionPayload<T>(value: T): T {
       })
     }
     if (item === null || typeof item !== "object") return item
+    const prototype = Object.getPrototypeOf(item)
+    if (prototype !== Object.prototype && prototype !== null) return item
     const record = item as Record<string, unknown>
     if (record.type === "tool") return undefined
     if (typeof record.action === "string" && ["shell", "room.run", "room.check", "room.program"].includes(record.action)) return undefined
