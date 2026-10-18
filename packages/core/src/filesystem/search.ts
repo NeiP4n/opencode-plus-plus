@@ -26,16 +26,22 @@ const REFRESH_INTERVAL = Duration.toMillis("10 seconds")
 type Prepared = ReturnType<typeof fuzzysort.prepare>
 
 function emptyIndex() {
-  return { files: new Map<string, Prepared>(), directories: new Map<string, Prepared>() }
+  return {
+    files: new Map<string, Prepared>(),
+    directories: new Map<string, Prepared>(),
+    fileItems: [] as Prepared[],
+    directoryItems: [] as Prepared[],
+    allItems: [] as Prepared[],
+  }
 }
 
 function search(index: ReturnType<typeof emptyIndex>, input: FileSystem.FindInput) {
   const items =
     input.type === "file"
-      ? Array.from(index.files.values())
+      ? index.fileItems
       : input.type === "directory"
-        ? Array.from(index.directories.values())
-        : [...index.files.values(), ...index.directories.values()]
+        ? index.directoryItems
+        : index.allItems
   const result = fuzzysort.go(input.query, items, { limit: input.limit ?? 50 })
   // Targets are owned by the current location index. The only global fuzzysort
   // state left is its query cache, which must not retain every query forever.
@@ -85,6 +91,11 @@ export const ripgrepLayer = Layer.effect(
             }
           }),
       })
+      // The index is immutable between refreshes. Materialize fuzzysort's arrays once
+      // per refresh instead of allocating O(files + directories) on every keystroke.
+      next.fileItems = Array.from(next.files.values())
+      next.directoryItems = Array.from(next.directories.values())
+      next.allItems = [...next.fileItems, ...next.directoryItems]
       index = next
       initialized = true
     }).pipe(Effect.orDie)
