@@ -59,7 +59,7 @@ export type PolicyInput = {
   resources: readonly string[]
   metadata?: Readonly<Record<string, unknown>>
 }
-export type PolicyDecision = { effect: "deny" | "ask"; message: string }
+export type PolicyDecision = { effect: "deny" | "ask"; message: string; save?: readonly string[] }
 
 // This is the authoritative room policy used after all plugin hooks. Hook results are advisory;
 // no extension may reverse a room denial or suppress a required program-approval prompt.
