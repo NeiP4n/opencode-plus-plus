@@ -44,6 +44,57 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
 // Both tools can execute local commands, so room command restrictions apply to both.
 export const commandActions: readonly string[] = ["shell", "hub"]
 
+const LOCAL_ONLY_ACTIONS = new Set([
+  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list",
+  "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
+])
+const FILE_ACTIONS = new Set([
+  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit",
+  "grep", "glob", "list", "delete", "remove", "rename", "move", "copy", "chmod", "chown",
+  "mkdir", "rmdir", "find", "cat", "readfile", "writefile",
+])
+
+export type PolicyInput = {
+  action: string
+  resources: readonly string[]
+  metadata?: Readonly<Record<string, unknown>>
+}
+export type PolicyDecision = { effect: "deny" | "ask"; message: string }
+
+// This is the authoritative room policy used after all plugin hooks. Hook results are advisory;
+// no extension may reverse a room denial or suppress a required program-approval prompt.
+export function policy(rules: Rules | undefined, input: PolicyInput): PolicyDecision | undefined {
+  if (!rules) return undefined
+  const deny = (message: string): PolicyDecision => ({ effect: "deny", message })
+  if (
+    rules.noOutbound !== false &&
+    (outbound.includes(input.action) ||
+      input.metadata?.transport === "mcp" ||
+      !LOCAL_ONLY_ACTIONS.has(input.action))
+  ) {
+    return deny("This room blocks outbound, connected-account and unrecognized tools by default")
+  }
+
+  if (commandActions.includes(input.action)) {
+    if (input.resources.some((command) => commandLeaksCredentials(command))) {
+      return deny("Commands that print the host's environment or credentials are not allowed")
+    }
+    if (input.resources.some((command) => protectedFileInCommand(rules, command))) {
+      return deny("This room keeps that file off limits to the AI")
+    }
+    const programs = [...new Set(input.resources.flatMap((command) => programsRequiringApproval(rules, command)))]
+    if (programs.length) {
+      return { effect: "ask", message: \`Room rules require host approval to use: \${programs.join(", ")}.\` }
+    }
+    return undefined
+  }
+
+  if (FILE_ACTIONS.has(input.action) && input.resources.some((resource) => protectedFile(rules, resource))) {
+    return deny("This room keeps that file off limits to the AI")
+  }
+  return undefined
+}
+
 // Permission actions that carry data out of the machine.
 export const outbound: readonly string[] = [
   "webfetch",
