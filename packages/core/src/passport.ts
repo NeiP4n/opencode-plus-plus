@@ -59,20 +59,51 @@ export async function run(command: string, directory: string, signal?: AbortSign
   const timer = setTimeout(stop, RUN_TIMEOUT_MS)
   signal?.addEventListener("abort", stop, { once: true })
   const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
+    readTail(child.stdout, OUTPUT_LIMIT),
+    readTail(child.stderr, OUTPUT_LIMIT),
     // A guest's run leaves nothing behind on the host once its shell exits.
     child.exited.finally(stop),
   ]).finally(() => {
     clearTimeout(timer)
     signal?.removeEventListener("abort", stop)
   })
-  const output = [stdout, stderr].filter((part) => part.trim()).join("\n")
+  const parts = [stdout, stderr].filter((part) => part.hasContent).map((part) => part.text)
+  const output = parts.join("\n")
+  const cut = stdout.cut || stderr.cut || output.length > OUTPUT_LIMIT
   return {
     shell: backend,
     exitCode,
     output: output.length > OUTPUT_LIMIT ? output.slice(-OUTPUT_LIMIT) : output,
-    ...(output.length > OUTPUT_LIMIT ? { cut: true } : {}),
+    ...(cut ? { cut: true } : {}),
+  }
+}
+
+// Drain a child stream while retaining only its tail. Reading with Response.text() first
+// would let a noisy or stuck guest command exhaust the host's memory before truncation.
+async function readTail(stream: ReadableStream<Uint8Array>, limit: number) {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  let cut = false
+  let hasContent = false
+  const append = (chunk: string) => {
+    if (/\\S/.test(chunk)) hasContent = true
+    text += chunk
+    if (text.length > limit) {
+      text = text.slice(-limit)
+      cut = true
+    }
+  }
+  try {
+    for (;;) {
+      const item = await reader.read()
+      if (item.done) break
+      append(decoder.decode(item.value, { stream: true }))
+    }
+    append(decoder.decode())
+    return { text, cut, hasContent }
+  } finally {
+    reader.releaseLock()
   }
 }
 
