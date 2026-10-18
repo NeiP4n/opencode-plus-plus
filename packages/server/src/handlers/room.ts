@@ -693,8 +693,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             locationErrors,
             Effect.orDie,
           )
-          const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(requests, directory) : requests }
         }),
       )
@@ -994,10 +994,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = joined.room.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const root = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
+          const rules = Option.isSome(root)
+            ? yield* rulesForRoom(joined.room, root.value.location.directory)
+            : joined.room.rules
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
           if (directory === undefined) {
-            const root = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
             const data = { data: Option.toArray(root) }
             return rules?.hidePaths && Option.isSome(root)
               ? redactGuestData(data, root.value.location.directory)
@@ -1018,8 +1020,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new InvalidRequestError({ message: "This room shares one session; the host starts others" })
           // A guest's new session runs on the room session's model, the one the host picked; left
           // unset it would fall to the first model in the host's catalog.
-          const rules = yield* rulesForRoom(joined.room, joined.room.directory)
           const shared = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
+          const policyDirectory = Option.getOrUndefined(shared)?.location.directory ?? joined.room.directory
+          const rules = yield* rulesForRoom(joined.room, policyDirectory)
           const data = yield* sessions
             .create({
               title: ctx.payload.title?.trim() || undefined,
