@@ -201,6 +201,7 @@ const layer = Layer.effect(
         message: event.message,
         rules: all,
         save: event.save,
+        scoped: event.scoped,
         onAlways: event.onAlways,
       }
     })
@@ -273,7 +274,7 @@ const layer = Layer.effect(
             const item = yield* create(
               request({ ...input, save: result.save ?? input.save }, result.message),
               input.agent,
-              { saveGlobally: result.onAlways === undefined, onAlways: result.onAlways },
+              { saveGlobally: !result.scoped, onAlways: result.onAlways },
             )
             return yield* restore(Deferred.await(item.deferred)).pipe(
               // Deliberate defect tunnel: leaves wrap execution in blanket `mapError`, which
