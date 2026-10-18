@@ -26,20 +26,23 @@ const REFRESH_INTERVAL = Duration.toMillis("10 seconds")
 type Prepared = ReturnType<typeof fuzzysort.prepare>
 
 function emptyIndex() {
-  return { files: new Map<string, Prepared>(), directories: new Map<string, Prepared>() }
+  return {
+    files: new Map<string, Prepared>(),
+    directories: new Map<string, Prepared>(),
+    fileItems: [] as Prepared[],
+    directoryItems: [] as Prepared[],
+    allItems: [] as Prepared[],
+  }
 }
 
 function search(index: ReturnType<typeof emptyIndex>, input: FileSystem.FindInput) {
   const items =
     input.type === "file"
-      ? Array.from(index.files.values())
+      ? index.fileItems
       : input.type === "directory"
-        ? Array.from(index.directories.values())
-        : [...index.files.values(), ...index.directories.values()]
+        ? index.directoryItems
+        : index.allItems
   const result = fuzzysort.go(input.query, items, { limit: input.limit ?? 50 })
-  // Targets are owned by the current location index. The only global fuzzysort
-  // state left is its query cache, which must not retain every query forever.
-  fuzzysort.cleanup()
   return result.map((item) => {
     const relative = item.target
     const type = relative.endsWith(path.sep) ? ("directory" as const) : ("file" as const)
@@ -75,13 +78,24 @@ export const ripgrepLayer = Layer.effect(
           Effect.sync(() => {
             next.files.set(entry.path, previous.files.get(entry.path) ?? fuzzysort.prepare(entry.path))
             const parts = entry.path.split("/")
-            parts.slice(0, -1).forEach((_, offset) => {
-              const directory = parts.slice(0, offset + 1).join("/") + path.sep
+            let directory = ""
+            // Build each parent path incrementally. Repeated slice/join here
+            // made indexing a deep path allocate and copy its prefixes quadratically.
+            for (let i = 0; i < parts.length - 1; i++) {
+              directory += parts[i] + path.sep
               if (!next.directories.has(directory))
                 next.directories.set(directory, previous.directories.get(directory) ?? fuzzysort.prepare(directory))
-            })
+            }
           }),
       })
+      // The index is immutable between refreshes. Materialize fuzzysort's arrays once
+      // per refresh instead of allocating O(files + directories) on every keystroke.
+      next.fileItems = Array.from(next.files.values())
+      next.directoryItems = Array.from(next.directories.values())
+      next.allItems = [...next.fileItems, ...next.directoryItems]
+      // Keep fuzzysort's query cache warm between searches, but clear its global
+      // prepared-target cache after an index refresh so deleted paths are not retained.
+      fuzzysort.cleanup()
       index = next
       initialized = true
     }).pipe(Effect.orDie)
