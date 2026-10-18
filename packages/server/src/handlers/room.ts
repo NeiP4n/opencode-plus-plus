@@ -972,8 +972,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
           if (directory === undefined) {
             const data = Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option))
+            const directories = [joined.room.directory ?? "", ...data.map((item) => item.location.directory)].filter(Boolean)
             return {
-              data: joined.room.rules?.hidePaths ? redactRoomValue(data, [joined.room.directory ?? ""]) : data,
+              data: joined.room.rules?.hidePaths ? redactRoomValue(data, directories) : data,
             }
           }
           const page = yield* sessions.list({ parentID: null, limit: SESSION_LIMIT })
