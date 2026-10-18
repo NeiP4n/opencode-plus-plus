@@ -10,32 +10,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch WARP proxy endpoint selection
+      - name: Patch WARP proxy endpoint selection and Auto IP
         shell: python
         run: |
           from pathlib import Path
           path = Path('packages/tui/src/feature-plugins/system/warp.tsx')
           text = path.read_text()
+
           old = '''async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean) {\n  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig() : null })\n}'''
           new = '''async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean, port = Warp.HTTP_BRIDGE_PORT) {\n  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig(port) : null })\n}'''
           if old not in text:
               raise SystemExit('setOpenCodeProxy block not found')
           text = text.replace(old, new, 1)
+
           old = '''    return Warp.isWarpProxy(found.info.proxy)'''
           new = '''    return Warp.isWarpProxy(found.info.proxy, Warp.DEFAULT_PORT) || Warp.isWarpProxy(found.info.proxy, Warp.HTTP_BRIDGE_PORT)'''
           if old not in text:
               raise SystemExit('proxy detection line not found')
           text = text.replace(old, new, 1)
+
           old = '''  await setOpenCodeProxy(context, true)\n  return next'''
           new = '''  // Current WARP exposes HTTP on its configured Local Proxy port (normally 40000).\n  // Older clients may expose SOCKS5 only; ensureProxy starts our HTTP bridge on 40001 then.\n  // Never point OpenCode at 40001 unless the bridge is actually required.\n  const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT\n  await setOpenCodeProxy(context, true, proxyPort)\n  return next'''
           if old not in text:
               raise SystemExit('proxy enable call not found')
           text = text.replace(old, new, 1)
+
+          old = '''      const enabled = !autoRotate.enabled\n      try {\n        await updateAutoRotate((draft) => { draft.enabled = enabled })'''
+          new = '''      const enabled = !autoRotate.enabled\n      try {\n        if (enabled && !proxy.enabled) {\n          const next = await setupLocalProxy(context)\n          setSharedStatus(updateStatus, next)\n          updateProxy((draft) => { draft.enabled = true })\n          await refreshExitIp()\n        }\n        await updateAutoRotate((draft) => { draft.enabled = enabled })'''
+          if old not in text:
+              raise SystemExit('Auto IP toggle block not found')
+          text = text.replace(old, new, 1)
+
           path.write_text(text)
       - name: Verify patch
         run: |
           grep -n "setOpenCodeProxy(context" packages/tui/src/feature-plugins/system/warp.tsx
           grep -n "proxyPort =" packages/tui/src/feature-plugins/system/warp.tsx
+          grep -n "setupLocalProxy(context)" packages/tui/src/feature-plugins/system/warp.tsx
       - name: Commit fix and remove one-shot workflow
         shell: bash
         run: |
