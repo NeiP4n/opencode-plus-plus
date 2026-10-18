@@ -15,17 +15,16 @@ import { Session } from "../session.js"
 const OUTBOUND_TOOLS = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
 
 export function blocksOutboundTool(tool: string, action?: string, namespaced = false) {
-  const isOutbound = (name: string) => {
-    const normalized = name.toLowerCase().replace(/^opencode_/, "")
-    return (
-      OUTBOUND_TOOLS.has(name.toLowerCase()) ||
-      OUTBOUND_TOOLS.has(normalized) ||
-      normalized.startsWith("desktop_") ||
-      normalized.startsWith("mcp_") ||
-      normalized.startsWith("opencode_mcp_")
-    )
-  }
-  return isOutbound(tool) || (!!action && isOutbound(action)) || namespaced
+  const rules: RoomRules.Rules = { noOutbound: true }
+  const metadata = namespaced ? { transport: "mcp" } : undefined
+  const denied = (name: string) =>
+    RoomRules.policy(rules, {
+      action: name.toLowerCase().replace(/^opencode_/, ""),
+      resources: [],
+      metadata,
+    })?.effect === "deny"
+  // Fail closed: a plugin tool that never calls Permission.assert must not become an egress bypass.
+  return denied(tool) || (!!action && denied(action))
 }
 
 // Applies a room's rules to the host's own AI. The server applies them to guests' commands and to
