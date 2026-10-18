@@ -50,6 +50,9 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/secrets/key.pem")).toBe("secrets/*")
   expect(RoomRules.protectedFile(rules, "/work/app/environment.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
+  expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh/id_ed25519")).toContain(".ssh")
+  expect(RoomRules.protectedFile(undefined, "/home/alice/.config/opencode/auth.json")).toContain("opencode")
+  expect(RoomRules.protectedFile(undefined, "/work/app/.env.local")).toBe(".env*")
 })
 
 test("built-in credential globs protect root-level and nested credential files", () => {
@@ -108,6 +111,20 @@ test("outbound policy includes shell and MCP resource access", () => {
   expect(RoomRules.outbound).toContain("playtest")
   expect(RoomRules.outbound).toContain("opencode_list_mcp_resources")
   expect(RoomRules.outbound).toContain("opencode_read_mcp_resource")
+})
+
+test("program rules request approval for the executable, including wrapped commands", () => {
+  expect(RoomRules.programsRequiringApproval(rules, "git push origin main")).toEqual(["git"])
+  expect(RoomRules.programsRequiringApproval(rules, "echo ok; sudo -u root git push origin main")).toEqual(["git"])
+  expect(RoomRules.programsRequiringApproval(rules, "curl https://example.test")).toEqual(["curl"])
+  expect(RoomRules.programName("env TOKEN=x git status")).toBe("git")
+  expect(RoomRules.programsRequiringApproval(rules, "git status")).toEqual([])
+})
+
+test("outbound access is denied by default across overlapping rooms", () => {
+  expect(RoomRules.merge([{}])?.noOutbound).toBe(true)
+  expect(RoomRules.merge([{ noOutbound: false }])?.noOutbound).toBe(false)
+  expect(RoomRules.merge([{ noOutbound: false }, {}])?.noOutbound).toBe(true)
 })
 
 test("describe states only the rules that are set", () => {
