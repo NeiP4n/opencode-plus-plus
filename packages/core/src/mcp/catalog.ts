@@ -35,8 +35,8 @@ export const all: readonly Entry[] = [
   {
     id: "rea-anything",
     name: "REA — Reverse Engineer Anything",
-    description: "Reverse-engineer applications, JavaScript/Electron apps, websites, Android APKs, .NET assemblies, and native binaries through an evidence-focused MCP toolset.",
-    usage: "Use REA when you need to understand how an application feature works without source code. Start with the narrowest relevant analysis command, inspect the returned evidence and limitations, and only use runtime capture when explicitly appropriate for the target.",
+    description: "Official REA MCP for evidence-based reverse engineering of native binaries, JavaScript/Electron apps, websites, Android APKs, and .NET assemblies.",
+    usage: "Use REA to investigate how an app feature works without source code. Start with the narrowest matching analysis tool, inspect its evidence and limitations, and use runtime capture only when appropriate for the target.",
     runtime: "npx",
     config: local(["npx", "-y", "rea-agents@latest", "mcp"]),
   },
