@@ -73,6 +73,10 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       if (options.mode === "service" && process.platform === "win32" && RetainedImage.installed(global.home))
         yield* RetainedImage.retain(global.cache, "service")
       const { start } = yield* Effect.promise(() => import("@opencode/server/process"))
+      // If the configured service port belongs to an unrelated process (for example a Desktop
+      // instance using a different registration directory), let the OS choose a free port.
+      // Clients discover the actual URL from the registration written by onListen below.
+      let listenPort = port
       const environmentPassword = yield* Env.password
       // Keep the lease credential out of the environment inherited by tools.
       if (options.mode === "stdio") {
@@ -96,7 +100,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             channel: OPENCODE_CHANNEL,
           },
           hostname,
-          port,
+          port: listenPort,
           cors: options.cors ?? config.cors,
           password,
           pty: { handoff },
@@ -158,6 +162,22 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
               // Failed binds close their scope; a successful bind may take longer than this window to boot.
               const server = yield* launch.pipe(Effect.catchIf(addressInUse, () => Effect.void))
               if (server !== undefined) return server
+            }
+            if (options.mode === "service") {
+              yield* Effect.logWarning(
+                `Managed service port ${port} on ${hostname} is occupied; retrying on an OS-assigned port`,
+              )
+              listenPort = 0
+              return yield* launch.pipe(
+                Effect.catch((fallbackError) =>
+                  Effect.fail(
+                    new Error(
+                      `Managed service could not bind its configured port ${port} or an OS-assigned port.`,
+                      { cause: fallbackError },
+                    ),
+                  ),
+                ),
+              )
             }
             return yield* Effect.fail(
               new Error(
