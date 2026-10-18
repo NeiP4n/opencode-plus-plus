@@ -566,6 +566,7 @@ export function DevToolsBar() {
                     ),
                   set: (id, config) => client.api.config.update({ mcpServers: { [id]: config } }),
                 }}
+                plugins={plugins}
               />
             ),
             undefined,
