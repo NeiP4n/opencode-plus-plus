@@ -136,6 +136,52 @@ describe("SessionRunnerRetry shared rate-limit gate", () => {
     }),
   )
 
+  it.effect("does not delete the stable success marker while cleaning stale journal entries", () =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis
+      const staleAt = now - Duration.toMillis(Duration.hours(7))
+      const memory = memoryKV()
+      const key = "session-runner:rate-limit:v1:provider:last-success"
+      memory.values.set(key, {
+        version: 1,
+        providerID: "provider",
+        sessionID: "ses_old_success",
+        retryAt: staleAt,
+        updatedAt: staleAt,
+        consecutive: 0,
+        outcome: "success",
+      })
+
+      const retry = yield* SessionRunnerRetry.make(retryBus, SessionSchema.ID.make("ses_marker"), memory.kv)
+      const result = yield* retry.decide(input(rateLimit))
+      if (!result.retry) throw new Error("Rate limits must remain retryable")
+      expect(memory.values.has(key)).toBe(true)
+    }),
+  )
+
+  it.effect("scans large provider journals across KV pages", () =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis
+      const memory = memoryKV()
+      for (let i = 0; i < 1_001; i++) {
+        memory.values.set(`session-runner:rate-limit:v1:provider:${now}:seed-${i}`, {
+          version: 1,
+          providerID: "provider",
+          sessionID: `ses_seed_${i}`,
+          retryAt: now + 1_000,
+          updatedAt: now,
+          consecutive: 8,
+          outcome: "rate-limit",
+        })
+      }
+
+      const retry = yield* SessionRunnerRetry.make(retryBus, SessionSchema.ID.make("ses_paged"), memory.kv)
+      const result = yield* retry.decide(input(rateLimit))
+      if (!result.retry) throw new Error("Rate limits must remain retryable")
+      expect(result.delay).toBeGreaterThanOrEqual(512_000)
+    }),
+  )
+
   it.effect("waits on a provider gate created by another agent session", () =>
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
