@@ -75,11 +75,14 @@ export const ripgrepLayer = Layer.effect(
           Effect.sync(() => {
             next.files.set(entry.path, previous.files.get(entry.path) ?? fuzzysort.prepare(entry.path))
             const parts = entry.path.split("/")
-            parts.slice(0, -1).forEach((_, offset) => {
-              const directory = parts.slice(0, offset + 1).join("/") + path.sep
+            let directory = ""
+            // Build each parent path incrementally. Repeated slice/join here
+            // made indexing a deep path allocate and copy its prefixes quadratically.
+            for (let i = 0; i < parts.length - 1; i++) {
+              directory += parts[i] + path.sep
               if (!next.directories.has(directory))
                 next.directories.set(directory, previous.directories.get(directory) ?? fuzzysort.prepare(directory))
-            })
+            }
           }),
       })
       index = next
