@@ -48,6 +48,45 @@ function missingRequest(id: Permission.ID) {
 
 const CHAT_LIMIT = 100
 
+function guestSessionMessage(
+  message: SessionMessage.Info,
+  hideExecution: boolean,
+): SessionMessage.Info | undefined {
+  // Never expose model-facing system, synthetic, skill or compaction messages to room guests.
+  if (message.type === "user") {
+    const room = message.metadata?.room
+    const guest = Predicate.isObject(room) && Predicate.isObject(room.guest) ? room.guest : undefined
+    const metadata =
+      Predicate.isObject(room) &&
+      typeof room.id === "string" &&
+      guest &&
+      typeof guest.id === "string" &&
+      typeof guest.name === "string"
+        ? {
+            room: {
+              id: room.id,
+              guest: { id: guest.id, name: guest.name },
+              ...(room.ai === true ? { ai: true } : {}),
+            },
+          }
+        : undefined
+    return { ...message, files: [], agents: [], skills: [], metadata }
+  }
+  if (message.type === "assistant") {
+    return {
+      id: message.id,
+      type: message.type,
+      agent: message.agent,
+      model: message.model,
+      content: message.content.filter((part) => part.type !== "reasoning" && (!hideExecution || part.type !== "tool")),
+      time: message.time,
+      finish: message.finish,
+    }
+  }
+  if (message.type === "shell") return hideExecution ? undefined : message
+  return undefined
+}
+
 function chatMessage(message: SessionMessage.Info, hostName = "host"): Room.Message[] {
   const created = DateTime.toEpochMillis(message.time.created)
   if (message.type === "user") {
@@ -572,8 +611,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const rules = yield* effectiveRules(joined.room, session.location.directory)
           const page = yield* messagePage(sessions, session.id, ctx.query)
-          if (!rules?.hidePaths) return page
-          return { ...page, data: redactRoomValue(page.data, [joined.room.directory ?? "", session.location.directory].filter(Boolean)) }
+          const data = page.data.flatMap((message) => {
+            const visible = guestSessionMessage(message, !!rules?.hideExecution)
+            return visible ? [visible] : []
+          })
+          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
+          return {
+            ...page,
+            data: rules?.hidePaths ? redactRoomValue(data, directories) : data,
+          }
         }),
       )
       .handle(
