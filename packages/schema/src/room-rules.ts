@@ -56,7 +56,7 @@ function segments(command: string) {
   // a blocked command can be hidden as `g\\it push` or `git \\\n push`.
   const normalized = command.replace(/\\\r?\n/g, "").replace(/\\(.)/gs, "$1")
   return normalized
-    .split(/[;&|()\\n\\r\\t`<>$"'\\\\]+/)
+    .split(/[;&|()\n\r\t`<>$"'\\]+/)
     .map((part) => part.trim())
     .filter(Boolean)
 }
