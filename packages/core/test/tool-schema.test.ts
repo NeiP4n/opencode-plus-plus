@@ -208,7 +208,8 @@ test("invalid tool input previews are bounded by depth and collection size", asy
   )
   expect(error).toBeInstanceOf(Tool.Error)
   expect(error.message).toContain("[maximum depth reached]")
-  expect(error.message).toContain("30 additional entries omitted")
+  expect(error.message).toContain("additional entries omitted")
+  expect(error.message).not.toContain('"key50"')
   expect(error.message).not.toContain("deep-value")
 })
 
