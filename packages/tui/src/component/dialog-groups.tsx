@@ -98,7 +98,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
     setOpening(group.name)
     try {
       const created = await client.api.session.create({
-        title: mode === "council" ? "Общество" : "President",
+        title: mode === "council" ? "общество" : "President",
         agent: "orchestrator",
         location: { directory: leader.directory },
         metadata: { "opencode-pp:group-supervisor": { groupName: group.name, leader: leaderID, mode } },
