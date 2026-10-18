@@ -303,6 +303,8 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
     const prototype = Object.getPrototypeOf(item)
     if (prototype !== Object.prototype && prototype !== null) return item
     const record = item as Record<string, unknown>
+    const contentType = typeof record.type === "string" ? record.type.toLowerCase() : ""
+    if (contentType.includes("image") || contentType.includes("screenshot")) return undefined
     const mime = typeof record.mime === "string" ? record.mime.toLowerCase() : ""
     if (mime.startsWith("image/")) {
       // A prompt image has inline/remote data; drop the attachment entirely. Tool file content
