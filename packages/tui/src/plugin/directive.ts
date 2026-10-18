@@ -13,7 +13,8 @@ export function pluginDirective<T>(plugins: readonly T[] | undefined, target: st
     return [...preserved, disabled]
   }
 
-  const next = current.filter((entry) => entry !== disabled)
-  if (next.some((entry) => targetOf(entry) === target)) return next
+  // Keep object declarations (including their options), but append an exact
+  // positive selector after wildcard rules so it can override a later exclusion.
+  const next = current.filter((entry) => entry !== target && entry !== disabled)
   return [...next, target]
 }
