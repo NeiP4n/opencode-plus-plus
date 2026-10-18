@@ -876,7 +876,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, directory, signal),
-            catch: (error) => new InvalidRequestError({ message: `Could not run the check: ${String(error)}` }),
+            catch: (error) =>
+              new InvalidRequestError({
+                message: `Could not run the check: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
+              }),
           })
           const output = joined.room.rules?.hidePaths
             ? RoomRules.redactPath(result.output, directory)
