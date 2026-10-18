@@ -79,6 +79,7 @@ test("a session in several rooms gets the strictest rules", () => {
 test("outbound policy includes shell and MCP resource access", () => {
   expect(RoomRules.outbound).toContain("shell")
   expect(RoomRules.outbound).toContain("desktop")
+  expect(RoomRules.outbound).toContain("playtest")
   expect(RoomRules.outbound).toContain("opencode_list_mcp_resources")
   expect(RoomRules.outbound).toContain("opencode_read_mcp_resource")
 })
