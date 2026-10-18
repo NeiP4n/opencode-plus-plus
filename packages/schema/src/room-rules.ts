@@ -107,11 +107,7 @@ export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
   const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
   return variants.reduce((out, variant) => {
-    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\export function redactPath(text: string, directory: string) {
-  const forward = directory.replaceAll("\\", "/")
-  const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
-  return variants.reduce((out, variant) => out.split(variant).join("<project>"), text)
-}")
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     return out.replace(new RegExp(escaped, "gi"), "<project>")
   }, text)
 }
