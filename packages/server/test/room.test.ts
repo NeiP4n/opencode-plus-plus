@@ -695,10 +695,12 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
         resources: string[]
         metadata?: Record<string, unknown>
       }[]),
-      Effect.filterOrFail((requests) => requests.length > 0),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Phone"),
+      ),
       Effect.retry(Schedule.spaced("20 millis")),
       Effect.timeout("5 seconds"),
-      Effect.map((requests) => requests[0]),
+      Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Phone")!),
     )
     expect(request.action).toBe("room.program")
     expect(request.resources).toEqual(["echo"])
@@ -981,13 +983,13 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
             resources: string[]
             metadata?: Record<string, unknown>
           }[]),
-          Effect.filterOrFail((requests) => requests.length > 0),
+          Effect.filterOrFail((requests) => requests.some((item) => item.action === "room.check")),
           Effect.retry(Schedule.spaced("20 millis")),
           Effect.timeout("5 seconds"),
-          Effect.map((requests) => requests[0]),
+          Effect.map((requests) => requests.find((item) => item.action === "room.check")!),
         )
-        expect(request.action).toBe("room.program")
-        expect(request.resources).toEqual(["test"])
+        expect(request.action).toBe("room.check")
+        expect(request.resources).toEqual(["test -f parser.txt"])
         yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
           method: "POST",
           headers: host,
