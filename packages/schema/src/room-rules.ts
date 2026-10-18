@@ -217,8 +217,10 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
 export function protectedFile(rules: Rules | undefined, file: string) {
   const normal = file.replaceAll("\\", "/")
   return [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])].find((raw) => {
-    const pattern = raw.trim()
-    return pattern !== "" && glob(pattern.replaceAll("\\", "/"), "(^|/)", "$").test(normal)
+    const pattern = raw.trim().replaceAll("\\", "/")
+    if (!pattern) return false
+    const candidates = [pattern, pattern.replace(/^\*\*\//, "")]
+    return candidates.some((candidate) => glob(candidate, "(^|/)", "$").test(normal))
   })
 }
 
