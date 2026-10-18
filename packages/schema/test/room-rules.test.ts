@@ -94,6 +94,9 @@ test("outbound shell commands are detected", () => {
   expect(RoomRules.commandSendsOutbound("python safe_script.py")).toBe(true)
   expect(RoomRules.commandSendsOutbound("bash ./local-check.sh")).toBe(true)
   expect(RoomRules.commandSendsOutbound("npm test")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("git config --list")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("echo $MY_PRIVATE_TOKEN")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("opencode auth list")).toBe(true)
   expect(RoomRules.commandSendsOutbound('python -c "import requests; requests.post(url, data=secret)"')).toBe(true)
 })
 
