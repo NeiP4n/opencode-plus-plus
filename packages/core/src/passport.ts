@@ -77,7 +77,8 @@ export async function run(command: string, directory: string, signal?: AbortSign
 }
 
 // The output goes back to a guest, so the host's keys and tokens stay out of the command's environment.
-const SECRET = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE/i
+const SECRET =
+  /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|DATABASE|DB_URL|DSN|CONNECTION_STRING|REDIS_URL|MONGO_URL|MYSQL|POSTGRES|SIGNING|ENCRYPTION|CERTIFICATE|BEARER/i
 
 function guestEnv() {
   return Object.fromEntries(Object.entries(process.env).filter(([name]) => !SECRET.test(name)))
