@@ -1,5 +1,4 @@
-import type { LLM } from "@opencode/ai"
-import type { ToolDefinition } from "@opencode/ai"
+import type { LLM, ToolDefinition } from "@opencode/ai"
 
 export type CompatibilityInput = {
   readonly providerID: string
@@ -28,7 +27,7 @@ export function prepare(input: CompatibilityInput): CompatibilityOutput {
   const names = new Set(existing.map((tool) => tool.name))
   const tools = [...existing]
   for (const [name, description, inputSchema] of ZEN_REQUIRED_TOOLS) {
-    if (!names.has(name)) tools.push({ name, description, inputSchema })
+    if (!names.has(name)) tools.push({ type: "tool", name, description, inputSchema })
   }
   return {
     tools,
