@@ -34,6 +34,14 @@ test("an explicit enable overrides a wildcard exclusion that appears later", () 
   ])
 })
 
+test("enabling a package after a wildcard exclusion retains its options and moves it last", () => {
+  const packagePlugin = { package: "example-plugin", options: { enabled: true } }
+  expect(pluginDirective([packagePlugin, "-example.*"], "example-plugin", true)).toEqual([
+    "-example.*",
+    packagePlugin,
+  ])
+})
+
 test("plugin directives preserve unrelated declarations", () => {
   const packagePlugin = { package: "other-plugin", options: { enabled: true } }
   expect(pluginDirective([packagePlugin, "-other.plugin"], "example.plugin", false)).toEqual([
