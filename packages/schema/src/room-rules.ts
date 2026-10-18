@@ -51,8 +51,12 @@ function segments(command: string) {
   // misses e.g. `$(git push*)` or `bash -c 'git push*'`. This is deliberately
   // conservative: policy matching may reject a harmless command containing a
   // blocked invocation, but must not silently permit common shell wrappers.
-  return command
-    .split(/[;&|()\n\r\t`<>$"'\\]+/)
+  // In POSIX shells, backslash escapes the next character and backslash-newline
+  // joins physical lines into one command. Normalize both before splitting, otherwise
+  // a blocked command can be hidden as `g\\it push` or `git \\\n push`.
+  const normalized = command.replace(/\\\r?\n/g, "").replace(/\\(.)/gs, "$1")
+  return normalized
+    .split(/[;&|()\\n\\r\\t`<>$"'\\\\]+/)
     .map((part) => part.trim())
     .filter(Boolean)
 }
