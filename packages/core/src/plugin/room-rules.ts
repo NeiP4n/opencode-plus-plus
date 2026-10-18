@@ -51,6 +51,8 @@ export const Plugin = define({
         if (event.action === "shell") {
           const blocked = event.resources.flatMap((command) => RoomRules.blockedCommand(rules, command) ?? [])[0]
           if (blocked) return deny(`This room forbids commands like "${blocked}"`)
+          const protectedFile = event.resources.flatMap((command) => RoomRules.protectedFileInCommand(rules, command) ?? [])[0]
+          if (protectedFile) return deny("This room keeps that file off limits to the AI")
           return
         }
         if (event.action === "read" || event.action === "edit") {
