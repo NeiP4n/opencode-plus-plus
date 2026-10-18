@@ -27,14 +27,14 @@ test("a missing health endpoint fails unless the caller requires a different ver
   })
 })
 
-test("a compatible service is reused when ready, awaited while starting, and fails when it failed", () => {
+test("a compatible service is reused when ready, awaited while starting, and replaced when it failed", () => {
   expect(decide(service({ version: "2.0.0", state: "ready", compatible: true }), {})).toEqual({ _tag: "reuse" })
   expect(decide(service({ version: "2.0.0", state: "waiting", compatible: true }), { version: "2.0.0" })).toEqual({
     _tag: "wait",
   })
   expect(decide(service({ version: "2.0.0", state: "failed", compatible: true }), {})).toEqual({
-    _tag: "fail",
-    error: new Error("Background service failed to start"),
+    _tag: "replace",
+    pty: "clear",
   })
 })
 
