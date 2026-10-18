@@ -1414,7 +1414,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Sending out")}
-          help={t("The room's AI cannot make web requests, control the desktop, launch playtest apps, or message other computers and projects.")}
+          help={t("Blocked by default: web, MCP, connected-account tools, shell/hub and unknown integrations. Explicitly allow only when needed; use an OS firewall for a hard network boundary.")}
         >
           <Button onClick={() => save({ noOutbound: rules().noOutbound === false })}>
             {rules().noOutbound === false ? t("Allowed") : t("Forbidden")}
