@@ -28,7 +28,8 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   if (rules.length === 0) return undefined
   return {
     hidePaths: rules.some((item) => item.hidePaths),
-    noOutbound: rules.some((item) => item.noOutbound),
+    // External tools are blocked by default in shared rooms; the host must opt in explicitly.
+    noOutbound: rules.some((item) => item.noOutbound !== false),
     hideCommandExecution: rules.some((item) => item.hideCommandExecution),
     hideScreenshots: rules.some((item) => item.hideScreenshots),
     blockCommands: [...new Set(rules.flatMap((item) => item.blockCommands ?? []))],
