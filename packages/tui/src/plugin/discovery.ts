@@ -60,7 +60,12 @@ export function mergePluginTargets<const Target extends { readonly entry: string
     ...targets
       .reduce((result, target) => {
         const value = typeof target.entry === "string" ? target.entry : target.entry.package
-        return result.set(localSource(value, directory)?.href ?? value, target)
+        const key = localSource(value, directory)?.href ?? value
+        // Replacing a declaration must also move it to the replacement's
+        // position; otherwise a later explicit selector cannot override an
+        // earlier declaration when the registry is folded in order.
+        result.delete(key)
+        return result.set(key, target)
       }, new Map<string, Target>())
       .values(),
   ]
