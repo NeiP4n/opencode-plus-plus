@@ -76,6 +76,23 @@ export function createHomeSessionsController(home: HomeController) {
     }
   })
 
+  const archivedLoad = useQuery(() => {
+    const ctx = home.server.focusedContext()
+    const conn = home.server.focused()
+
+    return {
+      queryKey: ["home-archived-sessions", conn] as const,
+      enabled: !!ctx && !!conn && ctx.sdk.connection.status() === "connected",
+      queryFn: ctx
+        ? () => ctx.sdk.api.session.list({ archived: true, limit: HOME_SESSION_LIMIT, order: "desc", parentID: null }).then((result) => result.data)
+        : skipToken,
+      retry: false,
+      staleTime: 30_000,
+      refetchOnMount: true,
+      refetchOnReconnect: true,
+    }
+  })
+
   const indexedSessions = createMemo(() => {
     const ctx = home.server.focusedContext()
     const conn = home.server.focused()
@@ -102,6 +119,15 @@ export function createHomeSessionsController(home: HomeController) {
 
   const records = createMemo(() => allRecords().slice(0, HOME_SESSION_LIMIT))
   const groups = createMemo(() => groupSessions(records(), language))
+  const archivedRecords = createMemo(() =>
+    buildHomeSessionRecords({
+      sessions: () => archivedLoad.data ?? [],
+      projectDirectories,
+      projects: home.project.list,
+      resolveProject: (session) => home.server.focusedContext()?.projects.forSession(session),
+    }),
+  )
+  const archivedGroups = createMemo(() => groupSessions(archivedRecords(), language))
   const prefetched = new Set<string>()
 
   const location = (record: HomeSessionRecord) => {
@@ -304,6 +330,7 @@ export function createHomeSessionsController(home: HomeController) {
     data: {
       records,
       groups,
+      archivedGroups,
       loading: () => sessionLoad.isPending,
       searchRecords: allRecords,
     },
@@ -357,6 +384,22 @@ export function createHomeSessionsController(home: HomeController) {
 
           if (!options?.background) ctx.projects.touch(directory)
         })
+      },
+      restore: async (session: SessionInfo) => {
+        const conn = home.server.focused()
+        const ctx = home.server.focusedContext()
+
+        if (!conn || !ctx) return
+        try {
+          await ctx.sdk.api.session.update({ sessionID: session.id, archived: false })
+          await queryClient.invalidateQueries({ queryKey: ["home-sessions", conn] })
+          await queryClient.invalidateQueries({ queryKey: ["home-archived-sessions", conn] })
+        } catch (cause) {
+          showToast({
+            title: language.t("common.requestFailed"),
+            description: errorMessage(cause, language.t("common.requestFailed")),
+          })
+        }
       },
       archive: async (session: SessionInfo) => {
         const conn = home.server.focused()
