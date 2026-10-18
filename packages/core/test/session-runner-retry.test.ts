@@ -121,14 +121,15 @@ describe("SessionRunnerRetry shared rate-limit gate", () => {
   it.effect("does not delete the stable success marker while cleaning stale journal entries", () =>
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
+      const staleAt = now - Duration.toMillis(Duration.hours(7))
       const memory = memoryKV()
       const key = "session-runner:rate-limit:v1:provider:last-success"
       memory.values.set(key, {
         version: 1,
         providerID: "provider",
         sessionID: "ses_old_success",
-        retryAt: now - Duration.hours(7).pipe(Duration.toMillis),
-        updatedAt: now - Duration.hours(7).pipe(Duration.toMillis),
+        retryAt: staleAt,
+        updatedAt: staleAt,
         consecutive: 0,
         outcome: "success",
       })
