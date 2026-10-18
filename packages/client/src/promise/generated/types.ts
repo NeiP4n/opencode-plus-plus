@@ -573,6 +573,7 @@ export type RoomMember = {
   name: string
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   device?: string | undefined
+  approvedPrograms?: Array<string> | undefined
   address?: string | undefined
   joined: number
 }
