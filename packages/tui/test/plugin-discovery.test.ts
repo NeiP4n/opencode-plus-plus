@@ -9,10 +9,10 @@ test("deduplicates equivalent local plugin targets while retaining the final sou
   expect(mergePluginTargets([discovered, server], directory)).toEqual([server])
 })
 
-test("preserves the first target position when a later source overrides it", () => {
+test("moves an overridden target to the final source position", () => {
   const first = { entry: "example", install: true, optional: true }
   const other = { entry: "other", install: true, optional: true }
   const configured = { entry: { package: "example", options: { enabled: true } }, install: true, optional: false }
 
-  expect(mergePluginTargets([first, other, configured], "/project")).toEqual([configured, other])
+  expect(mergePluginTargets([first, other, configured], "/project")).toEqual([other, configured])
 })
