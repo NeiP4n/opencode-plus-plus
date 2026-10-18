@@ -43,6 +43,9 @@ export const AssertInput = Schema.Struct({
   id: ID.pipe(Schema.optional),
   ...RequestFields,
   agent: Agent.ID.pipe(Schema.optional),
+  // Force a human confirmation even when general saved rules would otherwise allow it.
+  // Used for per-member program grants; it is never persisted as a saved permission.
+  force: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Permission.AssertInput" })
 export type AssertInput = typeof AssertInput.Type
 
@@ -343,7 +346,7 @@ const layer = Layer.effect(
     const confirm = Effect.fn("Permission.confirm")(function* (input: AssertInput) {
       if (closed) return yield* new DeclinedError()
       const saved = yield* savedRules()
-      if (input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
+      if (!input.force && input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
       const item = yield* create(request(input), input.agent)
       return yield* Deferred.await(item.deferred)
     })
