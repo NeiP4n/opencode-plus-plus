@@ -994,25 +994,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile)
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
-          const blocked = RoomRules.blockedCommand(rules, command)
-          if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
-          // A host assigns Trusted per device when its commands should run unattended.
-          // Everyone else, including ordinary cohosts, still gets the usual confirmation.
-          if (joined.member.role !== "trusted") {
-            yield* Permission.Service.use((permission) =>
-              permission.confirm({
-                action: "room.run",
-                resources: [command],
-                metadata: { guest: joined.guest.name, command },
-                sessionID: session.id,
-              }),
-            ).pipe(
-              instances.provide(session),
-              locationErrors,
-              Effect.catchTag("LocationNotFoundError", Effect.die),
-              Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
-            )
-          }
+          const authorizedPrograms = yield* confirmRoomCommand({
+            room: joined.room,
+            member: joined.member,
+            guestName: joined.guest.name,
+            session,
+            command,
+            fallbackAction: "room.run",
+            metadata: { operation: "room.run" },
+            rules,
+          })
           // Rules may have changed while the host was deciding whether to approve the command.
           rules = yield* effectiveRules(joined.room, session.location.directory)
           if (rules?.denyGuestCommands)
@@ -1022,8 +1013,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (RoomRules.protectedFileInCommand(rules, command))
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           const currentBlock = RoomRules.blockedCommand(rules, command)
-          if (currentBlock)
-            return yield* new ForbiddenError({ message: `This room forbids commands like "${currentBlock}"` })
+          if (currentBlock && joined.member.role !== "trusted") {
+            const currentPrograms = RoomRules.programsRequiringApproval(rules, command)
+            const currentMember = yield* rooms.member(joined.room.id, joined.member.id)
+            const grants = new Set([...(currentMember?.approvedPrograms ?? []), ...authorizedPrograms])
+            if (!currentPrograms.length || currentPrograms.some((program) => !grants.has(program)))
+              return yield* new ForbiddenError({ message: "The room's command rules changed while waiting; request program approval again" })
+          }
           codes.record(joined.room.id, {
             kind: "run",
             who: joined.member.name,
@@ -1172,27 +1168,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile)
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
-          const blocked = RoomRules.blockedCommand(rules, command)
-          if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
-          // Normal guests need approval for each check because dod.yaml can change under the host.
-          // Trusted members were explicitly admitted for unattended work.
           const session = yield* inRoom(joined.room, undefined)
-          if (joined.member.role !== "trusted") {
-            yield* Permission.Service.use((permission) =>
-              permission.confirm({
-                action: "room.check",
-                resources: [command],
-                save: [command],
-                metadata: { guest: joined.guest.name, command, item: id },
-                sessionID: session.id,
-              }),
-            ).pipe(
-              instances.provide(session),
-              locationErrors,
-              Effect.catchTag("LocationNotFoundError", Effect.die),
-              Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this check" })),
-            )
-          }
+          const authorizedPrograms = yield* confirmRoomCommand({
+            room: joined.room,
+            member: joined.member,
+            guestName: joined.guest.name,
+            session,
+            command,
+            fallbackAction: "room.check",
+            metadata: { operation: "room.check", item: id },
+            rules,
+          })
           // Rules may have changed while the host was deciding whether to approve the check.
           rules = yield* effectiveRules(joined.room, directory)
           if (rules?.denyGuestCommands)
@@ -1202,8 +1188,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (RoomRules.protectedFileInCommand(rules, command))
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           const currentBlock = RoomRules.blockedCommand(rules, command)
-          if (currentBlock)
-            return yield* new ForbiddenError({ message: `This room forbids commands like "${currentBlock}"` })
+          if (currentBlock && joined.member.role !== "trusted") {
+            const currentPrograms = RoomRules.programsRequiringApproval(rules, command)
+            const currentMember = yield* rooms.member(joined.room.id, joined.member.id)
+            const grants = new Set([...(currentMember?.approvedPrograms ?? []), ...authorizedPrograms])
+            if (!currentPrograms.length || currentPrograms.some((program) => !grants.has(program)))
+              return yield* new ForbiddenError({ message: "The room's command rules changed while waiting; request program approval again" })
+          }
           // A denied command must not leave guest-supplied content in the host's handover notes.
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           const result = yield* Effect.tryPromise({
