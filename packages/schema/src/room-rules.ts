@@ -108,15 +108,10 @@ export function redactPath(text: string, directory: string) {
   // of the same absolute path, so literal case-sensitive replacement is not sufficient.
   const windowsPath = /^(?:[a-z]:[\\/]|\\\\)/i.test(directory)
   return variants.reduce((out, variant) => {
-    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\export function redactPath(text: string, directory: string) {
-  const forward = directory.replaceAll("\\", "/")
-  const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
-  return variants.reduce((out, variant) => out.split(variant).join("<project>"), text)
-}")
+    const escaped = variant.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")
     return out.replace(new RegExp(escaped, windowsPath ? "gi" : "g"), "<project>")
   }, text)
 }
-
 // A one-paragraph statement of the rules for the AI that has to follow them.
 export function describe(rules: Rules | undefined) {
   if (!rules) return undefined
