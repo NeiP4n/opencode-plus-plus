@@ -323,7 +323,7 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
   return [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])].find((raw) => {
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
-    return glob(pattern, "(?:^|[\\s\\x22\\x27=:/])", "(?=$|[\\s\\x22/:])").test(normal)
+    return glob(pattern, "(?:^|[\\s\\x22\\x27=:/])", "(?=$|[\\s\\x22\\x27/:])").test(normal)
   })
 }
 
