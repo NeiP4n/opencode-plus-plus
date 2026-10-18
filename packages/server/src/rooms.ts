@@ -41,6 +41,7 @@ const FEED_LIMIT = 200
 export const FEED_WAIT_MS = 25_000
 // Readers one room may hold waiting at once; past it, a read answers at once instead of waiting.
 const FEED_WAITERS = 100
+
 export class Service extends Context.Service<Service, Interface>()("@opencode/ServerRooms") {}
 
 const noLookup = () => Effect.die(new Error("ServerRooms cache must be used via set/getOption, never get"))
@@ -54,12 +55,11 @@ const layer = Layer.effect(
     // Keep last-seen timestamps even for offline members: room.member.list exposes
     // this value, so deleting old entries would change the API's observable behavior.
     const presence = new Map<string, number>()
-    const touch = (guestID: string) => void presence.set(guestID, Date.now())
     const feeds = new Map<Room.ID, Room.Event[]>()
     const waiters = new Map<Room.ID, Set<() => void>>()
     const after = (roomID: Room.ID, seq: number) => (feeds.get(roomID) ?? []).filter((event) => event.seq > seq)
     return Service.of({
-      touch,
+      touch: (guestID) => void presence.set(guestID, Date.now()),
       forgetGuest: (guestID) => void presence.delete(guestID),
       seen: (guestID) => presence.get(guestID),
       started: Date.now(),
