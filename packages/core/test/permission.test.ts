@@ -7,6 +7,8 @@ import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Bus } from "@opencode/core/bus"
 import { Location } from "@opencode/core/location"
 import { Permission } from "@opencode/core/permission"
+import { PluginHooks } from "@opencode/core/plugin/hooks"
+import { Room } from "@opencode/core/room"
 import { PermissionTable } from "@opencode/core/permission/sql"
 import { PermissionSaved } from "@opencode/core/permission/saved"
 import { Project } from "@opencode/core/project"
@@ -26,7 +28,7 @@ const current = Layer.succeed(
 )
 const it = testEffect(
   AppNodeBuilder.build(
-    LayerNode.group([Database.node, Bus.node, SessionStore.node, PermissionSaved.node, Agent.node, Permission.node]),
+    LayerNode.group([Database.node, Bus.node, SessionStore.node, PermissionSaved.node, Agent.node, PluginHooks.node, Room.node, Permission.node]),
     [Location.node.replace(current)],
   ),
 )
@@ -145,6 +147,48 @@ describe("Permission", () => {
       const blocked = yield* service.assert(assertion()).pipe(Effect.flip)
       expect(blocked).toBeInstanceOf(Permission.BlockedError)
       expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("room policy denial cannot be overridden by a later permission hook", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "webfetch", resource: "*", effect: "allow" }])
+      const rooms = yield* Room.Service
+      yield* rooms.create({ sessionID: Session.ID.make("ses_test"), rules: { noOutbound: true } })
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("permission", "evaluate", (event) =>
+        Effect.sync(() => {
+          event.effect = "allow"
+        }),
+      )
+      const service = yield* Permission.Service
+      expect(yield* service.ask(assertion({ action: "webfetch", resources: ["*"] }))).toMatchObject({
+        effect: "deny",
+      })
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("a blockCommands match asks for the program instead of hard-denying the command", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "shell", resource: "*", effect: "allow" }])
+      const rooms = yield* Room.Service
+      yield* rooms.create({
+        sessionID: Session.ID.make("ses_test"),
+        rules: { noOutbound: false, blockCommands: ["git push*"] },
+      })
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("permission", "evaluate", (event) =>
+        Effect.sync(() => {
+          event.effect = "allow"
+        }),
+      )
+      const service = yield* Permission.Service
+      expect(yield* service.ask(assertion({ action: "shell", resources: ["git push origin main"] }))).toMatchObject({
+        effect: "ask",
+      })
+      const requests = yield* service.list()
+      expect(requests[0]?.message).toContain("host approval to use: git")
     }),
   )
 
