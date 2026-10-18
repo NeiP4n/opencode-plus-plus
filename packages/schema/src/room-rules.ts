@@ -32,7 +32,15 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
 }
 
 // Permission actions that carry data out of the machine.
-export const outbound: readonly string[] = ["webfetch", "websearch", "peers", "federation"]
+export const outbound: readonly string[] = [
+  "webfetch",
+  "websearch",
+  "peers",
+  "federation",
+  "shell",
+  "opencode_list_mcp_resources",
+  "opencode_read_mcp_resource",
+]
 
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
