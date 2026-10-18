@@ -227,7 +227,9 @@ export function commandTouchesProtectedFile(rules: Rules | undefined, command: s
     if (!pattern) return false
     // Check path-like substrings too: a filename can be embedded inside a quoted script
     // argument (for example python -c 'open(".env").read()').
-    return glob(pattern, "(^|/)").test(normal) || (!pattern.includes("/") && glob(pattern, "").test(normal))
+    // A path can begin after whitespace or a quote in a shell argument, not only after a slash.
+    const prefix = "(^|[/\\s'\"=])"
+    return glob(pattern, prefix).test(normal)
   })
 }
 
