@@ -276,6 +276,21 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       return session.location.directory
     })
 
+    // Rules are cumulative for every room sharing this session or its project directory.
+    // Enforce the same strictest policy on guest endpoints as the host AI's permission hook.
+    const rulesForRoom = Effect.fnUntraced(function* (room: Room.Info, directory?: string) {
+      const target = directory ?? (yield* roomDirectory(room))
+      return RoomRules.merge(
+        (yield* rooms.list()).flatMap((candidate) =>
+          candidate.rules &&
+          (candidate.sessionID === room.sessionID ||
+            (candidate.directory !== undefined && Orchestra.contains(candidate.directory, target)))
+            ? [candidate.rules]
+            : [],
+        ),
+      )
+    })
+
     // A member keeps a DoD item while it stays in some room on this server and was heard
     // from within the lease; a restart counts as hearing from everyone once.
     const live = Effect.fnUntraced(function* () {
