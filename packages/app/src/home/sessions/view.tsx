@@ -1,6 +1,6 @@
 import type { SessionInfo } from "@opencode/client/promise"
 import { Key } from "@solid-primitives/keyed"
-import { createMemo, For, Index, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, For, Index, onCleanup, Show } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
 import { InlineInput } from "@opencode/ui/inline-input"
 import { Spinner } from "@opencode/ui/spinner"
@@ -49,6 +49,7 @@ function isBackgroundOpen(event: MouseEvent) {
 export type HomeSessionsViewProps = {
   language: ReturnType<typeof useLanguage>
   groups: HomeSessionGroup[]
+  archivedGroups: HomeSessionGroup[]
   loading: boolean
   desktop: boolean
   location: (record: HomeSessionRecord) => { worktree: string; branch: string | undefined }
@@ -68,6 +69,7 @@ export type HomeSessionsViewProps = {
   onCreateSession: () => void
   onOpenSession: (session: SessionInfo, options?: OpenSessionOptions) => void
   onArchiveSession: (session: SessionInfo) => Promise<void>
+  onRestoreSession: (session: SessionInfo) => Promise<void>
   onRenameSession: (server: ServerConnection.Key, session: SessionInfo, title: string) => Promise<boolean>
   onExportSession: (server: ServerConnection.Key, session: SessionInfo) => Promise<void>
   onDeleteSession: (server: ServerConnection.Key, session: SessionInfo) => void
@@ -99,6 +101,8 @@ type HomeSessionRowUI = {
 export function HomeSessionsView(props: HomeSessionsViewProps) {
   const [rowUI, setRowUI] = createStore<HomeSessionRowUI>({ menu: undefined, editor: undefined })
   const [hover, setHover] = createStore<{ sessionID: string | undefined }>({ sessionID: undefined })
+  const [showArchived, setShowArchived] = createSignal(false)
+  const visibleGroups = createMemo(() => (showArchived() ? props.archivedGroups : props.groups))
   const showLocations = createAltHold(props.desktop, props.onRevealLocations)
 
   return (
@@ -117,7 +121,19 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
           hoveredSession={hover.sessionID}
           onHoverSession={(sessionID) => setHover("sessionID", sessionID)}
         />
-        <Show when={props.groups.length > 0 && props.canCreateSession}>
+        <div class="absolute left-0 top-[68px] z-20 flex gap-1 md:top-[84px] lg:top-[108px]">
+          <Button
+            data-action="home-toggle-archived-sessions"
+            variant="ghost-muted"
+            size="normal"
+            icon={showArchived() ? "arrow-left" : "archive"}
+            class="h-7 px-2 [font-weight:530]"
+            onClick={() => setShowArchived((value) => !value)}
+          >
+            {showArchived() ? "Recent sessions" : `Archived (${props.archivedGroups.reduce((count, group) => count + group.sessions.length, 0)})`}
+          </Button>
+        </div>
+        <Show when={!showArchived() && props.groups.length > 0 && props.canCreateSession}>
           <div class="pointer-events-none absolute right-0 top-[68px] z-20 flex md:top-[84px] lg:top-[108px]">
             <Button
               data-action="home-new-session"
@@ -149,7 +165,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
           }
         >
           <Show
-            when={props.groups.length > 0}
+            when={visibleGroups().length > 0}
             fallback={
               <HomeSessionsEmpty
                 onNewSession={props.canCreateSession ? props.onCreateSession : undefined}
@@ -160,7 +176,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
             <div ref={props.onSetContent} class="flex flex-col pt-1 pr-3 pb-16 md:pt-3">
               {/* Index keeps group subtrees mounted when the group arrays are
                   rebuilt, so store updates cannot recreate rows mid-gesture. */}
-              <Index each={props.groups}>
+              <Index each={visibleGroups()}>
                 {(group, index) => (
                   <>
                     <HomeSessionGroupHeader
@@ -170,7 +186,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
                       elevated={index === 0}
                     />
                     <div
-                      class={`flex min-w-0 flex-col gap-px pt-2 md:pt-4 ${index === props.groups.length - 1 ? "" : "mb-6"}`}
+                      class={`flex min-w-0 flex-col gap-px pt-2 md:pt-4 ${index === visibleGroups().length - 1 ? "" : "mb-6"}`}
                     >
                       {/* Rows key by session ID: session.sync replaces the
                           stored session object wholesale, so reference-keyed
@@ -181,6 +197,7 @@ export function HomeSessionsView(props: HomeSessionsViewProps) {
                           <HomeSessionRow
                             {...props}
                             record={record()}
+                            archivedMode={showArchived()}
                             rowUI={rowUI}
                             setRowUI={setRowUI}
                             showLocations={showLocations()}
@@ -401,6 +418,7 @@ function HomeSessionSearch(
 
 function HomeSessionSearchResultRow(
   props: HomeSessionsViewProps & {
+    archivedMode: boolean
     record: HomeSessionRecord
     selected: boolean
     showLocations: boolean
@@ -797,17 +815,19 @@ function HomeSessionRow(
             group-hover/session:opacity-100 focus-within:opacity-100
           `}
         >
-          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.language.t("common.archive")}>
+          <Tooltip class="flex shrink-0 items-center" placement="bottom" value={props.archivedMode ? "Restore session" : props.language.t("common.archive")}>
             <IconButton
               data-action="home-session-archive"
               variant="ghost-muted"
               size="large"
-              icon={<Icon name="archive" />}
-              aria-label={props.language.t("common.archive")}
+              icon={<Icon name={props.archivedMode ? "rotate-ccw" : "archive"} />}
+              aria-label={props.archivedMode ? "Restore session" : props.language.t("common.archive")}
               onClick={(event) => {
                 event.preventDefault()
                 event.stopPropagation()
-                void props.onArchiveSession(props.record.session)
+                void (props.archivedMode
+                  ? props.onRestoreSession(props.record.session)
+                  : props.onArchiveSession(props.record.session))
               }}
             />
           </Tooltip>
