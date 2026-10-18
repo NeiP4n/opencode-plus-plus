@@ -34,6 +34,8 @@ test("protected files cannot be accessed through shell command arguments", () =>
   expect(RoomRules.protectedFileInCommand(rules, "cat .env")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "cp 'secrets/key.pem' /tmp/key.pem")).toBe("secrets/*")
   expect(RoomRules.protectedFileInCommand(rules, "tool --config=.env.local")).toBe(".env*")
+  expect(RoomRules.protectedFileInCommand(rules, "cat C:\\work\\app\\.env")).toBe(".env*")
+  expect(RoomRules.protectedFileInCommand(rules, "bash -c 'cat .env'")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
 })
 
