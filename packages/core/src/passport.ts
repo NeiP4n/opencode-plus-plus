@@ -69,7 +69,7 @@ export async function run(command: string, directory: string, signal?: AbortSign
   })
   const parts = [stdout, stderr].filter((part) => part.hasContent).map((part) => part.text)
   const output = parts.join("\n")
-  const cut = stdout.cut || stderr.cut || output.length > OUTPUT_LIMIT
+  const cut = (stdout.hasContent && stdout.cut) || (stderr.hasContent && stderr.cut) || output.length > OUTPUT_LIMIT
   return {
     shell: backend,
     exitCode,
