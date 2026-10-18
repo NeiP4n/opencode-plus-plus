@@ -818,8 +818,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
           const dod = yield* Dod.read(directory, yield* live()).pipe(Effect.mapError(invalidDod))
-          const visible = joined.room.rules?.hidePaths
+          const visible = rules?.hidePaths
             ? redactRoomValue(dod, [joined.room.directory ?? "", directory].filter(Boolean))
             : dod
           return forGuest(visible, joined.member)
@@ -831,6 +832,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
           const owner = ownerOf(joined.member)
           const record = (kind: Room.EventKind, item: string, who = owner.name) =>
             codes.record(joined.room.id, { kind, who, item })
@@ -842,7 +844,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
             yield* freeDodPlots(directory, id)
             record("release", id)
-            return forGuest(dod, joined.member)
+            const result = forGuest(dod, joined.member)
+            return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
           }
           const alive = yield* live()
           const before = yield* Dod.read(directory, alive).pipe(Effect.mapError(invalidDod))
@@ -864,11 +867,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             record("expire", taken.id, previous.owner ?? "?")
           }
           if (previous?.ownerID !== owner.id) record("take", taken.id)
-          const result = {
+          const rawResult = {
             ...forGuest(taken.dod, joined.member),
             taken: taken.id,
             note: yield* readHandover(joined.room, taken.id),
           }
+          const result = rules?.hidePaths ? redactRoomValue(rawResult, [directory]) : rawResult
           const paths = ctx.payload.paths ?? []
           if (paths.length === 0) return result
           // A refused plot undoes a fresh take, so the item is not left marked for work that cannot start.
@@ -958,10 +962,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.feed",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
+          const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
           const feed = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
-          return joined.room.rules?.hidePaths && joined.room.directory
-            ? redactRoomValue(feed, [joined.room.directory])
-            : feed
+          return rules?.hidePaths ? redactRoomValue(feed, [directory]) : feed
         }),
       )
       .handle(
