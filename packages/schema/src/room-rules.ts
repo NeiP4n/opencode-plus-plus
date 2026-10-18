@@ -151,7 +151,6 @@ export function describe(rules: Rules | undefined) {
   return lines.length > 0 ? lines.join("\n") : undefined
 }
 
-
 // A hard room-policy denial is evaluated after plugin permission hooks so another hook
 // cannot accidentally or deliberately turn a room restriction back into an allow.
 export function violation(
