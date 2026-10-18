@@ -17,8 +17,11 @@ const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 export interface Interface {
   readonly issueCode: (roomID: Room.ID) => Effect.Effect<Room.JoinCode>
   readonly redeemCode: (code: string) => Effect.Effect<Room.ID | undefined>
+  // Release transient room state when a room is deleted.
+  readonly forget: (roomID: Room.ID, guestIDs?: readonly string[]) => Effect.Effect<void>
   // Presence lives in memory: every guest request marks its guest as seen.
   readonly touch: (guestID: string) => void
+  readonly forgetGuest: (guestID: string) => void
   readonly seen: (guestID: string) => number | undefined
   // When this server started, standing in for the last sight of a guest it has not heard from since.
   readonly started: number
@@ -49,17 +52,27 @@ const layer = Layer.effect(
     const codes = yield* Cache.make<string, Room.ID>({ capacity: 1_000, lookup: noLookup, timeToLive: CODE_TTL })
     // Each room's newest code, so a new code retires the one before it.
     const issued = new Map<Room.ID, string>()
+    // Keep last-seen timestamps even for offline members: room.member.list exposes
+    // this value, so deleting old entries would change the API's observable behavior.
     const presence = new Map<string, number>()
     const feeds = new Map<Room.ID, Room.Event[]>()
     const waiters = new Map<Room.ID, Set<() => void>>()
     const after = (roomID: Room.ID, seq: number) => (feeds.get(roomID) ?? []).filter((event) => event.seq > seq)
     return Service.of({
       touch: (guestID) => void presence.set(guestID, Date.now()),
+      forgetGuest: (guestID) => void presence.delete(guestID),
       seen: (guestID) => presence.get(guestID),
       started: Date.now(),
       record: (roomID, event) => {
-        const list = feeds.get(roomID) ?? []
-        feeds.set(roomID, [...list, { ...event, seq: (list.at(-1)?.seq ?? 0) + 1, at: Date.now() }].slice(-FEED_LIMIT))
+        // Mutate the private bounded buffer instead of allocating/copying up to
+        // FEED_LIMIT events for every live event.
+        let list = feeds.get(roomID)
+        if (!list) {
+          list = []
+          feeds.set(roomID, list)
+        }
+        list.push({ ...event, seq: (list.at(-1)?.seq ?? 0) + 1, at: Date.now() })
+        if (list.length > FEED_LIMIT) list.splice(0, list.length - FEED_LIMIT)
         const waiting = waiters.get(roomID)
         waiters.delete(roomID)
         waiting?.forEach((wake) => wake())
@@ -68,12 +81,15 @@ const layer = Layer.effect(
         // A reader whose cursor is past the end saw a feed from before a restart; it starts over.
         const last = feeds.get(roomID)?.at(-1)?.seq ?? 0
         const from = seq > last ? 0 : seq
-        if (after(roomID, from).length > 0 || !wait || (waiters.get(roomID)?.size ?? 0) >= FEED_WAITERS)
-          return { events: after(roomID, from) }
+        const available = after(roomID, from)
+        if (available.length > 0 || !wait || (waiters.get(roomID)?.size ?? 0) >= FEED_WAITERS)
+          return { events: available }
         yield* Effect.callback<void>((resume) => {
           const forget = () => {
             clearTimeout(timer)
-            waiters.get(roomID)?.delete(wake)
+            const waiting = waiters.get(roomID)
+            waiting?.delete(wake)
+            if (waiting?.size === 0) waiters.delete(roomID)
           }
           const wake = () => {
             forget()
@@ -84,6 +100,18 @@ const layer = Layer.effect(
           return Effect.sync(forget)
         })
         return { events: after(roomID, from) }
+      }),
+      forget: Effect.fn("ServerRooms.forget")(function* (roomID, guestIDs: readonly string[] = []) {
+        const code = issued.get(roomID)
+        if (code !== undefined) {
+          yield* Cache.invalidate(codes, code)
+          issued.delete(roomID)
+        }
+        for (const guestID of guestIDs) presence.delete(guestID)
+        feeds.delete(roomID)
+        const waiting = waiters.get(roomID)
+        waiters.delete(roomID)
+        waiting?.forEach((wake) => wake())
       }),
       issueCode: Effect.fn("ServerRooms.issueCode")(function* (roomID) {
         const code = Array.from({ length: CODE_LENGTH }, () => ALPHABET[randomInt(ALPHABET.length)]).join("")
