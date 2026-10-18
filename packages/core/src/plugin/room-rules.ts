@@ -149,7 +149,7 @@ export const Plugin = define({
           }
           return
         }
-        if (["read", "edit", "write", "patch", "multiedit", "grep", "glob"].includes(event.action)) {
+        if (["read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob"].includes(event.action)) {
           const file = event.resources.find((item) => RoomRules.protectedFile(rules, item))
           if (file) return deny("This room keeps that file off limits to the AI")
         }
