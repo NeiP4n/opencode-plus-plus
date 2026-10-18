@@ -25,7 +25,7 @@ import {
   type OpenSessionOptions,
 } from "./controller"
 
-const SHOW_HOME_SESSION_ARCHIVE = false
+const SHOW_HOME_SESSION_ARCHIVE = true
 
 const HOME_SECTION_LABEL = "text-v2-text-text-muted [font-weight:440]"
 
