@@ -543,13 +543,29 @@ it.live("hideExecution changes apply to a room that is already open", () =>
     const before = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
     expect(before.body.events.some((item: { kind: string; detail?: string }) => item.kind === "run" && item.detail?.includes("command-hidden-from-feed"))).toBe(true)
 
-    // Toggle after the guest already joined and the command ran; no reconnect is needed.
+    // Start a long-poll under the old policy, then enable hiding before the next event arrives.
+    const last = before.body.events.at(-1)?.seq ?? 0
+    const waiting = yield* call(`/api/room/${room.id}/guest/feed?after=${last}&wait=5000`, {
+      headers: guestHeaders,
+    }).pipe(Effect.forkScoped)
+    yield* Effect.sleep("50 millis")
     const changed = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
       body: { rules: { hideExecution: true, noOutbound: false } },
     })
     expect(changed.status).toBe(200)
+    const hiddenRun = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guestHeaders,
+      body: { command: "echo hidden-after-toggle" },
+    })
+    expect(hiddenRun.status).toBe(200)
+    const waitingResult = yield* Fiber.join(waiting)
+    expect(waitingResult.status).toBe(200)
+    expect(waitingResult.body.events.some((item: { kind: string; detail?: string }) =>
+      ["run", "pass", "fail"].includes(item.kind) || item.detail?.includes("hidden-after-toggle"),
+    )).toBe(false)
     const after = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
     expect(after.body.events.some((item: { kind: string }) => ["run", "pass", "fail"].includes(item.kind))).toBe(false)
   }).pipe(Effect.scoped),
