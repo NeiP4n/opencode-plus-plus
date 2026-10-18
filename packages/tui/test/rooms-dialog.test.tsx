@@ -385,6 +385,46 @@ test("Host opens a loopback-only service to the network with one click", async (
   expect(opened).toBe(1)
 })
 
+test("room management separates participants from safety rules and exposes guest restrictions", async () => {
+  await using state = await tmpdir()
+  const updates: unknown[] = []
+  let savedRules: Record<string, unknown> = {}
+  await using setup = await createAppFixture({
+    width: 130,
+    height: 40,
+    state: state.path,
+    config: { animations: false, debug: { devtools: true } },
+    fetch: async (url, request) => {
+      if (url.pathname === "/api/location") return json(location)
+      if (url.pathname === "/api/room" && request.method === "GET")
+        return json({ data: [{ ...room, rules: savedRules }] })
+      if (url.pathname === `/api/room/${room.id}/dod`) return json({ items: [], status: "ready" })
+      if (url.pathname === `/api/room/${room.id}/feed`) return json({ events: [] })
+      if (url.pathname === `/api/room/${room.id}/member`) return json({ data: [] })
+      if (url.pathname === `/api/room/${room.id}/ban`) return json({ data: [] })
+      if (url.pathname === `/api/room/${room.id}` && request.method === "PATCH") {
+        const body = await request.json() as { rules?: Record<string, unknown> }
+        updates.push(body)
+        savedRules = body.rules ?? savedRules
+        return json({ data: { ...room, rules: savedRules } })
+      }
+      if (url.pathname.startsWith(`/api/room/${room.id}/`)) return new Response(null, { status: 204 })
+    },
+  })
+  const overview = await setup.waitForFrame((frame) => frame.includes("Safety rules") && frame.includes("Participants"))
+  expect(overview).toContain("Room management")
+  const line = overview.split("\n").findIndex((item) => item.includes("Safety rules"))
+  await setup.mockMouse.click(overview.split("\n")[line].indexOf("Open") + 1, line)
+  const rules = await setup.waitForFrame((frame) => frame.includes("Guest prompts") && frame.includes("Guest commands"))
+  expect(rules).toContain("Privacy & network")
+  expect(rules).toContain("Command & file restrictions")
+  expect(rules).toContain("Off-limits files")
+  const promptsLine = rules.split("\n").findIndex((item) => item.includes("Guest prompts"))
+  await setup.mockMouse.click(rules.split("\n")[promptsLine].indexOf("Allowed") + 1, promptsLine)
+  await setup.waitFor(() => updates.length > 0)
+  expect(updates[0]).toEqual({ rules: { denyGuestPrompts: true } })
+})
+
 test("Participants under Multiplayer lists guests, steps their role and removes or bans them", async () => {
   await using state = await tmpdir()
   const calls: { method: string; path: string; body?: unknown }[] = []
