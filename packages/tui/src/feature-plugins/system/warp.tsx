@@ -298,19 +298,25 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
   return next
 }
 
-function ActionButton(props: { context: Plugin.Context; id: string; label: string; run: () => void; disabled?: boolean; emphasized?: boolean }) {
+function ActionButton(props: { context: Plugin.Context; id: string; label: string; run: () => void; disabled?: boolean; emphasized?: boolean; block?: boolean }) {
   const [hovered, setHovered] = createSignal(false)
   const theme = () => props.context.theme
   const base = () => theme().text.action?.primary?.base ?? theme().text.base
   const hover = () => theme().text.action?.primary?.hovered ?? theme().increase(base(), 2)
+  const background = () => {
+    if (props.disabled) return undefined
+    if (hovered()) return hoverBackground(theme())
+    if (props.emphasized) return theme().background.raised?.base ?? theme().background.base
+    return undefined
+  }
   return (
-    <box id={props.id} paddingLeft={1} paddingRight={1} backgroundColor={hovered() && !props.disabled ? hoverBackground(theme()) : undefined} onMouseOver={() => setHovered(!props.disabled)} onMouseOut={() => setHovered(false)} onMouseUp={(event) => { event.stopPropagation(); if (!props.disabled) props.run() }}>
-      <text fg={props.disabled ? theme().text.muted : hovered() ? hover() : props.emphasized ? base() : theme().text.muted} wrapMode="none">{props.label}</text>
+    <box id={props.id} width={props.block ? "100%" : undefined} paddingLeft={1} paddingRight={1} backgroundColor={background()} onMouseOver={() => setHovered(!props.disabled)} onMouseOut={() => setHovered(false)} onMouseUp={(event) => { event.stopPropagation(); if (!props.disabled) props.run() }}>
+      <text fg={props.disabled ? theme().text.muted : hovered() ? hover() : props.emphasized ? base() : theme().text.muted} wrapMode="none">{props.emphasized ? <b>{props.label}</b> : props.label}</text>
     </box>
   )
 }
 
-function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; exitIp: string; directIp: string; open: () => void; toggleAutoRotate: () => void }) {
+function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; exitIp: string; directIp: string; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void }) {
   const theme = () => props.context.theme
   const ru = () => language(props.context) === "ru"
   return (
@@ -319,12 +325,27 @@ function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy:
         <text fg={theme().text.base}><b>WARP</b></text>
         <text fg={statusColor(props.context, props.status.state)} wrapMode="none">{statusLabel(props.context, props.status.state)}</text>
       </box>
-      <text fg={theme().text.muted} wrapMode="none">{ru() ? `OpenCode через WARP: ${props.proxyEnabled ? "включено" : "выключено"}` : `OpenCode via WARP: ${props.proxyEnabled ? "on" : "off"}`}</text>
+      <text fg={props.proxyEnabled ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">
+        {ru()
+          ? props.proxyEnabled ? "Маршрут OpenCode: только через WARP" : "Маршрут OpenCode: напрямую"
+          : props.proxyEnabled ? "OpenCode routing: WARP only" : "OpenCode routing: direct"}
+      </text>
       <text fg={theme().text.muted} wrapMode="none">{(ru() ? "Ваш IP: " : "Your IP: ") + (props.directIp || "…")}</text>
-      {props.proxyEnabled && <text fg={theme().text.feedback.success.base} wrapMode="none">{"OpenCode: " + (props.exitIp || "…")}</text>}
-      <box flexDirection="row" gap={1}>
-        <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? "[ Управление ↗ ]" : "[ Manage ↗ ]"} run={props.open} emphasized />
-        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? `[ ⚑ Авто IP: ${props.autoRotateEnabled ? "ВКЛ" : "ВЫКЛ"} ]` : `[ ⚑ Auto IP: ${props.autoRotateEnabled ? "ON" : "OFF"} ]`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} />
+      {props.proxyEnabled && <text fg={theme().text.feedback.success.base} wrapMode="none">{(ru() ? "IP OpenCode: " : "OpenCode IP: ") + (props.exitIp || "…")}</text>}
+      <ActionButton
+        context={props.context}
+        id="warp.sidebar.proxy"
+        label={props.proxyEnabled
+          ? (ru() ? "✓ Отключить WARP для OpenCode" : "✓ Disable WARP for OpenCode")
+          : (ru() ? "↗ Только OpenCode через WARP" : "↗ Route only OpenCode via WARP")}
+        run={props.toggleProxy}
+        disabled={props.busy.action !== null || props.status.state === "unavailable"}
+        emphasized
+        block
+      />
+      <box flexDirection="row" gap={1} flexWrap="wrap">
+        <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? "⚙ Управление" : "⚙ Manage"} run={props.open} />
+        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? `⚑ Авто IP · ${props.autoRotateEnabled ? "ВКЛ" : "ВЫКЛ"}` : `⚑ Auto IP · ${props.autoRotateEnabled ? "ON" : "OFF"}`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} />
       </box>
     </box>
   )
@@ -367,7 +388,7 @@ function WarpPage(props: { context: Plugin.Context; status: WarpStatus; busy: Sh
           <text fg={theme().text.base}><b>Cloudflare WARP</b></text>
           <text fg={theme().text.muted} wrapMode="word">{ru() ? "Через WARP идёт только трафик OpenCode, остальные программы — напрямую." : "Only OpenCode traffic goes through WARP; other apps connect directly."}</text>
         </box>
-        <ActionButton context={props.context} id="warp.close" label="[ Esc ]" run={props.onClose} />
+        <ActionButton context={props.context} id="warp.close" label="Esc" run={props.onClose} />
       </box>
       <box paddingLeft={1}>
         <box flexDirection="row" alignItems="center" gap={1}>
@@ -524,7 +545,7 @@ export default Plugin.define({
           updateProxy((draft) => { draft.enabled = false })
           Warp.releaseSync({ disconnect: false })
           next = await readWarpStatus()
-          actionMessage = text(context, "OpenCode proxy disabled; WARP stays disconnected until you explicitly connect it.", "Прокси OpenCode отключён; WARP останется отключённым, пока ты явно не подключишь его.")
+          actionMessage = text(context, "OpenCode now connects directly. Other apps were not changed.", "OpenCode теперь подключается напрямую. Настройки остальных приложений не изменены.")
         } else if (action === "changeIp") {
           const rotation = await Warp.rotate()
           lastRateLimitRotationAt = Date.now()
@@ -580,7 +601,7 @@ export default Plugin.define({
       context.keymap.layer(() => ({ mode: "global", commands: [{ id: "opencode.warp.open", title: text(context, "Cloudflare WARP controls", "Управление Cloudflare WARP"), description: text(context, "View status, connect, reconnect, or reset registration", "Статус, подключение, переподключение и сброс регистрации"), group: "System", slash: { name: "warp", arguments: true }, palette: true, run: open }] }))
       return null
     }})
-    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} exitIp={exit.ip} directIp={exit.direct} open={open} toggleAutoRotate={() => void toggleAutoRotate()} /> })
+    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} exitIp={exit.ip} directIp={exit.direct} open={open} toggleProxy={() => void perform(proxy.enabled ? "disableProxy" : "proxy")} toggleAutoRotate={() => void toggleAutoRotate()} /> })
 
     void Warp.hideGui()
     void refresh()
