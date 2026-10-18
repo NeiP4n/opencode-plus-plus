@@ -238,6 +238,9 @@ export function commandSendsOutbound(command: string) {
   return (
     // Arbitrary script interpreters can open their own sockets or print environment credentials.
     /\b(python|python3|node|bun|deno|ruby|perl|php|pwsh|powershell|bash|sh|zsh|cmd|lua|npx|npm|pnpm|yarn)\b/.test(value) ||
+    /\b(env|printenv|set)\b/.test(value) ||
+    /\b(?:openai|anthropic|claude|github|gh|aws|azure|google|gcp)_[a-z0-9_]*(?:api_key|token|secret|password|credential|private_key)[a-z0-9_]*\b/i.test(value) ||
+    /\b(?:get-childitem|gci)\s+env:/i.test(value) ||
     /\b(gh|glab|aws|az|gcloud|kubectl|helm|terraform|wrangler|fly|vercel|netlify|heroku|railway)\b/.test(value) ||
     /\b(curl|wget|fetch|ssh|scp|sftp|rsync|ftp|nc|netcat|ncat|socat|telnet|tftp)\b/.test(value) ||
     /\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b/.test(value) ||
