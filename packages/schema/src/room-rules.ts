@@ -262,11 +262,24 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
 }
 
 export function redactPath(text: string, directory: string) {
-  const forward = directory.replaceAll("\\", "/")
-  const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
+  const forward = directory.replaceAll("\\", "/").replace(/\/+$/, "")
+  const candidates = new Set<string>([directory, forward])
+  // A session may be nested under the actual project root. Hide parent roots too, since
+  // project metadata can reveal the same directory through a shorter canonical path.
+  let parent = forward
+  while (parent.length > 1) {
+    const index = parent.lastIndexOf("/")
+    // Do not add a POSIX root or a Windows drive root such as C colon.
+    if (index <= 0 || (/^[A-Za-z]:/.test(parent) && index <= 2)) break
+    parent = parent.slice(0, index)
+    if (parent.length > 1) candidates.add(parent)
+  }
+  const variants = [...candidates, ...[...candidates].map((item) => item.replaceAll("/", "\\"))]
+    .filter((variant) => variant.length > 1)
+    .sort((a, b) => b.length - a.length)
   return variants.reduce((out, variant) => {
-    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    return out.replace(new RegExp(escaped, "gi"), "<project>")
+    const escaped = variant.replace(/[.*+?^{}$()|[\]\\]/g, "\\$&")
+    return out.replace(new RegExp(escaped + "(?=$|[/\\\\\\s:'\"<>])", "gi"), "<project>")
   }, text)
 }
 
