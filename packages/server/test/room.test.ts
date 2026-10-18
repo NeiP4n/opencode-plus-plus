@@ -663,7 +663,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     // the passport is for guests of this room only
     expect((yield* call(`/api/room/${room.id}/guest/passport`)).status).toBe(401)
 
-    const run = (command = "echo from-the-host; env") =>
+    const run = (command = "echo from-the-host") =>
       call(`/api/room/${room.id}/guest/run`, {
         method: "POST",
         headers: guest,
@@ -675,6 +675,10 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
       headers: host,
       body: { role: "cohost" },
     })
+
+    // Environment dumps are forbidden even after the user has been promoted; process and
+    // connected-account credentials must not become guest-visible command output.
+    expect((yield* run("env")).status).toBe(403)
 
     // nothing runs until the host answers the request in its session
     const pending = yield* run().pipe(Effect.forkScoped)
