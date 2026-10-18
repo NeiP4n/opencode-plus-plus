@@ -1290,8 +1290,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = yield* roomDirectory(joined.room)
-          const rules = yield* effectiveRules(joined.room, directory)
           const feed = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          // Guest feed requests may long-poll while the host tightens privacy rules. Resolve the
+          // policy after the wait completes so this response cannot use a stale pre-wait snapshot.
+          const rules = yield* effectiveRules(joined.room, directory)
           // Hiding execution means hiding the occurrence too, not merely the command text.
           // Keep membership and task lifecycle events, but don't disclose that a command/check ran.
           const visible = rules?.hideExecution
