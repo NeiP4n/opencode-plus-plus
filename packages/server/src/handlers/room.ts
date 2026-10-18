@@ -1026,7 +1026,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
           let rules = yield* effectiveRules(joined.room, session.location.directory)
-          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
+          let directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (RoomRules.commandLeaksCredentials(command))
             return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (rules?.denyGuestCommands)
@@ -1049,39 +1049,47 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             metadata: { operation: "room.run" },
             rules,
           })
-          // Rules may have changed while the host was deciding whether to approve the command.
-          rules = yield* effectiveRules(joined.room, session.location.directory)
+          // Re-resolve membership after the permission prompt. The host may have removed or
+          // demoted the guest while the command was waiting; a stale role snapshot must not run it.
+          let currentJoin = yield* guestWho(joined.room.id, "cohost")
+          let currentSession = yield* inRoom(currentJoin.room, session.id)
+          rules = yield* effectiveRules(currentJoin.room, currentSession.location.directory)
+          directories = [currentJoin.room.directory ?? "", currentSession.location.directory].filter(Boolean)
           if (rules?.denyGuestCommands)
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
+          if (RoomRules.commandLeaksCredentials(command))
+            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (RoomRules.protectedFileInCommand(rules, command))
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           const currentBlock = RoomRules.blockedCommand(rules, command)
-          if (currentBlock && joined.member.role !== "trusted") {
+          if (currentBlock && currentJoin.member.role !== "trusted") {
             const currentPrograms = RoomRules.programsRequiringApproval(rules, command)
-            const currentMember = yield* rooms.member(joined.room.id, joined.member.id)
-            const grants = new Set([...(currentMember?.approvedPrograms ?? []), ...authorizedPrograms])
+            const grants = new Set([...(currentJoin.member.approvedPrograms ?? []), ...authorizedPrograms])
             if (!currentPrograms.length || currentPrograms.some((program) => !grants.has(program)))
               return yield* new ForbiddenError({ message: "The room's command rules changed while waiting; request program approval again" })
           }
-          codes.record(joined.room.id, {
+          codes.record(currentJoin.room.id, {
             kind: "run",
-            who: joined.member.name,
+            who: currentJoin.member.name,
             detail: rules?.hidePaths
               ? redactRoomValue(command, directories)
               : command,
           })
           const result = yield* Effect.tryPromise({
-            try: (signal) => Passport.run(command, session.location.directory, signal),
+            try: (signal) => Passport.run(command, currentSession.location.directory, signal),
             catch: (error) =>
               new InvalidRequestError({
                 message: `Could not run the command: ${rules?.hidePaths ? redactRoomValue(String(error), directories) : String(error)}`,
               }),
           })
-          // Re-read privacy rules after execution too: the host may change visibility while
-          // a long-running command is still in progress.
-          rules = yield* effectiveRules(joined.room, session.location.directory)
+          // Revalidate membership after execution as well: don't return process output to a guest
+          // who was removed or demoted while a long-running process was active.
+          currentJoin = yield* guestWho(currentJoin.room.id, "cohost")
+          currentSession = yield* inRoom(currentJoin.room, currentSession.id)
+          rules = yield* effectiveRules(currentJoin.room, currentSession.location.directory)
+          directories = [currentJoin.room.directory ?? "", currentSession.location.directory].filter(Boolean)
           const visibleResult = rules?.hidePaths
             ? { ...result, output: redactRoomValue(result.output, directories) }
             : result
