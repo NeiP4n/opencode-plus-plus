@@ -997,7 +997,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
-    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id, rules: { noOutbound: false } } })).body
+    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id, rules: { noOutbound: false, blockCommands: ["echo*"] } } })).body
       .data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
