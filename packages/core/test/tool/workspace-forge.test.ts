@@ -46,8 +46,14 @@ describe("workspace forge input", () => {
     expect(() => decode({ action: "create_session", directory: "/work/project", sandbox: "unconfined" })).toThrow()
   })
 
-  test("rejects a missing group-member list at the tool boundary when the shape is required by callers", () => {
-    const input = decode({ action: "create_group", name: "empty-group" })
-    expect(input.members).toBeUndefined()
+  test("requires at least two members to create a federated group", () => {
+    expect(WorkspaceForgeTool.groupMemberCountError(undefined)).toContain("at least two members")
+    expect(WorkspaceForgeTool.groupMemberCountError([{ projectID: "prj_existing" }])).toContain("at least two members")
+    expect(
+      WorkspaceForgeTool.groupMemberCountError([
+        { projectID: "prj_existing" },
+        { directory: "/work/new-project" },
+      ]),
+    ).toBeUndefined()
   })
 })

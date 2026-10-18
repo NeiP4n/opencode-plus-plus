@@ -56,6 +56,13 @@ type MemberSpec =
 
 const sandboxChoice = (value: SandboxMode | undefined): SandboxMode => value ?? "environment"
 const sandboxArgs = (value: SandboxMode) => (value === "none" ? {} : { isolation: value })
+type GroupMemberInput = typeof GroupMember.Type
+
+export function groupMemberCountError(members: ReadonlyArray<GroupMemberInput> | undefined) {
+  if (!members || members.length < 2)
+    return "create_group needs at least two members: each must be an existing projectID or a new project with an existing directory."
+}
+
 const projectLine = (project: Orchestra.Project) =>
   `${project.name} (${project.id}) · directory: ${project.directory} · main: ${project.main ?? "not initialized"} · sandbox: ${project.sandbox?.isolation ?? "none"}`
 
@@ -181,8 +188,8 @@ export const Plugin = {
                 const groupName = input.name?.trim()
                 if (!groupName) return yield* new ToolFailure({ message: "create_group requires a non-empty name." })
                 const inputMembers = input.members
-                if (!inputMembers || inputMembers.length < 2)
-                  return yield* new ToolFailure({ message: "create_group needs at least two members: each must be an existing projectID or a new project with an existing directory." })
+                const memberCountError = groupMemberCountError(inputMembers)
+                if (memberCountError) return yield* new ToolFailure({ message: memberCountError })
                 if ((yield* federation.groups()).some((group) => group.name === groupName))
                   return yield* new ToolFailure({ message: `Group "${groupName}" already exists. Choose a different name; existing groups are not overwritten.` })
 
