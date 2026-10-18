@@ -1211,12 +1211,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.dod.submit",
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "member")
-          const directory = yield* roomDirectory(joined.room)
+          let directory = yield* roomDirectory(joined.room)
           let rules = yield* effectiveRules(joined.room, directory)
+          const originalDirectory = directory
           const dodError = (error: Dod.DodError) => new InvalidRequestError({
             message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
           })
-          const owner = ownerOf(joined.member)
+          let owner = ownerOf(joined.member)
           if (rules?.denyGuestCommands)
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           const id = ctx.payload.id.trim()
@@ -1239,19 +1240,30 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             metadata: { operation: "room.check", item: id },
             rules,
           })
-          // Rules may have changed while the host was deciding whether to approve the check.
-          rules = yield* effectiveRules(joined.room, directory)
+          // Revalidate role, membership and the assigned check after a permission wait. A host
+          // can revoke the guest, demote them, or change dod.yaml while the prompt is open.
+          let currentJoin = yield* guestWho(joined.room.id, "member")
+          let currentDirectory = yield* roomDirectory(currentJoin.room)
+          if (currentDirectory !== originalDirectory)
+            return yield* new ForbiddenError({ message: "The room project changed while waiting for approval; request the check again" })
+          directory = currentDirectory
+          owner = ownerOf(currentJoin.member)
+          const currentCommand = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
+          if (currentCommand !== command)
+            return yield* new ForbiddenError({ message: "The assigned check changed while waiting for approval; request it again" })
+          rules = yield* effectiveRules(currentJoin.room, directory)
           if (rules?.denyGuestCommands)
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
+          if (RoomRules.commandLeaksCredentials(command))
+            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (RoomRules.protectedFileInCommand(rules, command))
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           const currentBlock = RoomRules.blockedCommand(rules, command)
-          if (currentBlock && joined.member.role !== "trusted") {
+          if (currentBlock && currentJoin.member.role !== "trusted") {
             const currentPrograms = RoomRules.programsRequiringApproval(rules, command)
-            const currentMember = yield* rooms.member(joined.room.id, joined.member.id)
-            const grants = new Set([...(currentMember?.approvedPrograms ?? []), ...authorizedPrograms])
+            const grants = new Set([...(currentJoin.member.approvedPrograms ?? []), ...authorizedPrograms])
             if (!currentPrograms.length || currentPrograms.some((program) => !grants.has(program)))
               return yield* new ForbiddenError({ message: "The room's command rules changed while waiting; request program approval again" })
           }
@@ -1264,9 +1276,19 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 message: `Could not run the check: ${rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
               }),
           })
-          // Apply the current room rules to the output and DoD response, including settings
-          // changed while the verification command was running.
-          rules = yield* effectiveRules(joined.room, directory)
+          // Do not commit a result or expose output if the guest was removed/demoted,
+          // the project changed, or the host changed the assigned verification while it ran.
+          currentJoin = yield* guestWho(joined.room.id, "member")
+          currentDirectory = yield* roomDirectory(currentJoin.room)
+          if (currentDirectory !== originalDirectory)
+            return yield* new ForbiddenError({ message: "The room project changed while the check was running; its result was discarded" })
+          owner = ownerOf(currentJoin.member)
+          const afterCommand = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
+          if (afterCommand !== command)
+            return yield* new ForbiddenError({ message: "The assigned check changed while it was running; its result was discarded" })
+          rules = yield* effectiveRules(currentJoin.room, directory)
+          if (rules?.denyGuestCommands || rules?.noOutbound || RoomRules.commandLeaksCredentials(command) || RoomRules.protectedFileInCommand(rules, command))
+            return yield* new ForbiddenError({ message: "Room rules changed while the check was running; its result was discarded" })
           const output = rules?.hidePaths
             ? RoomRules.redactPath(result.output, directory)
             : result.output
@@ -1280,7 +1302,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }).pipe(Effect.mapError(dodError))
           const passed = result.exitCode === 0
           if (passed) yield* freeDodPlots(directory, id)
-          codes.record(joined.room.id, {
+          codes.record(currentJoin.room.id, {
             kind: passed ? "pass" : "fail",
             who: owner.name,
             item: id,
