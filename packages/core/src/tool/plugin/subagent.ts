@@ -97,17 +97,6 @@ export const Plugin = {
       return ref
     })
 
-    // Agent configuration can outlive the provider catalog. Never resurrect a removed
-    // model from a saved agent when continuing or switching a subagent.
-    const availableConfiguredModel = Effect.fn("SubagentTool.availableConfiguredModel")(function* (model: Model.Ref | undefined) {
-      if (model === undefined) return undefined
-      const available = yield* models.available()
-      const current = available.find((item) => item.providerID === model.providerID && item.id === model.modelID)
-      if (!current) return undefined
-      if (model.variant !== undefined && !current.variants.some((variant) => variant.id === model.variant)) return undefined
-      return model
-    })
-
     yield* ctx.tool
       .transform((editor) =>
         editor.add({
@@ -178,14 +167,13 @@ export const Plugin = {
                   message: `Session ${existing.id} is not a child of the current session`,
                 })
               const override = input.model === undefined ? undefined : yield* resolveModel(input.model)
-              const configuredAgentModel = yield* availableConfiguredModel(agent.model)
-              const configuredParentModel = yield* availableConfiguredModel(parent.model)
-              // Continuing with a different agent may carry an old model reference in the
-              // agent configuration. Only switch when that reference still exists in the
-              // current provider catalog; otherwise keep the session's current model.
+              // Agent configurations may contain old model defaults. Never let a
+              // background/agent switch silently replace the model selected by the
+              // current session. A model changes here only when explicitly requested.
+              const configuredParentModel = parent.model
               if (existing !== undefined) {
                 const switched = existing.agent !== agent.id
-                const model = override ?? (switched ? configuredAgentModel : undefined)
+                const model = override
                 yield* Effect.all([
                   switched ? sessions.switchAgent({ sessionID: existing.id, agent: agent.id }) : Effect.void,
                   model === undefined ? Effect.void : sessions.switchModel({ sessionID: existing.id, model }),
@@ -196,7 +184,7 @@ export const Plugin = {
                 )
               }
 
-              const model = override ?? configuredAgentModel ?? configuredParentModel
+              const model = override ?? configuredParentModel
               const child =
                 existing ??
                 (yield* sessions
