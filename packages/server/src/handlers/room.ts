@@ -161,12 +161,13 @@ function hiddenExecutionEvent(event: unknown) {
   )
 }
 
-function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
+export function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
   if (!event || typeof event !== "object") return false
   const value = event as { type?: unknown }
   // These events contain private model context, not user-facing chat.
   if (
     value.type === "session.reasoning.delta" ||
+    value.type === "session.reasoning.ended" ||
     value.type === "session.synthetic" ||
     value.type === "session.skill.activated" ||
     (typeof value.type === "string" && value.type.startsWith("session.compaction."))
