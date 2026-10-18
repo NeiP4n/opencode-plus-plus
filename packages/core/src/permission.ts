@@ -3,6 +3,8 @@ export * as Permission from "./permission.js"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
 import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { Permission } from "@opencode/schema/permission"
+import { contains as containsDirectory } from "@opencode/schema/orchestra"
+import { RoomRules } from "@opencode/schema/room-rules"
 import { Bus } from "./bus.js"
 import { Location } from "./location.js"
 import { Agent } from "./agent.js"
@@ -12,6 +14,7 @@ import { SessionStore } from "./session/store.js"
 import { Wildcard } from "./util/wildcard.js"
 import { PermissionSaved } from "./permission/saved.js"
 import { PluginHooks } from "./plugin/hooks.js"
+import { Room } from "./room.js"
 
 const PermissionEffect = Permission.Effect
 export { PermissionEffect as Effect }
@@ -140,6 +143,7 @@ const layer = Layer.effect(
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
     const hooks = yield* PluginHooks.Service
+    const rooms = yield* Room.Service
     const pending = new Map<ID, Pending>()
     let closed = false
 
@@ -175,6 +179,28 @@ const layer = Layer.effect(
       return merge(agent?.permissions ?? missingAgentPermissions, session.permissions ?? [])
     })
 
+    const roomRulesForSession = Effect.fnUntraced(function* (sessionID: SessionSchema.ID) {
+      const lineage = new Set<string>()
+      let current = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+      while (current && !lineage.has(current.id)) {
+        lineage.add(current.id)
+        if (!current.parentID) break
+        const parent = yield* sessions.get(current.parentID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!parent) break
+        current = parent
+      }
+      const directory = current?.location.directory
+      if (!directory) return undefined
+      return RoomRules.merge(
+        (yield* rooms.list()).flatMap((room) =>
+          lineage.has(room.sessionID) ||
+          (room.directory !== undefined && containsDirectory(room.directory, directory))
+            ? [room.rules ?? {}]
+            : [],
+        ),
+      )
+    })
+
     function denied(input: Pick<Request, "action" | "resources">, rules: Permission.Ruleset) {
       return input.resources.some((resource) => evaluate(input.action, resource, rules).effect === "deny")
     }
@@ -187,6 +213,13 @@ const layer = Layer.effect(
       const rules = yield* configured(input.sessionID, input.agent)
       if (denied(input, rules)) return { effect: "deny" as const, rules }
       const all = [...rules, ...(yield* savedRules())]
+      // Freeze the policy inputs before plugins run: hooks may customize normal permissions,
+      // but cannot mutate the command, resources or transport used for room security checks.
+      const policyInput = {
+        action: input.action,
+        resources: [...input.resources],
+        metadata: input.metadata ? { ...input.metadata } : undefined,
+      }
       const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
       const effect: Permission.Effect = effects.includes("ask") ? "ask" : "allow"
       const event = yield* hooks.trigger("permission", "evaluate", {
@@ -198,6 +231,19 @@ const layer = Layer.effect(
         source: input.source,
         effect,
       })
+      // Room rules are authoritative and must run after all plugin hooks. Otherwise a later
+      // extension could change a hard deny to allow, or suppress a required program prompt.
+      const roomPolicy = RoomRules.policy(yield* roomRulesForSession(input.sessionID), policyInput)
+      if (roomPolicy?.effect === "deny") {
+        return {
+          effect: "deny" as const,
+          message: roomPolicy.message,
+          rules: [...all, { action: input.action, resource: "*", effect: "deny" as const }],
+        }
+      }
+      if (roomPolicy?.effect === "ask" && event.effect !== "deny") {
+        return { effect: "ask" as const, message: roomPolicy.message, rules: all }
+      }
       return { effect: event.effect, message: event.message, rules: all }
     })
 
@@ -390,5 +436,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Bus.node, Location.node, Agent.node, SessionStore.node, PermissionSaved.node, PluginHooks.node],
+  deps: [Bus.node, Location.node, Agent.node, SessionStore.node, PermissionSaved.node, PluginHooks.node, Room.node],
 })
