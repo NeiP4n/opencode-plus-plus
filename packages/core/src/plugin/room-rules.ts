@@ -4,6 +4,7 @@ import { define } from "@opencode/plugin/effect/plugin"
 import { RoomRules } from "@opencode/schema/room-rules"
 import type { SessionID } from "@opencode/schema/session-id"
 import type { Session as SessionSchema } from "@opencode/schema/session"
+import { Tool } from "@opencode/schema/tool"
 import { Effect } from "effect"
 import { Orchestra } from "../orchestra.js"
 import { Room } from "../room.js"
@@ -37,6 +38,30 @@ export const Plugin = define({
         ),
       )
     })
+
+    // Enforce outbound restrictions at tool execution time. Context instructions alone are not
+    // a security boundary: a model can ignore them, and compaction can remove them.
+    yield* ctx.tool.hook("execute.before", (event) =>
+      Effect.gen(function* () {
+        const rules = yield* rulesOf(event.sessionID)
+        if (!rules?.noOutbound) return
+        const tool = event.tool.toLowerCase()
+        const input =
+          event.input && typeof event.input === "object" ? (event.input as Record<string, unknown>) : undefined
+        const action = typeof input?.action === "string" ? input.action.toLowerCase() : undefined
+        const outbound = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
+        const isOutbound = (name: string) =>
+          outbound.has(name) ||
+          name.startsWith("desktop_") ||
+          name.startsWith("mcp_") ||
+          name.startsWith("opencode_mcp_")
+        if (isOutbound(tool) || (action && isOutbound(action)))
+          return yield* new Tool.Error({
+            message: "This room does not allow tools that can send data out.",
+            metadata: { rule: "noOutbound", tool: event.tool, action },
+          })
+      }),
+    )
 
     // The AI follows rules it knows about instead of only meeting refusals.
     yield* ctx.session.hook("context", (event) =>
