@@ -18,7 +18,7 @@ export interface Interface {
   readonly issueCode: (roomID: Room.ID) => Effect.Effect<Room.JoinCode>
   readonly redeemCode: (code: string) => Effect.Effect<Room.ID | undefined>
   // Release transient room state when a room is deleted.
-  readonly forget: (roomID: Room.ID) => Effect.Effect<void>
+  readonly forget: (roomID: Room.ID, guestIDs?: readonly string[]) => Effect.Effect<void>
   // Presence lives in memory: every guest request marks its guest as seen.
   readonly touch: (guestID: string) => void
   readonly seen: (guestID: string) => number | undefined
@@ -99,12 +99,13 @@ const layer = Layer.effect(
         })
         return { events: after(roomID, from) }
       }),
-      forget: Effect.fn("ServerRooms.forget")(function* (roomID) {
+      forget: Effect.fn("ServerRooms.forget")(function* (roomID, guestIDs = []) {
         const code = issued.get(roomID)
         if (code !== undefined) {
           yield* Cache.invalidate(codes, code)
           issued.delete(roomID)
         }
+        for (const guestID of guestIDs) presence.delete(guestID)
         feeds.delete(roomID)
         const waiting = waiters.get(roomID)
         waiters.delete(roomID)
