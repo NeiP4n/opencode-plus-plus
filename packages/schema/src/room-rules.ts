@@ -62,7 +62,14 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
     const pattern = raw.trim()
     if (!pattern) return false
     const start = glob(pattern, "^")
-    if (segments(command).some((part) => start.test(part))) return true
+    const candidates = segments(command).flatMap((part) => {
+      const words = part.split(/\\s+/).filter(Boolean)
+      // A blocked executable can be prefixed with sudo, env, command, nohup,
+      // assignments, or another wrapper. Try every word boundary, not only the
+      // beginning of the shell segment.
+      return [part, ...words.map((_, index) => words.slice(index).join(" "))]
+    })
+    if (candidates.some((candidate) => start.test(candidate))) return true
     return !pattern.includes("*") && command.toLowerCase().includes(pattern.toLowerCase())
   })
 }
