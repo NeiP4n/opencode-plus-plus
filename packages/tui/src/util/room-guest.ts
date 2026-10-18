@@ -1,8 +1,18 @@
 import { OpenCode, type OpenCodeClient } from "@opencode/client"
 import type { JoinedRoom } from "./room"
 
+// Room clients are immutable transport wrappers. Recreating one for every render/poll creates
+// unnecessary objects and can retain short-lived transport state until the next GC cycle.
+// WeakMap keeps the cache bounded by the lifetime of the joined-room object itself.
+const clients = new WeakMap<object, OpenCodeClient>()
+
 export function roomClient(room: Pick<JoinedRoom, "url" | "token">) {
-  return OpenCode.make({ baseUrl: room.url, headers: { authorization: `Bearer ${room.token}` } })
+  const key = room as object
+  const cached = clients.get(key)
+  if (cached) return cached
+  const client = OpenCode.make({ baseUrl: room.url, headers: { authorization: `Bearer ${room.token}` } })
+  clients.set(key, client)
+  return client
 }
 
 // The joined room as this computer's server keeps it, so this computer's AI can work with
@@ -108,15 +118,20 @@ async function* events(
   yield { id: "room", type: "server.connected" as const, data: {} }
   let replaying = !resumed
   let liveDurableSeq: number | undefined
-  const liveDurableIDs = new Set<string>()
-  const liveDurableOrder: string[] = []
+
+  // Keep only a small recent deduplication window. The previous Set + Array pair retained up
+  // to 5000 IDs per live room connection, with the same IDs represented twice. A single Map
+  // provides insertion order and lookup while using substantially less bookkeeping memory.
+  const liveDurableIDs = new Map<string, number>()
+  const LIVE_DEDUPE_LIMIT = 1024
   const rememberLiveDurable = (id: string, seq: number) => {
-    liveDurableIDs.add(id)
-    liveDurableOrder.push(id)
+    liveDurableIDs.delete(id)
+    liveDurableIDs.set(id, seq)
     liveDurableSeq = Math.max(liveDurableSeq ?? -1, seq)
-    while (liveDurableOrder.length > 5000) {
-      const oldest = liveDurableOrder.shift()
-      if (oldest) liveDurableIDs.delete(oldest)
+    while (liveDurableIDs.size > LIVE_DEDUPE_LIMIT) {
+      const oldest = liveDurableIDs.keys().next().value
+      if (oldest === undefined) break
+      liveDurableIDs.delete(oldest)
     }
   }
   for (let item = await log.next(); !item.done; item = await log.next()) {
