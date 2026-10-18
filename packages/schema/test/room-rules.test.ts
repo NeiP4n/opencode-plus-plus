@@ -52,9 +52,10 @@ test("protected files are detected when directly referenced in shell commands", 
   expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
 })
 
-test("redacting a path covers both slash styles", () => {
+test("redacting a path covers slash styles and Windows casing", () => {
   expect(RoomRules.redactPath("C:\\Users\\me\\app", "C:\\Users\\me\\app")).toBe("<project>")
   expect(RoomRules.redactPath("opened C:/Users/me/app/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
+  expect(RoomRules.redactPath("opened c:/USERS/ME/APP/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
 })
 
 test("a session in several rooms gets the strictest rules", () => {
