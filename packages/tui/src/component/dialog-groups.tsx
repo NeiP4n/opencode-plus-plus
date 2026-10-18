@@ -11,7 +11,6 @@ import { useGroupT } from "../util/i18n-groups"
 import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
-import { HoverAction } from "./hover-action"
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
@@ -191,6 +190,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
     }
   })
 
+  const projectNames = (group: { projects: readonly string[] }) => group.projects.map(nameOf)
+
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={t("Project groups")} onClose={props.onClose} />
@@ -200,74 +201,56 @@ export function DialogGroups(props: { onClose?: () => void }) {
       <Show when={listed().length > 0} fallback={<text fg={theme.text.muted}>{t("No groups yet.")}</text>}>
         <For each={listed()}>
           {(group) => (
-            <box flexDirection="column" gap={1}>
+            <box flexDirection="column" gap={1} paddingTop={1} paddingBottom={1}>
               <box flexDirection="row" gap={1}>
                 <box flexGrow={1} minWidth={0}>
                   <text fg={theme.text.base} wrapMode="none" truncate>
                     <span style={{ bold: true }}>{group.name}</span>
-                    <span style={{ fg: theme.text.muted }}>{` · ${group.projects.map((id, index) => (index === 0 ? "★ " : "") + nameOf(id)).join(", ")}`}</span>
+                    <span style={{ fg: theme.text.muted }}>{` · ${group.projects.length} ${group.projects.length === 1 ? "project" : "projects"}`}</span>
                   </text>
                 </box>
                 <Button onClick={() => edit(group.name, group.projects, group.mode ?? "lead")}>{t("Edit")}</Button>
                 <Button onClick={() => link(group.name)}>{t("Link all")}</Button>
                 <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>{armed() === group.name ? t("Delete?") : t("Delete")}</Button>
               </box>
+
               <box flexDirection="row" gap={1}>
-                <text fg={theme.text.muted}>{t("Coordination") + ":"}</text>
-                <HoverAction
-                  paddingLeft={1}
-                  paddingRight={1}
-                  onClick={() => changeMode(group, "lead")}
-                >
-                  <text
-                    fg={(group.mode ?? "lead") === "lead" ? theme.text.action.primary.selected : theme.text.action.primary.base}
-                    attributes={(group.mode ?? "lead") === "lead" ? TextAttributes.BOLD : undefined}
-                  >
-                    {t("Single coordinator")}
-                  </text>
-                </HoverAction>
-                <HoverAction
-                  paddingLeft={1}
-                  paddingRight={1}
-                  onClick={() => changeMode(group, "council")}
-                >
-                  <text
-                    fg={group.mode === "council" ? theme.text.action.primary.selected : theme.text.action.primary.base}
-                    attributes={group.mode === "council" ? TextAttributes.BOLD : undefined}
-                  >
-                    {t("Orchestrator council")}
-                  </text>
-                </HoverAction>
+                <text fg={theme.text.muted}>{t("Mode") + ":"}</text>
+                <Button variant={(group.mode ?? "lead") === "lead" ? "primary" : undefined} onClick={() => changeMode(group, "lead")}>
+                  {t("Single coordinator")}
+                </Button>
+                <Button variant={group.mode === "council" ? "primary" : undefined} onClick={() => changeMode(group, "council")}>
+                  {t("Orchestrator council")}
+                </Button>
               </box>
+
               <box flexDirection="row" gap={1}>
                 <text fg={theme.text.muted}>{t("Group chat") + ":"}</text>
-                <HoverAction paddingLeft={1} paddingRight={1} onClick={() => openSupervisor({ name: group.name, projects: group.projects, supervisor: group.supervisor, mode: group.mode ?? "lead" })}>
-                  <text fg={theme.text.action.primary.base}>
-                    {group.supervisor ? (group.mode === "council" ? "★ Общество" : "★ Президент") : (group.mode === "council" ? "+ Создать Общество" : "+ Создать Президента")}
-                  </text>
-                </HoverAction>
+                <Button variant="primary" onClick={() => openSupervisor({ name: group.name, projects: group.projects, supervisor: group.supervisor, mode: group.mode ?? "lead" })}>
+                  {group.supervisor ? (group.mode === "council" ? "★ Общество · Открыть" : "★ Президент · Открыть") : (group.mode === "council" ? "+ Создать Общество" : "+ Создать Президента")}
+                </Button>
+                <Show when={group.mode === "council"}>
+                  <text fg={theme.text.muted}>{`${group.projects.length} ${group.projects.length === 1 ? "оркестратор" : "оркестратора"} · ${projectNames(group).join(", ")}`}</text>
+                </Show>
               </box>
             </box>
           )}
         </For>
       </Show>
+
       <text fg={theme.text.base} attributes={TextAttributes.UNDERLINE}>{t("New or edited group")}</text>
       <box flexDirection="row" gap={1}>
-        <input width={24} cursorStyle={config.cursor} ref={(element: InputRenderable) => { nameField = element }} onMouseDown={() => nameField?.focus()} placeholder={t("Group name")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} focusedBackgroundColor={theme.background.formfield.focused} onSubmit={save} />
+        <input width={24} cursorStyle={config.cursor} ref={(element: InputRenderable) => { nameField = element }} onMouseDown={() => nameField?.focus()} placeholder={t("Group name")} placeholderColor={theme.text.muted} textColor={theme.text.formfield.base} focusedTextColor={theme.text.formfield.focused} cursorColor={theme.text.formfield.focused} backgroundColor={theme.background.formfield.base} onSubmit={save} />
         <Button variant="primary" onClick={save}>{t("Save group")}</Button>
       </box>
       <box flexDirection="row" gap={1}>
-        <text fg={theme.text.muted}>{t("Coordination") + ":"}</text>
-        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => setDraftMode("lead")}>
-          <text fg={draftMode() === "lead" ? theme.text.action.primary.selected : theme.text.action.primary.base} attributes={draftMode() === "lead" ? TextAttributes.BOLD : undefined}>
-            {t("Single coordinator")}
-          </text>
-        </HoverAction>
-        <HoverAction paddingLeft={1} paddingRight={1} onClick={() => setDraftMode("council")}>
-          <text fg={draftMode() === "council" ? theme.text.action.primary.selected : theme.text.action.primary.base} attributes={draftMode() === "council" ? TextAttributes.BOLD : undefined}>
-            {t("Orchestrator council")}
-          </text>
-        </HoverAction>
+        <text fg={theme.text.muted}>{t("New group mode") + ":"}</text>
+        <Button variant={draftMode() === "lead" ? "primary" : undefined} onClick={() => setDraftMode("lead")}>
+          {t("Single coordinator")}
+        </Button>
+        <Button variant={draftMode() === "council" ? "primary" : undefined} onClick={() => setDraftMode("council")}>
+          {t("Orchestrator council")}
+        </Button>
       </box>
       <Show when={projects.list().length > 0} fallback={<text fg={theme.text.muted}>{t("Create projects first.")}</text>}>
         <box flexDirection="row" flexWrap="wrap" gap={1}>
