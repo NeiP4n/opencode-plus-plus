@@ -1394,7 +1394,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
       <Show when={room()}>
         <Setting
           label={t("Project path")}
-          help={t("Guests see <project> instead of the folder on your computer.")}
+          help={t("Masks the host's project path in room responses, history, events and tool results. Changes apply while the room is open.")}
         >
           <Button onClick={() => save({ hidePaths: !rules().hidePaths })}>
             {rules().hidePaths ? t("Hidden") : t("Visible")}
@@ -1402,15 +1402,15 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Sending out")}
-          help={t("The room's AI cannot make web requests or message other computers and projects.")}
+          help={t("Blocks web/network requests, connected-account integrations and messages to other computers or projects.")}
         >
           <Button onClick={() => save({ noOutbound: !rules().noOutbound })}>
             {rules().noOutbound ? t("Forbidden") : t("Allowed")}
           </Button>
         </Setting>
         <Setting
-          label={t("Forbidden commands")}
-          help={t("Comma-separated. A command that starts with one, or contains it, does not run. * matches any text.")}
+          label={t("Commands requiring approval")}
+          help={t("Comma-separated command/program patterns. A matching program asks the host before use; Always allow applies only to that room member. * matches any text.")}
         >
           {field("blockCommands", "rm -rf, git push*, curl")}
         </Setting>
@@ -1420,6 +1420,23 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         >
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
+        <Setting
+          label={t("Hide command and tool execution")}
+          help={t("Other room members do not see command/tool inputs, execution events or tool output. Your local host view is unchanged.")}
+        >
+          <Button onClick={() => save({ hideCommandExecution: !rules().hideCommandExecution })}>
+            {rules().hideCommandExecution ? t("Hidden") : t("Visible")}
+          </Button>
+        </Setting>
+        <Setting
+          label={t("Hide screenshots and images")}
+          help={t("Removes embedded image attachments and tool-result images from data sent to other room members.")}
+        >
+          <Button onClick={() => save({ hideScreenshots: !rules().hideScreenshots })}>
+            {rules().hideScreenshots ? t("Hidden") : t("Visible")}
+          </Button>
+        </Setting>
+
       </Show>
     </box>
   )
