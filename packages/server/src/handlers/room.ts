@@ -1227,6 +1227,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestWho(ctx.params.roomID, "cohost")
           const session = yield* inRoom(joined.room, ctx.params.sessionID)
           const rules = yield* effectiveRules(joined.room, session.location.directory)
+          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           yield* sessions.command({ sessionID: session.id, command: ctx.payload.name, text: ctx.payload.text }).pipe(
             Effect.catchTag("Session.NotFoundError", missingSession),
             Effect.catchTag("Command.NotFoundError", (error) =>
@@ -1237,7 +1238,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 new CommandExecutionError({
                   command: error.command,
                   message: rules?.hidePaths
-                    ? RoomRules.redactPath(error.message, session.location.directory)
+                    ? redactRoomValue(error.message, directories)
                     : error.message,
                 }),
               ),
