@@ -63,14 +63,30 @@ export type PolicyDecision = { effect: "deny" | "ask"; message: string; save?: r
 
 // This is the authoritative room policy used after all plugin hooks. Hook results are advisory;
 // no extension may reverse a room denial or suppress a required program-approval prompt.
+const LOCAL_ONLY_ACTIONS = new Set([
+  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list",
+  "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
+])
+const FILE_ACTIONS = new Set([
+  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit",
+  "grep", "glob", "list", "delete", "remove", "rename", "move", "copy", "chmod", "chown",
+  "mkdir", "rmdir", "find", "cat", "readfile", "writefile",
+])
+
+export type PolicyInput = {
+  action: string
+  resources: readonly string[]
+  metadata?: Readonly<Record<string, unknown>>
+}
+export type PolicyDecision = { effect: "deny" | "ask"; message: string; save?: readonly string[] }
+
+// Authoritative room policy is evaluated after plugin hooks; extensions cannot reverse a denial.
 export function policy(rules: Rules | undefined, input: PolicyInput): PolicyDecision | undefined {
   if (!rules) return undefined
   const deny = (message: string): PolicyDecision => ({ effect: "deny", message })
   if (
     rules.noOutbound !== false &&
-    (outbound.includes(input.action) ||
-      input.metadata?.transport === "mcp" ||
-      !LOCAL_ONLY_ACTIONS.has(input.action))
+    (outbound.includes(input.action) || input.metadata?.transport === "mcp" || !LOCAL_ONLY_ACTIONS.has(input.action))
   ) {
     return deny("This room blocks outbound, connected-account and unrecognized tools by default")
   }
@@ -84,7 +100,8 @@ export function policy(rules: Rules | undefined, input: PolicyInput): PolicyDeci
     }
     const programs = [...new Set(input.resources.flatMap((command) => programsRequiringApproval(rules, command)))]
     if (programs.length) {
-      return { effect: "ask", message: \`Room rules require host approval to use: \${programs.join(", ")}.\` }
+      // Empty save list prevents a room-scoped prompt from persisting a project-wide grant.
+      return { effect: "ask", message: `Room rules require host approval to use: ${programs.join(", ")}.`, save: [] }
     }
     return undefined
   }
