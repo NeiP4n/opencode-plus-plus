@@ -705,14 +705,25 @@ function RoomSidebar(props: {
   // Undefined while the first answer is out; null when the host is too old to share the list.
   const [hostMcp, setHostMcp] = createSignal<readonly McpRow[] | null>()
   onMount(() => {
-    const read = () =>
-      void remote.room.guest.mcp
-        .list({ roomID: props.room.roomID })
-        .then(setHostMcp)
-        .catch(() => setHostMcp((current) => current ?? null))
-    read()
-    const timer = setInterval(read, MCP_POLL_MS)
-    onCleanup(() => clearInterval(timer))
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const read = async () => {
+      try {
+        const result = await remote.room.guest.mcp.list({ roomID: props.room.roomID })
+        if (!disposed) setHostMcp(result)
+      } catch {
+        if (!disposed) setHostMcp((current) => current ?? null)
+      } finally {
+        // Schedule after the request finishes so a slow/offline host cannot accumulate
+        // overlapping MCP status requests.
+        if (!disposed) timer = setTimeout(read, MCP_POLL_MS)
+      }
+    }
+    void read()
+    onCleanup(() => {
+      disposed = true
+      if (timer) clearTimeout(timer)
+    })
   })
   onMount(() => void props.home.location.mcp.server.sync().catch(() => undefined))
   const ownMcp = () =>
