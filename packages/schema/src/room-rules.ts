@@ -175,7 +175,8 @@ const WRAPPER_OPTIONS_WITH_VALUE: Record<string, ReadonlySet<string>> = {
   time: new Set(["-f", "--format", "-o", "--output"]),
 }
 function commandTokens(command: string) {
-  return command.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) ?? []
+  // Escaped characters and ordinary characters must be disjoint to avoid exponential backtracking.
+  return command.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+/g) ?? []
 }
 function unquoteToken(token: string) {
   return token.replace(/^['"]|['"]$/g, "")
