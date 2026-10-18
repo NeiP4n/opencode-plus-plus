@@ -270,13 +270,7 @@ export const Plugin = {
                   agent: Orchestra.agent,
                   location: { directory: AbsolutePath.make(coordinator.directory) },
                   metadata: { "opencode-pp:group-supervisor": { groupName, leader: coordinator.id } },
-                  permissions: [
-                    { action: "edit", resource: "*", effect: "deny" },
-                    { action: "shell", resource: "*", effect: "deny" },
-                    { action: "sessions", resource: "*", effect: "deny" },
-                    { action: "dod", resource: "*", effect: "deny" },
-                    { action: "federation", resource: "*", effect: "ask" },
-                  ],
+                  permissions: Orchestra.groupSupervisorPermissions(),
                 }).pipe(
                   Effect.mapError((error) => new ToolFailure({
                     message: `Projects exist, but the Group Orchestrator session could not be created: ${String(error)}. No group was registered.\n${resolved.map(projectLine).join("\n")}`,

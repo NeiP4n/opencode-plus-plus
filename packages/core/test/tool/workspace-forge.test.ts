@@ -1,10 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
 import { WorkspaceForgeTool } from "@opencode/core/tool/plugin/workspace-forge"
+import { Orchestra } from "@opencode/schema/orchestra"
 
 const decode = Schema.decodeUnknownSync(WorkspaceForgeTool.Input)
 
 describe("workspace forge input", () => {
+  test("Group Orchestrators can coordinate only through approval-checked federation", () => {
+    expect(Orchestra.groupSupervisorPermissions()).toEqual([
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "federation", resource: "*", effect: "ask" },
+    ])
+  })
+
   test("accepts explicit sandbox modes for workspace creation", () => {
     for (const sandbox of ["none", "environment", "strict"] as const) {
       expect(
