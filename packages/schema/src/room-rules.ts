@@ -15,7 +15,7 @@ export const Rules = Schema.Struct({
   // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`);
   // direct shell references are checked too, but indirect access still needs OS sandboxing.
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
-  // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
+  // The room's AI cannot send anything out: no web requests, desktop control, shell/hub egress, or messages to other computers or projects.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
   // Guests cannot submit prompts to the host's AI.
   denyGuestPrompts: Schema.Boolean.pipe(Schema.optional),
