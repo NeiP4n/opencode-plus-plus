@@ -273,6 +273,109 @@ it.live("an open room admits guests by its ID without a code; a closed one does 
   }).pipe(Effect.scoped),
 )
 
+it.live("noOutbound refuses guest shell execution even for a cohost", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { noOutbound: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { command: "echo harmless-looking" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("does not allow commands")
+  }).pipe(Effect.scoped),
+)
+
+it.live("guest commands inherit stricter rules from another room sharing the session", () =>
+  Effect.gen(function* () {
+    const { call, session, room, code } = yield* setup
+    const own = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost" },
+    })
+    expect(own.status).toBe(200)
+    const other = yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, name: "Restricted", rules: { noOutbound: true } },
+    })
+    expect(other.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { command: "echo harmless-looking" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("does not allow commands")
+  }).pipe(Effect.scoped),
+)
+
+it.live("protected files cannot be read through guest shell commands", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { protectedFiles: [".env*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { command: "cat .env.local" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("keeps that file off limits")
+  }).pipe(Effect.scoped),
+)
+
+it.live("hidePaths redacts project directories from guest room responses", () =>
+  Effect.gen(function* () {
+    const { call, session, directory } = yield* setup
+    const created = yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, name: "Private project", directory, rules: { hidePaths: true } },
+    })
+    expect(created.status).toBe(200)
+    const room = created.body.data
+    const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    expect(joined.body.room.directory).toBe("<project>")
+    const view = yield* call(`/api/room/${room.id}/guest`, {
+      headers: { authorization: `Bearer ${joined.body.token}` },
+    })
+    expect(view.status).toBe(200)
+    expect(JSON.stringify(view.body)).not.toContain(directory)
+  }).pipe(Effect.scoped),
+)
+
 it.live("the discovery responder answers a broadcast query with name and port", () =>
   Effect.gen(function* () {
     yield* ServerRoomDiscovery.respond(4321)
