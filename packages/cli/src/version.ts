@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process"
+import { existsSync } from "node:fs"
 import path from "path"
 
 declare const OPENCODE_VERSION: string
@@ -24,7 +25,6 @@ function gitTagVersion(): string | undefined {
       cwd: REPO_ROOT,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-      // The background service has no console, so a console program it starts unhidden flashes a window.
       windowsHide: true,
     })
     if (out.status !== 0) return undefined
@@ -37,11 +37,6 @@ function gitTagVersion(): string | undefined {
   }
 }
 
-// The commit these sources are, as semver build metadata. The background service is replaced
-// only when its version differs from the client's, and every commit of a checkout announced
-// the same release, so after an update or a reinstall the old service kept serving the new
-// client: missing fields in the API, fixes that never ran. Build metadata leaves the version's
-// precedence alone, and the opencode.ai free tier accepts it.
 function gitCommit(): string | undefined {
   try {
     const out = spawnSync("git", ["rev-parse", "--short=9", "HEAD"], {
@@ -75,16 +70,19 @@ function releaseVersion() {
   return FALLBACK_VERSION
 }
 
-// The update service exposes the stable production CLI as the `latest` channel.
-// `prod` is a client/build label used by this fork, not an update-service route.
-// Normalize it here so /upgrade does not request the non-existent /update/api/prod/... path.
+// An Opencode++ source install has its own updater: release/* tags and the lan-rooms
+// development branch are managed by source-release.ts. Do not send these checkouts to the
+// public opencode.ai updater, otherwise /upgrade offers an upstream OpenCode version.
+// The marker is kept in the repository and is not shipped by normal package installations.
+const OPENCODE_PLUS_PLUS_SOURCE = existsSync(path.join(REPO_ROOT, "script", "release-pp.ts"))
+
 const rawChannel =
   typeof OPENCODE_CHANNEL === "string" && OPENCODE_CHANNEL !== "undefined"
     ? OPENCODE_CHANNEL
     : release !== FALLBACK_VERSION
       ? "latest"
       : "local"
-const channel = rawChannel === "prod" ? "latest" : rawChannel
+const channel = OPENCODE_PLUS_PLUS_SOURCE ? "local" : rawChannel === "prod" ? "latest" : rawChannel
 const artifact = typeof OPENCODE_ARTIFACT === "string" ? OPENCODE_ARTIFACT : "cli"
 
 export { version as OPENCODE_VERSION, channel as OPENCODE_CHANNEL, artifact as OPENCODE_ARTIFACT }
