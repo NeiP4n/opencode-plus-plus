@@ -101,9 +101,7 @@ try {
 Write-Host "Installing CLI and TUI dependencies..."
 Push-Location $Source
 try {
-  # update-preflight.tsx imports @opencode/tui directly. Keep both workspace
-  # packages in the filtered install so Bun creates the workspace link on Windows.
-  bun install --frozen-lockfile --filter ./packages/cli --filter ./packages/tui
+  bun install --frozen-lockfile
   if ($LASTEXITCODE -ne 0) { throw "bun install failed." }
 
   $TuiLink = Join-Path $Source "packages\cli\node_modules\@opencode\tui"
@@ -111,25 +109,29 @@ try {
   $TuiRoot = Join-Path $Source "packages\tui"
   $TuiRootPackage = Join-Path $TuiRoot "package.json"
 
-  # Bun can leave a stale/broken workspace junction behind on Windows after a
-  # filtered install. Test the actual package file, not just the directory.
-  if (-not (Test-Path $TuiPackage)) {
-    Write-Host "TUI workspace link is missing or broken; repairing it..."
-    bun install --frozen-lockfile
-    if ($LASTEXITCODE -ne 0) { throw "bun workspace install failed." }
+  if (-not (Test-Path $TuiRootPackage)) {
+    throw "TUI package is missing from the checkout: $TuiRootPackage"
   }
 
-  if (-not (Test-Path $TuiPackage)) {
-    Write-Host "Bun did not create a usable TUI workspace link; creating a Windows junction..."
-    $Scope = Split-Path $TuiLink -Parent
-    New-Item -ItemType Directory -Force -Path $Scope | Out-Null
-    Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $TuiLink
-    New-Item -ItemType Junction -Path $TuiLink -Target $TuiRoot | Out-Null
+  Write-Host "Repairing @opencode/tui workspace link..."
+  $Scope = Split-Path $TuiLink -Parent
+  New-Item -ItemType Directory -Force -Path $Scope | Out-Null
+  if (Test-Path $TuiLink) {
+    Remove-Item -Force -Recurse -ErrorAction Stop $TuiLink
   }
+  New-Item -ItemType Junction -Path $TuiLink -Target $TuiRoot | Out-Null
 
   if (-not (Test-Path $TuiPackage)) {
     throw "Cannot link @opencode/tui. Expected $TuiPackage"
   }
+
+  $ResolvedTui = (Resolve-Path $TuiLink -ErrorAction Stop).Path
+  $ResolvedRoot = (Resolve-Path $TuiRoot -ErrorAction Stop).Path
+  if ($ResolvedTui.TrimEnd('\') -ne $ResolvedRoot.TrimEnd('\')) {
+    throw "@opencode/tui resolved to '$ResolvedTui' instead of '$ResolvedRoot'"
+  }
+
+  Write-Host "Verified @opencode/tui -> $ResolvedTui"
 } finally {
   Pop-Location
 }
@@ -151,7 +153,6 @@ exit /b %OPENCODE_PP_EXIT%
 "@
 [System.IO.File]::WriteAllText((Join-Path $Bin "opencode-pp.cmd"), $Wrapper, (New-Object System.Text.UTF8Encoding($false)))
 
-# Never replace a user's normal `opencode` command.
 Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Bin "opencode.cmd")
 
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -161,7 +162,6 @@ if ($UserPathEntries -notcontains $Bin) {
   Write-Host "Added $Bin to your user PATH."
 }
 
-# `irm | iex` runs in this PowerShell session, so the command works immediately.
 if (@($env:Path -split ";") -notcontains $Bin) { $env:Path = "$Bin;$env:Path" }
 
 Write-Host ""
