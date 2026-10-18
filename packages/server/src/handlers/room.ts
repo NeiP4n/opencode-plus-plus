@@ -828,7 +828,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           const owner = ownerOf(joined.member)
           const record = (kind: Room.EventKind, item: string, who = owner.name) =>
             codes.record(joined.room.id, { kind, who, item })
