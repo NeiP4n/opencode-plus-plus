@@ -728,7 +728,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
             )
           }
-          codes.record(joined.room.id, { kind: "run", who: joined.member.name, detail: command })
+          codes.record(joined.room.id, {
+            kind: "run",
+            who: joined.member.name,
+            detail: joined.room.rules?.hidePaths
+              ? RoomRules.redactPath(command, session.location.directory)
+              : command,
+          })
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, session.location.directory, signal),
             catch: (error) =>
