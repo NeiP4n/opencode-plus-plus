@@ -498,6 +498,8 @@ export type RoomRules = {
   blockCommands?: Array<string> | undefined
   protectedFiles?: Array<string> | undefined
   noOutbound?: boolean | undefined
+  denyGuestPrompts?: boolean | undefined
+  denyGuestCommands?: boolean | undefined
 }
 
 export type RoomDodItem = {
@@ -536,6 +538,8 @@ export type RoomRules1 = {
   blockCommands?: Array<string> | null
   protectedFiles?: Array<string> | null
   noOutbound?: boolean | null
+  denyGuestPrompts?: boolean | null
+  denyGuestCommands?: boolean | null
 }
 
 export type RoomLink = { url: string; roomID: string; token: string; name: string; guest: string }
@@ -7536,6 +7540,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7554,6 +7561,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7572,6 +7582,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7590,6 +7603,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7608,6 +7624,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7626,6 +7645,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7644,6 +7666,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7662,6 +7687,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7680,6 +7708,9 @@ export type RoomCreateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7703,6 +7734,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7719,6 +7753,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7735,6 +7772,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7751,6 +7791,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7767,6 +7810,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7783,6 +7829,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
@@ -7799,6 +7848,9 @@ export type RoomUpdateInput = {
     readonly rules?:
       | {
           readonly hidePaths?: boolean | undefined
+          readonly hideExecution?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
