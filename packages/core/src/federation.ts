@@ -296,12 +296,16 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
       executionEvents,
       (event) =>
         Effect.gen(function* () {
+          // Some Event unions include location-scoped events without a sessionID. The subscriber
+          // above selects execution events, but the bus typing remains wider under TS native preview.
+          if (!("sessionID" in event)) return
+          const sessionID = event.sessionID
           const allGroups = yield* groups()
           if (!allGroups.some((group) => group.supervisor)) return
           const allProjects = yield* orchestra.projects()
           const owners = yield* orchestra.owners()
-          const mainProject = allProjects.find((item) => item.main === event.sessionID)
-          const projectID = owners[event.sessionID] ?? mainProject?.id
+          const mainProject = allProjects.find((item) => item.main === sessionID)
+          const projectID = owners[sessionID] ?? mainProject?.id
           if (!projectID) return
           const interested = allGroups.filter((group) => group.supervisor && group.projects.includes(projectID))
           if (interested.length === 0) return
