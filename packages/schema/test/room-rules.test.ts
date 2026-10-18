@@ -13,6 +13,11 @@ test("a blocked command matches at the start of the line or of any chained part"
   expect(RoomRules.blockedCommand(rules, "echo hi | curl http://x")).toBe("curl")
 })
 
+test("blocked wildcard patterns cannot be hidden inside shell wrappers", () => {
+  expect(RoomRules.blockedCommand(rules, 'bash -c "git push origin main"')).toBe("git push*")
+  expect(RoomRules.blockedCommand(rules, 'sh -c "echo hi; curl https://example.test"')).toBe("curl")
+})
+
 test("a pattern without a wildcard also catches the command inside a wrapper", () => {
   expect(RoomRules.blockedCommand(rules, 'bash -c "rm -rf build"')).toBe("rm -rf")
 })
