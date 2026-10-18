@@ -98,11 +98,20 @@ try {
   }
 }
 
-Write-Host "Installing CLI dependencies..."
+Write-Host "Installing CLI and TUI dependencies..."
 Push-Location $Source
 try {
-  bun install --frozen-lockfile --filter ./packages/cli
+  # update-preflight.tsx imports @opencode/tui directly. Keep both workspace
+  # packages in the filtered install so Bun creates the workspace link on Windows.
+  bun install --frozen-lockfile --filter ./packages/cli --filter ./packages/tui
   if ($LASTEXITCODE -ne 0) { throw "bun install failed." }
+
+  $TuiLink = Join-Path $Source "packages\cli\node_modules\@opencode\tui"
+  if (-not (Test-Path $TuiLink)) {
+    Write-Host "TUI workspace link is missing; running the full workspace install..."
+    bun install --frozen-lockfile
+    if ($LASTEXITCODE -ne 0) { throw "bun workspace install failed." }
+  }
 } finally {
   Pop-Location
 }
