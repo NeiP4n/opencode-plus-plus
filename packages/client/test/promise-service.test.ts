@@ -236,6 +236,27 @@ test("recovers when the starting service it waits for is stopped", async () => {
   expect(endpoint.url).toBe(replacement.url)
 })
 
+test("replaces a registered service stuck in its startup state", async () => {
+  await using fixture = await serviceFixture()
+  const registration = fixture.registration
+  const starting = fixture.spawn("starting")
+  await fixture.waitForFile()
+
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "test",
+      command: fixture.command("delayed", "10"),
+    }),
+  )
+  const replacement = await Bun.file(registration).json()
+  fixture.track(replacement.pid)
+
+  expect(await starting.exited).toBe(0)
+  expect(replacement.pid).not.toBe(starting.pid)
+  expect(endpoint.url).toBe(replacement.url)
+}, 10_000)
+
 test("replaces a crashed service whose registration names a dead process", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
