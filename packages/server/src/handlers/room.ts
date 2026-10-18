@@ -880,10 +880,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const visibleNote = note && { name: note.name, title: note.frontmatter.title || note.name }
           const pathSafeData = rules?.hidePaths ? redactRoomValue(data, directories) : data
           const pathSafeNote = rules?.hidePaths ? redactRoomValue(visibleNote, directories) : visibleNote
+          const visibleData = RoomRules.sanitizeScreenshots(pathSafeData, !!rules?.hideScreenshots)
+          const visibleNoteData = RoomRules.sanitizeScreenshots(pathSafeNote, !!rules?.hideScreenshots)
           return {
-            data: RoomRules.sanitizeScreenshots(pathSafeData, !!rules?.hideScreenshots),
+            data: visibleData,
             running: (yield* sessions.active).has(session.id),
-            note: RoomRules.sanitizeScreenshots(pathSafeNote, !!rules?.hideScreenshots),
+            note: visibleNoteData,
           }
         }),
       )
@@ -956,7 +958,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const data = rules?.hidePaths
             ? redactRoomValue(visible, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
             : visible
-          return { data }
+          return { data: RoomRules.sanitizeScreenshots(data, !!rules?.hideScreenshots) }
         }),
       )
       .handle(
