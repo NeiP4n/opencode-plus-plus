@@ -91,7 +91,7 @@ const ruExtra: Record<string, string> = {
   "Screenshots & images": "Скриншоты и изображения",
   "Hides image attachments and screenshot payloads in guest history and live room events, without hiding ordinary text.": "Скрывает вложенные изображения и скриншоты в истории и событиях комнаты для гостей, не скрывая обычный текст.",
   "Execution details": "Детали выполнения",
-  "Other guests cannot see raw tool inputs/outputs, shell commands or screenshots. The host alone handles approvals.": "Другие гости не видят исходные входы/выходы инструментов, shell-команды или скриншоты. Разрешения обрабатывает только хост.",
+  "Other guests cannot see raw tool inputs/outputs or shell commands. The host alone handles approvals.": "Другие гости не видят исходные входы/выходы инструментов и shell-команды. Разрешения обрабатывает только хост.",
   "Sending out": "Отправка наружу",
   "Blocked by default: web, MCP, connected-account tools, shell/hub and unknown integrations. Custom native binaries can still open sockets when commands are allowed; use an OS firewall for a hard network boundary.": "По умолчанию заблокированы веб, MCP, инструменты подключённых аккаунтов, shell/hub и неизвестные интеграции. Собственные нативные бинарники всё ещё могут открывать сокеты при разрешённых командах; для жёсткой сетевой изоляции используй системный файрвол.",
   "Commands requiring approval": "Команды, требующие разрешения",
