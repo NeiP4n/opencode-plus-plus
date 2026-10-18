@@ -116,13 +116,34 @@ export const Plugin = {
   }),
 }
 
-function toField(question: Question.Prompt, index: number): Form.Field {
+export function toField(question: Question.Prompt, index: number): Form.Field {
+  const presets: Record<NonNullable<Question.Prompt["kind"]>, Question.Prompt["options"]> = {
+    choice: [],
+    "multi-select": [],
+    text: [],
+    "yes-no": [
+      { label: "Yes", description: "Confirm and continue" },
+      { label: "No", description: "Decline or stop" },
+    ],
+    priority: [
+      { label: "Low", description: "Can wait; minimal urgency" },
+      { label: "Normal", description: "Standard priority" },
+      { label: "High", description: "Important; address soon" },
+      { label: "Critical", description: "Urgent; address first" },
+    ],
+    rating: [1, 2, 3, 4, 5].map((value) => ({
+      label: String(value),
+      description: ["Very poor", "Poor", "Average", "Good", "Excellent"][value - 1],
+    })),
+  }
+  const kind = question.kind ?? (question.multiple ? "multi-select" : "choice")
+  const options = kind === "text" ? [] : question.options.length ? question.options : presets[kind]
   return {
     key: `q${index}`,
     title: question.header,
     description: question.question,
-    type: question.multiple === true ? "multiselect" : "string",
-    options: question.options.map((option) => ({
+    type: kind === "multi-select" || question.multiple === true ? "multiselect" : "string",
+    options: options.map((option) => ({
       value: option.label,
       label: option.label,
       description: option.description,
