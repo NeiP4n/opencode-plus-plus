@@ -474,6 +474,9 @@ it.live("guest log replay excludes host-only session events and hidden shell out
     expect(response.status).toBe(200)
     const body = yield* Effect.promise(() => response.text())
     expect(body).not.toContain("session.created")
+    expect(body).not.toContain("session.execution.started")
+    expect(body).not.toContain("session.execution.succeeded")
+    expect(body).not.toContain("session.execution.interrupted")
     expect(body).not.toContain("private-replay-command")
     expect(body).not.toContain(directory)
   }).pipe(Effect.scoped),
