@@ -553,6 +553,13 @@ it.live("a following guest log carries the session's permission requests as they
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
+    const synthetic = yield* call(`/api/session/${session.id}/synthetic`, {
+      method: "POST",
+      headers: host,
+      body: { id: "synthetic_private_01", text: "PRIVATE_SYNTHETIC_CONTEXT" },
+    })
+    expect(synthetic.status).toBe(200)
+
     const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id } })).body
       .data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
@@ -588,6 +595,9 @@ it.live("a following guest log carries the session's permission requests as they
       }).pipe(Effect.timeout("5 seconds"))
 
     yield* until("log.synced")
+    // Synthetic inputs are model-facing context, never part of the room transcript.
+    expect(seen.join("\n")).not.toContain("session.synthetic")
+    expect(seen.join("\n")).not.toContain("PRIVATE_SYNTHETIC_CONTEXT")
     const pending = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
       headers: guest,
