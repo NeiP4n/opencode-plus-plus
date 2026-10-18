@@ -1,10 +1,11 @@
-import { expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { SessionExecution } from "@opencode/core/session/execution"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { Effect, Fiber, Layer, Schedule } from "effect"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import { it } from "../../core/test/lib/effect"
 import { ServerFetch } from "../src/fetch"
+import { hiddenRoomEvent } from "../src/handlers/room"
 import { ServerRoomDiscovery } from "../src/room-discovery"
 import { PORT, QUERY, decodeReply } from "@opencode/protocol/room-discovery"
 import { isRoomGuestURL } from "@opencode/protocol/groups/room"
@@ -132,6 +133,13 @@ const setup = Effect.gen(function* () {
   })).body.data
   const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
   return { call, handler, session, room, code, directory: tmp.path }
+})
+
+test("room guest event policy never exposes private model reasoning or synthetic context", () => {
+  expect(hiddenRoomEvent({ type: "session.reasoning.delta", data: { delta: "private reasoning" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.reasoning.ended", data: { text: "private reasoning" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.synthetic", data: { text: "private context" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.text.ended", data: { text: "public assistant answer" } }, false)).toBe(false)
 })
 
 it.live("isRoomGuestURL admits every registered guest route", () =>
