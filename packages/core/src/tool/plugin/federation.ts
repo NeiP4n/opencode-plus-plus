@@ -20,7 +20,7 @@ export function groupActionAllowed(mode: "lead" | "council", action: string) {
   return mode === "council" ? [...common, "consult_all"].includes(action) : common.includes(action)
 }
 
-export function hasExplicitCouncilTask(messages: readonly { type: string; metadata?: Record<string, unknown> }[]) {
+export function hasExplicitCouncilTask(messages: readonly { type: string; metadata?: Record<string, unknown>; text?: unknown }[]) {
   const latest = messages.findLast((message) => message.type === "user")
   if (!latest) return false
   if (latest.metadata?.["opencode-pp:group-supervisor-bootstrap"] === true) return false
