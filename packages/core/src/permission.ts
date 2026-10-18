@@ -211,7 +211,7 @@ const layer = Layer.effect(
 
     const evaluateInput = Effect.fnUntraced(function* (input: AssertInput) {
       const rules = yield* configured(input.sessionID, input.agent)
-      if (denied(input, rules)) return { effect: "deny" as const, rules }
+      if (denied(input, rules)) return { effect: "deny" as const, rules, message: undefined, save: undefined }
       const all = [...rules, ...(yield* savedRules())]
       // Freeze the policy inputs before plugins run: hooks may customize normal permissions,
       // but cannot mutate the command, resources or transport used for room security checks.
@@ -239,12 +239,13 @@ const layer = Layer.effect(
           effect: "deny" as const,
           message: roomPolicy.message,
           rules: [...all, { action: input.action, resource: "*", effect: "deny" as const }],
+          save: undefined,
         }
       }
       if (roomPolicy?.effect === "ask" && event.effect !== "deny") {
-        return { effect: "ask" as const, message: roomPolicy.message, rules: all }
+        return { effect: "ask" as const, message: roomPolicy.message, rules: all, save: roomPolicy.save ?? [] }
       }
-      return { effect: event.effect, message: event.message, rules: all }
+      return { effect: event.effect, message: event.message, rules: all, save: undefined }
     })
 
     function request(input: AssertInput, message?: string): Request {
@@ -292,7 +293,7 @@ const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: AssertInput) {
       if (closed) return { id: input.id ?? ID.create(), effect: "deny" as const }
       const result = yield* evaluateInput(input)
-      const value = request(input, result.message)
+      const value = request({ ...input, save: result.save ?? input.save }, result.message)
       if (result.effect === "ask") yield* create(value, input.agent)
       return { id: value.id, effect: result.effect }
     })
@@ -312,7 +313,7 @@ const layer = Layer.effect(
               })
             }
             if (result.effect === "allow") return
-            const item = yield* create(request(input, result.message), input.agent)
+            const item = yield* create(request({ ...input, save: result.save ?? input.save }, result.message), input.agent)
             return yield* restore(Deferred.await(item.deferred)).pipe(
               // Deliberate defect tunnel: leaves wrap execution in blanket `mapError`, which
               // must not convert a user's decline into model-facing tool output. The decline
