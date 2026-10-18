@@ -31,6 +31,7 @@ import { createPluginContext, usePluginHost, type Dispose, type RegisteredSlot, 
 import { createSourceWatcher } from "./watch"
 import { discoverPluginTargets, localSource, mergePluginTargets } from "./discovery"
 import { createPluginSources } from "./source"
+import { pluginDirective } from "./directive"
 import { isMissingPath } from "../util/config-directories"
 import { createMarkdownRenderer } from "./markdown"
 import { useLog, type LogTags } from "../context/log"
@@ -615,8 +616,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
             if (!changed) return false
             try {
               await config.update((draft) => {
-                const directives = Array.isArray(draft.plugins) ? draft.plugins : []
-                draft.plugins = [...directives.filter((entry: unknown) => entry !== id && entry !== `-${id}`), id]
+                draft.plugins = pluginDirective(draft.plugins, id, true)
               })
               return true
             } catch (error) {
@@ -630,8 +630,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
             if (!changed) return false
             try {
               await config.update((draft) => {
-                const directives = Array.isArray(draft.plugins) ? draft.plugins : []
-                draft.plugins = [...directives.filter((entry: unknown) => entry !== id && entry !== `-${id}`), `-${id}`]
+                draft.plugins = pluginDirective(draft.plugins, id, false)
               })
               return true
             } catch (error) {
