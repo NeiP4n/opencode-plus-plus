@@ -10,7 +10,10 @@ import { closeHomeProject, errorMessage, homeProjectDirectories } from "@/shell/
 import { Persist, persisted } from "@/runtime/persistence/storage"
 import { showToast } from "@/shell/notifications/toast"
 import { useDialog } from "@opencode/ui/context/dialog"
-import { createResource } from "solid-js"
+import { Dialog, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
+import { Button } from "@opencode/ui/button"
+import { pathKey } from "@/workspaces/path-key"
+import { createResource, createSignal, For } from "solid-js"
 import { Schema } from "effect"
 import { Persistence } from "@/runtime/persistence/schema"
 import type { HomeController } from "../model"
@@ -66,7 +69,41 @@ export function createHomeProjectsController(home: HomeController) {
       server: conn,
       title: language.t("command.project.open"),
       multiple: true,
-      onSelect: (result) => home.project.add(conn, homeProjectDirectories(result)),
+      onSelect: (result) => {
+        const selected = homeProjectDirectories(result)
+        if (!selected.length) return
+
+        const contains = (parent: string, child: string) => {
+          const a = pathKey(parent).replace(/\\/$/, "")
+          const b = pathKey(child).replace(/\\/$/, "")
+          return a === b || b.startsWith(a + "/")
+        }
+        const candidates = home.project.list().flatMap((project) =>
+          directories(project)
+            .filter((directory) =>
+              selected.some((item) => contains(directory, item) || contains(item, directory)),
+            )
+            .map((directory) => ({ directory, label: directory })),
+        )
+        const unique = [...new Map(candidates.map((item) => [pathKey(item.directory), item])).values()]
+
+        if (!unique.length) {
+          home.project.add(conn, selected)
+          return
+        }
+
+        void dialog.show(() => (
+          <ProjectPathChoiceDialog
+            paths={selected}
+            candidates={unique}
+            onConfirm={(chosen, createNew) => {
+              const paths = [...chosen, ...(createNew ? selected : [])]
+              if (paths.length) home.project.add(conn, [...new Set(paths)])
+              dialog.close()
+            }}
+          />
+        ))
+      },
     })
   }
 
@@ -187,6 +224,54 @@ export function createHomeProjectsController(home: HomeController) {
       help: () => platform.openExternal("https://opencode.ai/desktop-feedback"),
     },
   }
+}
+
+function ProjectPathChoiceDialog(props: {
+  paths: string[]
+  candidates: { directory: string; label: string }[]
+  onConfirm: (selected: string[], createNew: boolean) => void
+}) {
+  const [selected, setSelected] = createSignal<string[]>(props.candidates.map((item) => item.directory))
+  const [createNew, setCreateNew] = createSignal(false)
+
+  const toggle = (directory: string) => {
+    setSelected((current) =>
+      current.includes(directory) ? current.filter((item) => item !== directory) : [...current, directory],
+    )
+  }
+
+  return (
+    <Dialog fit>
+      <DialogHeader>
+        <DialogTitleGroup title="Projects found at this path" />
+      </DialogHeader>
+      <div class="flex max-h-[50vh] flex-col gap-2 overflow-y-auto px-1 py-2">
+        <p class="text-sm text-text-weak">Choose one or more existing project directories, or add the selected path as a new project.</p>
+        <For each={props.candidates}>
+          {(item) => (
+            <Button
+              variant={selected().includes(item.directory) ? "secondary" : "ghost"}
+              class="h-auto min-h-9 justify-start whitespace-normal break-all text-left"
+              onClick={() => toggle(item.directory)}
+            >
+              {selected().includes(item.directory) ? "✓ " : ""}{item.label}
+            </Button>
+          )}
+        </For>
+        <Button
+          variant={createNew() ? "secondary" : "ghost"}
+          class="h-auto min-h-9 justify-start whitespace-normal text-left"
+          onClick={() => setCreateNew((value) => !value)}
+        >
+          {createNew() ? "✓ " : ""}Create a new project from selected path{props.paths.length > 1 ? "s" : ""}
+        </Button>
+      </div>
+      <DialogFooter>
+        <Button variant="ghost" onClick={() => props.onConfirm([], false)}>Cancel</Button>
+        <Button onClick={() => props.onConfirm(selected(), createNew())}>Continue</Button>
+      </DialogFooter>
+    </Dialog>
+  )
 }
 
 export type HomeProjectsController = ReturnType<typeof createHomeProjectsController>
