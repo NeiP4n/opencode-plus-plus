@@ -87,7 +87,7 @@ const MEMBER_LIMIT = 100
 // Requests that run a command on the host for a guest. Only the host answers them, so a
 // cohost or helper cannot approve its own command.
 const HOST_ONLY = new Set(["room.run", "room.check"])
-const HIDDEN_EXECUTION_ACTIONS = new Set(["shell", "hub", "desktop"])
+const HIDDEN_EXECUTION_ACTIONS = new Set(["shell", "hub", "desktop", "room.run", "room.check"])
 const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.shell.started",
   "session.shell.ended",
@@ -99,6 +99,17 @@ const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.tool.success",
   "session.tool.failed",
 ])
+
+function hiddenExecutionEvent(event: unknown) {
+  if (!event || typeof event !== "object") return false
+  const value = event as { type?: unknown; data?: { action?: unknown } }
+  if (typeof value.type === "string" && HIDDEN_EXECUTION_EVENTS.has(value.type)) return true
+  return (
+    value.type === "permission.asked" &&
+    typeof value.data?.action === "string" &&
+    HIDDEN_EXECUTION_ACTIONS.has(value.data.action)
+  )
+}
 
 // The live events a following guest log adds to the durable ones. Stream fragments (text,
 // reasoning, tool input, compaction) and tool progress are ephemeral, so they never appear in
@@ -580,7 +591,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
             const visible = rules?.hideExecution
-              ? durable.pipe(Stream.filter((event) => !HIDDEN_EXECUTION_EVENTS.has(event.type)))
+              ? durable.pipe(Stream.filter((event) => !hiddenExecutionEvent(event)))
               : durable
             return rules?.hidePaths
               ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
@@ -623,7 +634,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           )
           const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
           const visible = rules?.hideExecution
-            ? stream.pipe(Stream.filter((event) => !HIDDEN_EXECUTION_EVENTS.has(event.type)))
+            ? stream.pipe(Stream.filter((event) => !hiddenExecutionEvent(event)))
             : stream
           return rules?.hidePaths
             ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
