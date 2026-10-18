@@ -3,6 +3,8 @@ export * as Permission from "./permission.js"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
 import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { Permission } from "@opencode/schema/permission"
+import { contains as containsDirectory } from "@opencode/schema/orchestra"
+import { RoomRules } from "@opencode/schema/room-rules"
 import { Bus } from "./bus.js"
 import { Location } from "./location.js"
 import { Agent } from "./agent.js"
@@ -12,6 +14,7 @@ import { SessionStore } from "./session/store.js"
 import { Wildcard } from "./util/wildcard.js"
 import { PermissionSaved } from "./permission/saved.js"
 import { PluginHooks } from "./plugin/hooks.js"
+import { Room } from "./room.js"
 
 const PermissionEffect = Permission.Effect
 export { PermissionEffect as Effect }
@@ -130,6 +133,7 @@ const layer = Layer.effect(
     const agents = yield* Agent.Service
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
+    const rooms = yield* Room.Service
     const hooks = yield* PluginHooks.Service
     const pending = new Map<ID, Pending>()
     let closed = false
@@ -166,6 +170,29 @@ const layer = Layer.effect(
       return merge(agent?.permissions ?? missingAgentPermissions, session.permissions ?? [])
     })
 
+    const roomRulesForSession = Effect.fnUntraced(function* (sessionID: SessionSchema.ID) {
+      const visited = new Set<string>()
+      let currentID = sessionID
+      let session: Awaited<ReturnType<typeof sessions.get>> | undefined
+      while (!visited.has(currentID)) {
+        visited.add(currentID)
+        session = yield* sessions.get(currentID)
+        if (!session?.parentID) break
+        currentID = session.parentID
+      }
+      if (!session || session.parentID && visited.has(session.parentID)) return undefined
+      const directory = session.location.directory
+      return RoomRules.merge(
+        (yield* rooms.list()).flatMap((room) =>
+          room.rules &&
+          (room.sessionID === session.id ||
+            (room.directory !== undefined && containsDirectory(room.directory, directory)))
+            ? [room.rules]
+            : [],
+        ),
+      )
+    })
+
     function denied(input: Pick<Request, "action" | "resources">, rules: Permission.Ruleset) {
       return input.resources.some((resource) => evaluate(input.action, resource, rules).effect === "deny")
     }
@@ -189,6 +216,16 @@ const layer = Layer.effect(
         source: input.source,
         effect,
       })
+      // Room restrictions are a hard policy boundary, not an overridable permission hook.
+      // Apply them after every plugin hook so an extension cannot turn a deny into an allow.
+      const roomViolation = RoomRules.violation(yield* roomRulesForSession(input.sessionID), input)
+      if (roomViolation) {
+        return {
+          effect: "deny" as const,
+          message: roomViolation,
+          rules: [...all, { action: input.action, resource: "*", effect: "deny" as const }],
+        }
+      }
       return { effect: event.effect, message: event.message, rules: all }
     })
 
@@ -355,5 +392,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Bus.node, Location.node, Agent.node, SessionStore.node, PermissionSaved.node, PluginHooks.node],
+  deps: [Bus.node, Location.node, Agent.node, SessionStore.node, PermissionSaved.node, PluginHooks.node, Room.node],
 })
