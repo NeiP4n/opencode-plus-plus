@@ -106,8 +106,8 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
 
     // Plot folders that can hold plots over these paths: each path's own folder and every
     // folder above it, so a plot taken at the project root covers a file deep inside.
-    const folders = (paths: ReadonlyArray<string>) =>
-      [...new Set(paths.flatMap((item) => ancestors(item)))].map((folder) => path.join(folder, FOLDER))
+    const folders = (paths: ReadonlyArray<string>, directory: string) =>
+      [...new Set(paths.flatMap((item) => ancestors(item, directory)))].map((folder) => path.join(folder, FOLDER))
 
     const read = (folder: string) =>
       Effect.promise(async () => {
@@ -136,8 +136,8 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         return plots.flat()
       })
 
-    const live = (paths: ReadonlyArray<string>) =>
-      Effect.forEach(folders(paths), read).pipe(Effect.map((all) => all.flat()))
+    const live = (paths: ReadonlyArray<string>, directory: string) =>
+      Effect.forEach(folders(paths, directory), read).pipe(Effect.map((all) => all.flat()))
 
     const write = (folder: string, plot: Info) =>
       Effect.promise(async () => {
@@ -182,7 +182,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         })
         if (!contained)
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
-        const others = yield* live(paths)
+        const others = yield* live(paths, directory)
         for (const { plot } of others) {
           if (yield* holds(plot, input.sessionID)) continue
           if (plot.paths.some((held) => paths.some((wanted) => covers(held, wanted) || covers(wanted, held))))
@@ -216,7 +216,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
       }),
       list: (directory) =>
         Effect.gen(function* () {
-          const above = yield* live([directory])
+          const above = yield* live([directory], directory)
           const below = yield* Effect.promise(() => plotFolders(directory)).pipe(
             Effect.flatMap((found) => Effect.forEach(found, read)),
           )
@@ -239,7 +239,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         }))
         if (!contained)
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
-        for (const { plot, folder } of yield* live(files)) {
+        for (const { plot, folder } of yield* live(files, directory)) {
           // Compare canonical absolute paths; callers may supply project-relative paths.
           const touched = files.some((file) => plot.paths.some((held) => covers(held, file)))
           if (!touched) continue
@@ -276,10 +276,14 @@ async function pathsInside(directory: string, targets: readonly string[]) {
   return true
 }
 
-function ancestors(target: string): string[] {
+function ancestors(target: string, boundary: string): string[] {
   const resolved = path.resolve(target)
+  const root = path.resolve(boundary)
+  const relative = path.relative(root, resolved)
+  if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return []
+  if (resolved === root) return [resolved]
   const parent = path.dirname(resolved)
-  return parent === resolved ? [resolved] : [resolved, ...ancestors(parent)]
+  return [resolved, ...ancestors(parent, root)]
 }
 
 // Plot folders under a directory, found without walking the whole tree: a project keeps
@@ -287,12 +291,19 @@ function ancestors(target: string): string[] {
 async function plotFolders(directory: string) {
   const own = path.join(directory, FOLDER)
   const children = await readdir(directory, { withFileTypes: true }).catch(() => [])
-  return [
+  const candidates = [
     own,
     ...children
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
       .map((entry) => path.join(directory, entry.name, FOLDER)),
   ]
+  // The .opencode directory or its plots folder can itself be a symlink.
+  // Never inspect or clean plot files outside the requested project tree.
+  const safe: string[] = []
+  for (const folder of candidates) {
+    if (await pathsInside(directory, [folder]).catch(() => false)) safe.push(folder)
+  }
+  return safe
 }
 
 export const node = makeGlobalNode({ service: Service, layer, deps: [Session.node, Orchestra.node] })
