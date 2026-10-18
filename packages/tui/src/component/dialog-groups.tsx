@@ -118,7 +118,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
         "Do not contact or send anything to member projects in response to this initialization message or on your own. Never call federation action=send from this group-bound chat. The Council may use consult_all only after an explicit task or question from the operator.",
         "Do not edit files, run shell commands, change project settings, or approve work on behalf of a member project. Each project keeps its own rules and approvals.",
         "Acknowledge the setup briefly and wait for the operator's next message. Do not call tools for this initialization.",
-      ].join("\\n")
+      ].join("\n")
       await client.api.session.prompt({
         sessionID: created.id,
         text: bootstrap,
