@@ -68,6 +68,9 @@ test("protected files are detected when directly referenced in shell commands", 
   expect(RoomRules.protectedFileInCommand(rules, "bash -c 'cat .env'")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "git status")).toBeUndefined()
   expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
+  expect(RoomRules.protectedFileInCommand(undefined, "cat auth.json")).toBe("**/auth.json")
+  expect(RoomRules.protectedFileInCommand(undefined, "cat .ssh/id_ed25519")).toBe("**/.ssh/**")
+  expect(RoomRules.protectedFileInCommand(undefined, "cat /home/user/.ssh/id_ed25519")).toBe("**/.ssh/**")
 })
 
 test("redacting a path covers slash styles and Windows casing", () => {
