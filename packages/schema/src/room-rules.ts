@@ -87,8 +87,8 @@ export function protectedFile(rules: Rules | undefined, file: string) {
 }
 
 // Shell commands can refer to protected files as positional arguments, redirections,
- // quoted paths, or option values (for example --config=.env). Inspect each token
- // conservatively; false positives are preferable to allowing a protected file through.
+// quoted paths, or option values (for example --config=.env). Inspect each token
+// conservatively; false positives are preferable to allowing a protected file through.
 export function protectedFileInCommand(rules: Rules | undefined, command: string) {
   // Keep a raw token pass so Windows path separators are not mistaken for shell escapes.
   // The segmented pass also catches commands nested in substitutions and wrappers.
