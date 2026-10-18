@@ -554,7 +554,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const data = { room: joined.room, guest: joined.guest, role: joined.member.role, session }
           const directory = joined.room.directory ?? session.location.directory
-          return joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data
+          return rules?.hidePaths ? redactGuestData(data, directory) : data
         }),
       )
       .handle(
@@ -744,15 +744,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "cohost")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, directory)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
           // A shell can open arbitrary network connections, so noOutbound fails closed for guest commands too.
-          if (joined.room.rules?.noOutbound)
+          if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow shell commands while outbound access is disabled" })
           // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
-          const blocked = RoomRules.blockedCommand(joined.room.rules, command)
+          const blocked = RoomRules.blockedCommand(rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
-          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile) return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           // A host assigns Trusted per device when its commands should run unattended.
           // Everyone else, including ordinary cohosts, still gets the usual confirmation.
@@ -772,15 +774,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             )
           }
           codes.record(joined.room.id, { kind: "run", who: joined.member.name, detail: command })
-          const directory = joined.room.directory ?? session.location.directory
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, session.location.directory, signal),
             catch: (error) =>
               new InvalidRequestError({
-                message: `Could not run the command: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
+                message: `Could not run the command: ${rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
               }),
           })
-          return joined.room.rules?.hidePaths
+          return rules?.hidePaths
             ? { ...result, output: RoomRules.redactPath(result.output, directory) }
             : result
         }),
@@ -885,15 +886,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const directory = yield* roomDirectory(joined.room)
+          const rules = yield* rulesForRoom(joined.room, directory)
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
           // Verification commands are shell execution and must obey the same outbound restriction.
-          if (joined.room.rules?.noOutbound)
+          if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow shell commands while outbound access is disabled" })
-          const blocked = RoomRules.blockedCommand(joined.room.rules, command)
+          const blocked = RoomRules.blockedCommand(rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
-          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          const protectedFile = RoomRules.protectedFileInCommand(rules, command)
           if (protectedFile) return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           // Normal guests need approval for each check because dod.yaml can change under the host.
@@ -919,7 +921,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             try: (signal) => Passport.run(command, directory, signal),
             catch: (error) =>
               new InvalidRequestError({
-                message: `Could not run the check: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
+                message: `Could not run the check: ${rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
               }),
           })
           const dod = yield* Dod.accept({
@@ -932,7 +934,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }).pipe(Effect.mapError(invalidDod))
           const passed = result.exitCode === 0
           if (passed) yield* freeDodPlots(directory, id)
-          const visibleOutput = joined.room.rules?.hidePaths ? RoomRules.redactPath(result.output, directory) : result.output
+          const visibleOutput = rules?.hidePaths ? RoomRules.redactPath(result.output, directory) : result.output
           codes.record(joined.room.id, {
             kind: passed ? "pass" : "fail",
             who: owner.name,
