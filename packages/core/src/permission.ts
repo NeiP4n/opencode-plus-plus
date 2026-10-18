@@ -201,6 +201,42 @@ const layer = Layer.effect(
       )
     })
 
+    // Attribute tool permissions to the guest prompt that led to the assistant tool call.
+    // The room shares one host session, so session-level "Always allow" grants would leak
+    // permissions between guests. The source points at the assistant message containing the tool.
+    const roomMemberForSource = Effect.fnUntraced(function* (
+      sessionID: SessionSchema.ID,
+      source?: Permission.Source,
+    ) {
+      if (!source) return undefined
+      const messages = yield* sessions.messages({ sessionID, limit: 100, order: "desc" }).pipe(
+        Effect.orElseSucceed(() => []),
+      )
+      const sourceIndex = messages.findIndex((message) => message.id === source.messageID)
+      if (sourceIndex < 0) return undefined
+      const prompt = messages.slice(sourceIndex).find((message) => {
+        if (message.type !== "user" || !message.metadata || typeof message.metadata !== "object") return false
+        const roomInfo = (message.metadata as Record<string, unknown>).room
+        if (!roomInfo || typeof roomInfo !== "object") return false
+        const roomRecord = roomInfo as Record<string, unknown>
+        const guest = roomRecord.guest
+        return (
+          typeof roomRecord.id === "string" &&
+          guest !== null &&
+          typeof guest === "object" &&
+          typeof (guest as Record<string, unknown>).id === "string"
+        )
+      })
+      if (!prompt || prompt.type !== "user" || !prompt.metadata) return undefined
+      const roomInfo = prompt.metadata.room as Record<string, unknown>
+      const guest = roomInfo.guest as Record<string, unknown>
+      const room = yield* rooms.get(roomInfo.id as Room.ID).pipe(Effect.orElseSucceed(() => undefined))
+      if (!room) return undefined
+      const member = yield* rooms.member(room.id, guest.id as string)
+      if (!member) return undefined
+      return { roomID: room.id, member }
+    })
+
     function denied(input: Pick<Request, "action" | "resources">, rules: Permission.Ruleset) {
       return input.resources.some((resource) => evaluate(input.action, resource, rules).effect === "deny")
     }
@@ -211,7 +247,22 @@ const layer = Layer.effect(
 
     const evaluateInput = Effect.fnUntraced(function* (input: AssertInput) {
       const rules = yield* configured(input.sessionID, input.agent)
-      if (denied(input, rules)) return { effect: "deny" as const, rules, message: undefined, save: undefined }
+      if (denied(input, rules)) {
+        return {
+          effect: "deny" as const,
+          rules,
+          message: undefined,
+          save: undefined,
+          scoped: false,
+          onAlways: undefined,
+          requestAction: undefined,
+          requestResources: undefined,
+          requestMetadata: undefined,
+          roomPrograms: undefined,
+          roomID: undefined,
+          memberID: undefined,
+        }
+      }
       const all = [...rules, ...(yield* savedRules())]
       // Freeze the policy inputs before plugins run: hooks may customize normal permissions,
       // but cannot mutate the command, resources or transport used for room security checks.
@@ -233,19 +284,157 @@ const layer = Layer.effect(
       })
       // Room rules are authoritative and must run after all plugin hooks. Otherwise a later
       // extension could change a hard deny to allow, or suppress a required program prompt.
-      const roomPolicy = RoomRules.policy(yield* roomRulesForSession(input.sessionID), policyInput)
+      const activeRoomRules = yield* roomRulesForSession(input.sessionID)
+      const roomPolicy = RoomRules.policy(activeRoomRules, policyInput)
+      const roomCommands = RoomRules.commandActions.includes(input.action)
+      const memberContext =
+        roomCommands && input.source
+          ? yield* roomMemberForSource(input.sessionID, input.source)
+          : undefined
+
       if (roomPolicy?.effect === "deny") {
         return {
           effect: "deny" as const,
           message: roomPolicy.message,
           rules: [...all, { action: input.action, resource: "*", effect: "deny" as const }],
           save: undefined,
+          scoped: false,
+          onAlways: undefined,
+          requestAction: undefined,
+          requestResources: undefined,
+          requestMetadata: undefined,
+          roomPrograms: undefined,
+          roomID: undefined,
+          memberID: undefined,
+        }
+      }
+      // Guest-only restrictions apply to AI tools too, and cannot be bypassed by Trusted.
+      if (roomCommands && memberContext && activeRoomRules?.denyGuestCommands) {
+        return {
+          effect: "deny" as const,
+          message: "This room does not allow guests to execute commands",
+          rules: [...all, { action: input.action, resource: "*", effect: "deny" as const }],
+          save: undefined,
+          scoped: false,
+          onAlways: undefined,
+          requestAction: undefined,
+          requestResources: undefined,
+          requestMetadata: undefined,
+          roomPrograms: undefined,
+          roomID: undefined,
+          memberID: undefined,
+        }
+      }
+      if (roomCommands && memberContext?.member.role === "viewer") {
+        return {
+          effect: "deny" as const,
+          message: "View-only members cannot trigger command execution in this room",
+          rules: [...all, { action: input.action, resource: "*", effect: "deny" as const }],
+          save: undefined,
+          scoped: false,
+          onAlways: undefined,
+          requestAction: undefined,
+          requestResources: undefined,
+          requestMetadata: undefined,
+          roomPrograms: undefined,
+          roomID: undefined,
+          memberID: undefined,
+        }
+      }
+      if (roomCommands && memberContext?.member.role === "trusted" && event.effect !== "deny") {
+        return {
+          effect: "allow" as const,
+          message: undefined,
+          rules: all,
+          save: undefined,
+          scoped: false,
+          onAlways: undefined,
+          requestAction: undefined,
+          requestResources: undefined,
+          requestMetadata: undefined,
+          roomPrograms: undefined,
+          roomID: undefined,
+          memberID: undefined,
         }
       }
       if (roomPolicy?.effect === "ask" && event.effect !== "deny") {
-        return { effect: "ask" as const, message: roomPolicy.message, rules: all, save: roomPolicy.save ?? [] }
+        const programs = [...new Set(input.resources.flatMap((command) =>
+          RoomRules.programsRequiringApproval(activeRoomRules, command),
+        ))]
+        const approved = new Set(memberContext?.member.approvedPrograms ?? [])
+        const requestPrograms = memberContext
+          ? programs.filter((program) => !approved.has(program))
+          : programs
+        // A previous per-member "Always allow" satisfies only this guest's program request.
+        if (memberContext && requestPrograms.length === 0) {
+          return {
+            effect: "allow" as const,
+            message: undefined,
+            rules: all,
+            save: undefined,
+            scoped: false,
+            onAlways: undefined,
+            requestAction: undefined,
+            requestResources: undefined,
+            requestMetadata: undefined,
+            roomPrograms: undefined,
+            roomID: undefined,
+            memberID: undefined,
+          }
+        }
+        const guestName = memberContext?.member.name
+        const metadata = {
+          ...(input.metadata ?? {}),
+          scope: memberContext ? "room-member-program" : "one-time-room-program",
+          ...(memberContext
+            ? { roomID: memberContext.roomID, memberID: memberContext.member.id, guest: guestName }
+            : {}),
+          programs: requestPrograms,
+          command: input.resources.join(" && "),
+        }
+        const onAlways = memberContext
+          ? () =>
+              Effect.gen(function* () {
+                const current = yield* rooms.member(memberContext.roomID, memberContext.member.id)
+                if (!current) return
+                yield* rooms.saveMember(memberContext.roomID, {
+                  ...current,
+                  approvedPrograms: [...new Set([...(current.approvedPrograms ?? []), ...requestPrograms])],
+                })
+                return
+              })
+          : undefined
+        return {
+          effect: "ask" as const,
+          message: memberContext
+            ? "Allow " + guestName + " to use " + requestPrograms.join(", ") + '? "Always allow" applies only to this room member.'
+            : "This room requires host approval to use " + programs.join(", ") + ". Without a room-member identity, approval is one-time only.",
+          rules: all,
+          save: memberContext ? requestPrograms : [],
+          scoped: true,
+          onAlways,
+          requestAction: "room.program",
+          requestResources: requestPrograms.length ? requestPrograms : programs,
+          requestMetadata: metadata,
+          roomPrograms: programs,
+          roomID: memberContext?.roomID,
+          memberID: memberContext?.member.id,
+        }
       }
-      return { effect: event.effect, message: event.message, rules: all, save: undefined }
+      return {
+        effect: event.effect,
+        message: event.message,
+        rules: all,
+        save: undefined,
+        scoped: false,
+        onAlways: undefined,
+        requestAction: undefined,
+        requestResources: undefined,
+        requestMetadata: undefined,
+        roomPrograms: undefined,
+        roomID: undefined,
+        memberID: undefined,
+      }
     })
 
     function request(input: AssertInput, message?: string): Request {
@@ -293,8 +482,17 @@ const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: AssertInput) {
       if (closed) return { id: input.id ?? ID.create(), effect: "deny" as const }
       const result = yield* evaluateInput(input)
-      const value = request({ ...input, save: result.save === undefined ? input.save : [...result.save] }, result.message)
-      if (result.effect === "ask") yield* create(value, input.agent)
+      const promptInput = {
+        ...input,
+        action: result.requestAction ?? input.action,
+        resources: result.requestResources ? [...result.requestResources] : input.resources,
+        metadata: result.requestMetadata ?? input.metadata,
+        save: result.save === undefined ? input.save : [...result.save],
+      }
+      const value = request(promptInput, result.message)
+      if (result.effect === "ask") {
+        yield* create(value, input.agent, { saveGlobally: !result.scoped, onAlways: result.onAlways })
+      }
       return { id: value.id, effect: result.effect }
     })
 
@@ -313,8 +511,18 @@ const layer = Layer.effect(
               })
             }
             if (result.effect === "allow") return
-            const item = yield* create(request({ ...input, save: result.save ?? input.save }, result.message), input.agent)
-            return yield* restore(Deferred.await(item.deferred)).pipe(
+            const promptInput = {
+              ...input,
+              action: result.requestAction ?? input.action,
+              resources: result.requestResources ? [...result.requestResources] : input.resources,
+              metadata: result.requestMetadata ?? input.metadata,
+              save: result.save ?? input.save,
+            }
+            const item = yield* create(request(promptInput, result.message), input.agent, {
+              saveGlobally: !result.scoped,
+              onAlways: result.onAlways,
+            })
+            yield* restore(Deferred.await(item.deferred)).pipe(
               // Deliberate defect tunnel: leaves wrap execution in blanket `mapError`, which
               // must not convert a user's decline into model-facing tool output. The decline
               // resurfaces as a typed failure at SessionModelRequest.executeTool. A decline
@@ -327,6 +535,67 @@ const layer = Layer.effect(
                 }),
               ),
             )
+            // A host may tighten room rules or demote/remove the requesting member while the
+            // program approval is open. Re-check before allowing the tool invocation to proceed.
+            if (result.roomPrograms?.length) {
+              const currentRules = yield* roomRulesForSession(input.sessionID)
+              const currentPolicy = RoomRules.policy(currentRules, policyInput)
+              if (currentPolicy?.effect === "deny") {
+                return yield* new BlockedError({
+                  rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
+                  permission: input.action,
+                  resources: input.resources,
+                  reason: currentPolicy.message,
+                })
+              }
+              const currentMemberContext = yield* roomMemberForSource(input.sessionID, input.source)
+              if (result.roomID !== undefined) {
+                if (
+                  !currentMemberContext ||
+                  currentMemberContext.roomID !== result.roomID ||
+                  currentMemberContext.member.id !== result.memberID ||
+                  currentMemberContext.member.role === "viewer"
+                ) {
+                  return yield* new BlockedError({
+                    rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
+                    permission: input.action,
+                    resources: input.resources,
+                    reason: "The host changed or removed this room member while program approval was pending",
+                  })
+                }
+              }
+              if (currentRules?.denyGuestCommands && currentMemberContext) {
+                return yield* new BlockedError({
+                  rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
+                  permission: input.action,
+                  resources: input.resources,
+                  reason: "The room no longer permits guest command execution",
+                })
+              }
+              if (currentMemberContext?.member.role === "viewer") {
+                return yield* new BlockedError({
+                  rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
+                  permission: input.action,
+                  resources: input.resources,
+                  reason: "View-only members cannot trigger command execution in this room",
+                })
+              }
+              const currentPrograms = [...new Set(input.resources.flatMap((command) =>
+                RoomRules.programsRequiringApproval(currentRules, command),
+              ))]
+              const currentApproved = new Set(currentMemberContext?.member.approvedPrograms ?? [])
+              const newlyRequired = currentPrograms.filter(
+                (program) => !result.roomPrograms?.includes(program) && !currentApproved.has(program),
+              )
+              if (newlyRequired.length) {
+                return yield* new BlockedError({
+                  rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
+                  permission: input.action,
+                  resources: input.resources,
+                  reason: "Room rules changed and now require approval for " + newlyRequired.join(", ") + ". Run the command again.",
+                })
+              }
+            }
           }),
         )
       }),
