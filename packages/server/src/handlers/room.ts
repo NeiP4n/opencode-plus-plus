@@ -165,6 +165,19 @@ function outputSummary(output: string, exitCode: number) {
   return tail || `exit code ${exitCode}, no output`
 }
 
+// Redact every string field in guest-visible JSON, not only the obvious directory field.
+// Paths can otherwise escape through transcripts, command output, notes, and nested session metadata.
+function redactGuestData<T>(value: T, directory: string): T {
+  if (typeof value === "string") return RoomRules.redactPath(value, directory) as T
+  if (Array.isArray(value)) return value.map((item) => redactGuestData(item, directory)) as T
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactGuestData(item, directory)]),
+    ) as T
+  }
+  return value
+}
+
 function missingRoom(error: Room.NotFoundError) {
   return Effect.fail(new RoomNotFoundError({ roomID: error.roomID, message: `Room not found: ${error.roomID}` }))
 }
