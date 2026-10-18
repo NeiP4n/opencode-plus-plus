@@ -30,6 +30,13 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
 })
 
+test("protected files cannot be accessed through shell command arguments", () => {
+  expect(RoomRules.protectedFileInCommand(rules, "cat .env")).toBe(".env*")
+  expect(RoomRules.protectedFileInCommand(rules, "cp 'secrets/key.pem' /tmp/key.pem")).toBe("secrets/*")
+  expect(RoomRules.protectedFileInCommand(rules, "tool --config=.env.local")).toBe(".env*")
+  expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
+})
+
 test("redacting a path covers both slash styles", () => {
   expect(RoomRules.redactPath("C:\\Users\\me\\app", "C:\\Users\\me\\app")).toBe("<project>")
   expect(RoomRules.redactPath("opened C:/Users/me/app/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
