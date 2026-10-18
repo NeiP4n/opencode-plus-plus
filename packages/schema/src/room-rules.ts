@@ -31,6 +31,9 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   }
 }
 
+// Both tools can execute local commands, so room command restrictions apply to both.
+export const commandActions: readonly string[] = ["shell", "hub"]
+
 // Permission actions that carry data out of the machine.
 export const outbound: readonly string[] = [
   "webfetch",
@@ -38,6 +41,7 @@ export const outbound: readonly string[] = [
   "peers",
   "federation",
   "shell",
+  "hub",
   "opencode_list_mcp_resources",
   "opencode_read_mcp_resource",
 ]
@@ -70,6 +74,14 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
     if (glob(pattern, "").test(command)) return true
     return segments(command).some((part) => start.test(part))
   })
+}
+
+export function blockedCommandForAction(rules: Rules | undefined, action: string, commands: readonly string[]) {
+  if (!commandActions.includes(action)) return undefined
+  for (const command of commands) {
+    const blocked = blockedCommand(rules, command)
+    if (blocked !== undefined) return blocked
+  }
 }
 
 export function protectedFile(rules: Rules | undefined, file: string) {
