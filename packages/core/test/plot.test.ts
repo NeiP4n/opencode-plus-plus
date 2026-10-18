@@ -97,6 +97,7 @@ describe("Plot", () => {
       const refused = yield* refusal(plots.guard({ sessionID: theirs.id, files: [inside] }))
       expect(refused).toContain("Parser work")
       expect(refused).toContain("rewrite the parser")
+      expect(yield* refusal(plots.guard({ sessionID: theirs.id, files: ["src/parser.ts"] }))).toContain("Parser work")
       expect(yield* refusal(plots.guard({ sessionID: theirs.id, files: [outside] }))).toBeUndefined()
       // nor may the other team take an overlapping plot
       expect(
