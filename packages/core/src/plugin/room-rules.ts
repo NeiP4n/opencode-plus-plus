@@ -50,12 +50,22 @@ export const Plugin = define({
           event.input && typeof event.input === "object" ? (event.input as Record<string, unknown>) : undefined
         const action = typeof input?.action === "string" ? input.action.toLowerCase() : undefined
         const outbound = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
-        const isOutbound = (name: string) =>
-          outbound.has(name) ||
-          name.startsWith("desktop_") ||
-          name.startsWith("mcp_") ||
-          name.startsWith("opencode_mcp_")
-        if (isOutbound(tool) || (action && isOutbound(action)))
+        const registered = yield* ctx.tool.list()
+        const registeredTool = registered.find((item) => item.name.toLowerCase() === tool)
+        const isOutbound = (name: string) => {
+          const normalized = name.replace(/^opencode_/, "")
+          return (
+            outbound.has(name) ||
+            outbound.has(normalized) ||
+            name.startsWith("desktop_") ||
+            name.startsWith("mcp_") ||
+            name.startsWith("opencode_mcp_")
+          )
+        }
+        // MCP tool names are server-defined, so a name-only allowlist is insufficient.
+        // Registered namespaced tools are treated as MCP transports for this rule.
+        const isMcp = !!registeredTool?.options?.namespace
+        if (isOutbound(tool) || (action && isOutbound(action)) || isMcp)
           return yield* new Tool.Error({
             message: "This room does not allow tools that can send data out.",
             metadata: { rule: "noOutbound", tool: event.tool, action },
