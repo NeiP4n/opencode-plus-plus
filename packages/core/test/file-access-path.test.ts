@@ -110,7 +110,7 @@ describe("FileAccess.resolve", () => {
     ),
   )
 
-  it.live("resolves a prospective target below an external symlink lexically", () =>
+  it.live("requires external authorization for a prospective target below an external symlink", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {
         if (process.platform === "win32") return
@@ -119,15 +119,18 @@ describe("FileAccess.resolve", () => {
         const access = yield* FileAccess.Service
         const target = yield* access.resolve({ path: path.join("escape", "new.txt") })
         expect(target).toMatchObject({
-          absolute: path.join(directory, "escape", "new.txt"),
-          resource: "escape/new.txt",
+          absolute: path.join(outside.path, "new.txt"),
+          resource: path.join(outside.path, "new.txt").replaceAll("\\\\", "/"),
         })
-        expect(target.externalDirectory).toBeUndefined()
+        expect(target.externalDirectory).toMatchObject({
+          directory: outside.path,
+          resource: path.join(outside.path, "*").replaceAll("\\\\", "/"),
+        })
       }).pipe(provide(directory)),
     ),
   )
 
-  it.live("follows an in-location symlink using ordinary filesystem semantics", () =>
+  it.live("canonicalizes an in-location symlink to its actual internal target", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {
         if (process.platform === "win32") return
@@ -138,8 +141,8 @@ describe("FileAccess.resolve", () => {
 
         const access = yield* FileAccess.Service
         expect(yield* access.resolve({ path: "linked/new.txt" })).toMatchObject({
-          absolute: path.join(directory, "linked", "new.txt"),
-          resource: "linked/new.txt",
+          absolute: path.join(directory, "actual", "new.txt"),
+          resource: "actual/new.txt",
         })
       }).pipe(provide(directory)),
     ),
