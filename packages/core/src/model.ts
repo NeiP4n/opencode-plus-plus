@@ -11,24 +11,17 @@ import { AISDKNative } from "./aisdk-native.js"
 
 export const ID = Model.ID
 export type ID = typeof ID.Type
-
 export const VariantID = Model.VariantID
 export type VariantID = typeof VariantID.Type
-
-// Grouping of models, eg claude opus, claude sonnet
 export const Family = Model.Family
 export type Family = Model.Family
-
 export const ReasoningField = Model.ReasoningField
 export type ReasoningField = Model.ReasoningField
-
 export const Compatibility = Model.Compatibility
 export type Compatibility = Model.Compatibility
-
 export const Capabilities = Model.Capabilities
 export type Capabilities = Model.Capabilities
 
-/** Merges partial config capabilities onto a base model's capabilities, defaulting unset fields. */
 export const mergeCapabilities = (config: Partial<Capabilities>, base: Capabilities | undefined) => {
   const fallback = base ?? Capabilities.default()
   return {
@@ -39,35 +32,21 @@ export const mergeCapabilities = (config: Partial<Capabilities>, base: Capabilit
 }
 
 export const Cost = Model.Cost
-
 export const Ref = Model.Ref
 export type Ref = typeof Ref.Type
-
 export const Info = Model.Info
 export type Info = Model.Info
-
-/** Effective provider and model settings used only while constructing a runtime model. */
 export type RuntimeInfo = Omit<Info, "settings"> & { readonly settings?: Provider.Settings }
-
 export type MutableInfo = DeepMutable<Info>
-
 export { Event } from "@opencode/schema/model"
 
 export interface Editor {
-  /** Includes disabled candidates so later transforms can re-enable them. */
   readonly list: (providerID?: Provider.ID) => readonly MutableInfo[]
   readonly get: (providerID: Provider.ID, modelID: ID) => MutableInfo | undefined
   readonly update: (providerID: Provider.ID, modelID: ID, update: (model: MutableInfo) => void) => void
   readonly remove: (providerID: Provider.ID, modelID: ID) => void
-  readonly default: {
-    readonly get: () => { providerID: Provider.ID; modelID: ID } | undefined
-    readonly set: (providerID: Provider.ID, modelID: ID) => void
-  }
-  /** Coherent, read-only provider inputs, including definitions from inactive providers. */
-  readonly provider: {
-    readonly list: () => readonly Provider.Definition[]
-    readonly get: (providerID: Provider.ID) => Provider.Definition | undefined
-  }
+  readonly default: { readonly get: () => { providerID: Provider.ID; modelID: ID } | undefined; readonly set: (providerID: Provider.ID, modelID: ID) => void }
+  readonly provider: { readonly list: () => readonly Provider.Definition[]; readonly get: (providerID: Provider.ID) => Provider.Definition | undefined }
 }
 
 export interface Interface extends State.Transformable<Editor> {
@@ -77,13 +56,9 @@ export interface Interface extends State.Transformable<Editor> {
   readonly default: () => Effect.Effect<Info | undefined>
   readonly small: (providerID: Provider.ID) => Effect.Effect<Info | undefined>
 }
-
 export class Service extends Context.Service<Service, Interface>()("@opencode/Model") {}
 
-type Data = {
-  models: Map<Provider.ID, ReadonlyMap<ID, Info>>
-  defaultModel?: { providerID: Provider.ID; modelID: ID }
-}
+type Data = { models: Map<Provider.ID, ReadonlyMap<ID, Info>>; defaultModel?: { providerID: Provider.ID; modelID: ID } }
 
 const layer = Layer.effect(
   Service,
@@ -94,11 +69,8 @@ const layer = Layer.effect(
     let input: Provider.Snapshot | undefined
     const state: State.Interface<Data, Editor> = State.create<Data, Editor>({
       name: "model",
-      initial: () => ({
-        models: new Map((input?.available ?? []).map((record) => [record.provider.id, record.models])),
-      }),
+      initial: () => ({ models: new Map((input?.available ?? []).map((record) => [record.provider.id, record.models])) }),
       editor: (data) => {
-        // Definitions are shared across Locations; a provider's map and a model are copied before their first edit.
         const owned = new WeakSet<ReadonlyMap<ID, Info>>()
         const drafts = new WeakSet<Info>()
         const writable = (providerID: Provider.ID) => {
@@ -124,13 +96,10 @@ const layer = Layer.effect(
         return {
           list: (providerID) => {
             const ids = providerID === undefined ? Array.from(data.models.keys()) : [providerID]
-            return ids.flatMap((id) =>
-              Array.from(data.models.get(id)?.keys() ?? []).flatMap((modelID) => draft(id, modelID) ?? []),
-            )
+            return ids.flatMap((id) => Array.from(data.models.get(id)?.keys() ?? []).flatMap((modelID) => draft(id, modelID) ?? []))
           },
           get: draft,
           update: (providerID, modelID, update) => {
-            // Model edits cannot create/enable a provider or bypass its availability decision.
             const models = writable(providerID)
             if (!models) return
             const model = draft(providerID, modelID) ?? (Info.default(providerID, modelID) as MutableInfo)
@@ -147,14 +116,10 @@ const layer = Layer.effect(
             drafts.add(model)
             models.set(modelID, model)
           },
-          remove: (providerID, modelID) => {
-            writable(providerID)?.delete(modelID)
-          },
+          remove: (providerID, modelID) => writable(providerID)?.delete(modelID),
           default: {
             get: () => data.defaultModel,
-            set: (providerID, modelID) => {
-              data.defaultModel = { providerID, modelID }
-            },
+            set: (providerID, modelID) => { data.defaultModel = { providerID, modelID } },
           },
           provider: {
             list: () => Array.from(input?.records.values() ?? []),
@@ -162,19 +127,10 @@ const layer = Layer.effect(
           },
         }
       },
-      // read() also refreshes dependencies changed inside a State.batch before notification.
       notify: () => notify,
     })
     yield* Effect.addFinalizer(() => State.shutdown(state.reload()))
-    let cached:
-      | {
-          data: Data
-          all: readonly Info[]
-          available: readonly Info[]
-          byProvider: ReadonlyMap<Provider.ID, ReadonlyMap<ID, Info>>
-        }
-      | undefined
-    // An unedited model keeps its shared definition object across rebuilds, so its merged output is reusable.
+    let cached: { data: Data; all: readonly Info[]; available: readonly Info[]; byProvider: ReadonlyMap<Provider.ID, ReadonlyMap<ID, Info>> } | undefined
     const merged = new WeakMap<Info, { provider: Provider.Info | undefined; model: Info }>()
     const read = Effect.fn("Model.snapshot")(function* () {
       while (true) {
@@ -185,8 +141,6 @@ const layer = Layer.effect(
         }
         const data = state.get()
         if (cached?.data === data) return cached
-        // A failed model transform can remove its plugin's provider/integration registrations.
-        // Re-materialize from the surviving inputs, not from the failed candidate's seed.
         if (current !== (yield* providers.snapshot())) continue
         const byProvider = new Map(
           Array.from(data.models, ([providerID, models]) => {
@@ -201,10 +155,7 @@ const layer = Layer.effect(
                     ...model,
                     ...(provider?.canonical === undefined ? {} : { canonical: provider.canonical }),
                     package: model.package ?? provider?.package,
-                    settings: Provider.mergeOverlay(
-                      Provider.modelSettings(provider?.settings),
-                      Provider.modelSettings(model.settings),
-                    ),
+                    settings: Provider.mergeOverlay(Provider.modelSettings(provider?.settings), Provider.modelSettings(model.settings)),
                     headers: Provider.mergeHeaders(provider?.headers, model.headers),
                     body: Provider.mergeOverlay(provider?.body, model.body),
                   } satisfies Info
@@ -215,66 +166,42 @@ const layer = Layer.effect(
             ]
           }),
         )
-        const all = Array.from(byProvider.values())
-          .flatMap((models) => Array.from(models.values()))
-          .sort((left, right) => right.time.released - left.time.released)
-        cached = freeze({ data, all, available: all.filter((model) => model.enabled), byProvider }, true)
+        const all = Array.from(byProvider.values()).flatMap((models) => Array.from(models.values())).sort((left, right) => right.time.released - left.time.released)
+        // Provider-reported inventory is the source of truth. Billing tier, preview state and
+        // other metadata must not become an implicit OpenCode++ allowlist.
+        cached = freeze({ data, all, available: all, byProvider }, true)
         return cached
       }
     })
-    const prepare = providers.snapshot().pipe(
-      Effect.tap((current) =>
-        Effect.sync(() => {
-          if (input === current) return
-          input = current
-          state.invalidate()
-        }),
-      ),
-    )
+    const prepare = providers.snapshot().pipe(Effect.tap((current) => Effect.sync(() => {
+      if (input === current) return
+      input = current
+      state.invalidate()
+    })))
     const reload = () => prepare.pipe(Effect.andThen(state.reload()))
     let published: typeof cached
     const notify: Effect.Effect<void> = Effect.gen(function* () {
       const value = yield* read()
       if (value === published) return
       published = value
-      yield* bus.publish(
-        Model.Event.Updated,
-        {},
-        {
-          location: { directory: location.directory, workspaceID: location.workspaceID },
-        },
-      )
+      yield* bus.publish(Model.Event.Updated, {}, { location: { directory: location.directory, workspaceID: location.workspaceID } })
     })
-    yield* bus.subscribe(Provider.Event.Updated).pipe(
-      Stream.runForEach(() => notify),
-      Effect.forkScoped({ startImmediately: true }),
-    )
+    yield* bus.subscribe(Provider.Event.Updated).pipe(Stream.runForEach(() => notify), Effect.forkScoped({ startImmediately: true }))
     return Service.of({
       transform: (update) => prepare.pipe(Effect.andThen(state.transform(update))),
       reload,
-      get: Effect.fn("Model.get")((providerID, modelID) =>
-        read().pipe(Effect.map((value) => value.byProvider.get(providerID)?.get(modelID))),
-      ),
+      get: Effect.fn("Model.get")((providerID, modelID) => read().pipe(Effect.map((value) => value.byProvider.get(providerID)?.get(modelID)))),
       all: Effect.fn("Model.all")(() => read().pipe(Effect.map((value) => value.all))),
       available: Effect.fn("Model.available")(() => read().pipe(Effect.map((value) => value.available))),
       default: Effect.fn("Model.default")(function* () {
         const value = yield* read()
         const requested = value.data.defaultModel
-        const model = requested && value.byProvider.get(requested.providerID)?.get(requested.modelID)
-        return model?.enabled ? model : value.available.find(supportsText)
+        return requested ? value.byProvider.get(requested.providerID)?.get(requested.modelID) : undefined
       }),
       small: Effect.fn("Model.small")(function* (providerID) {
         const value = yield* read()
-        const models = value.available.filter(
-          (model) =>
-            model.providerID === providerID &&
-            model.status === "active" &&
-            model.capabilities.input.some((item) => item.startsWith("text")) &&
-            model.capabilities.output.some((item) => item.startsWith("text")),
-        )
-        return ["gpt-luna", "gemini-flash-lite", "gemini-flash", "claude-haiku"].flatMap(
-          (family) => models.find((model) => model.family === family) ?? [],
-        )[0]
+        const configured = value.data.defaultModel
+        return configured?.providerID === providerID ? value.byProvider.get(providerID)?.get(configured.modelID) : undefined
       }),
     })
   }),
@@ -283,10 +210,8 @@ const layer = Layer.effect(
 export const node = makeLocationNode({ service: Service, layer, deps: [Provider.node, Bus.node, Location.node] })
 
 export function supportsText(model: Pick<Info, "capabilities">) {
-  return (
-    (model.capabilities.input.length === 0 || model.capabilities.input.some((item) => item.startsWith("text"))) &&
+  return (model.capabilities.input.length === 0 || model.capabilities.input.some((item) => item.startsWith("text"))) &&
     (model.capabilities.output.length === 0 || model.capabilities.output.some((item) => item.startsWith("text")))
-  )
 }
 
 export function compatibility(input: unknown): Compatibility | undefined {
@@ -297,10 +222,7 @@ export function compatibility(input: unknown): Compatibility | undefined {
 
 export function parse(input: string): { providerID: Provider.ID; modelID: ID } {
   const index = input.indexOf("/")
-  return {
-    providerID: Provider.ID.make(index === -1 ? input : input.slice(0, index)),
-    modelID: ID.make(index === -1 ? "" : input.slice(index + 1)),
-  }
+  return { providerID: Provider.ID.make(index === -1 ? input : input.slice(0, index)), modelID: ID.make(index === -1 ? "" : input.slice(index + 1)) }
 }
 
 export * as Model from "./model.js"
