@@ -213,6 +213,23 @@ const RoomLiveEvent = Schema.Union([
 ])
 const decodeRoomLiveEvent = Schema.decodeUnknownOption(RoomLiveEvent)
 
+// Rebuild the same public event envelope used for live events, excluding host-only fields.
+function decodeGuestRoomEvent(event: {
+  id: string
+  created: number
+  type: string
+  data: unknown
+  durable?: unknown
+}) {
+  return decodeRoomLiveEvent({
+    id: event.id,
+    created: event.created,
+    type: event.type,
+    data: event.data,
+    ...(event.durable ? { durable: event.durable } : {}),
+  })
+}
+
 // Control and format characters in a name would reach the host's terminal, notes and feed.
 const UNSAFE_NAME = /[\p{Cc}\p{Cf}\u2028\u2029]/u
 
@@ -676,18 +693,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               // system prompts, permission rules, raw message rewrites and other host-only events
               // cannot leak through replay merely because they are durable. Rebuild the public
               // envelope as the live path does, omitting host-only location and metadata fields.
-              Stream.filter((event) => Option.isSome(decodeRoomLiveEvent(event))),
-              Stream.map((event) =>
-                Option.getOrUndefined(
-                  decodeRoomLiveEvent({
-                    id: event.id,
-                    created: event.created,
-                    type: event.type,
-                    data: event.data,
-                    ...("durable" in event && event.durable ? { durable: event.durable } : {}),
-                  }),
-                )!,
-              ),
+              Stream.filter((event) => Option.isSome(decodeGuestRoomEvent(event))),
+              Stream.map((event) => Option.getOrUndefined(decodeGuestRoomEvent(event))!),
             )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
