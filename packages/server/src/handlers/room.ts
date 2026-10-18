@@ -544,7 +544,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const result = yield* messagePage(sessions, session.id, ctx.query)
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return rules?.hidePaths ? redactGuestData(result, directory) : result
         }),
       )
@@ -555,7 +555,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const data = { room: joined.room, guest: joined.guest, role: joined.member.role, session }
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return rules?.hidePaths ? redactGuestData(data, directory) : data
         }),
       )
@@ -565,7 +565,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           const redact = <A>(value: A) => (rules?.hidePaths ? redactGuestData(value, directory) : value)
           const durable = sessions
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
@@ -619,7 +619,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession), Effect.orDie)
           const note = yield* boundNote(session.id)
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
           return {
             data: rules?.hidePaths
@@ -640,7 +640,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const note = (yield* boundNote(session.id)) ?? null
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(note, directory) : note }
         }),
       )
@@ -678,8 +678,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               ),
               Effect.orDie,
             )
-          const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
@@ -727,7 +727,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, undefined)
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           const held = yield* plots.list(directory)
           const passport = Passport.read(directory)
           return {
@@ -752,7 +752,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestWho(ctx.params.roomID, "cohost")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const directory = joined.room.directory ?? session.location.directory
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
           // A shell can open arbitrary network connections, so noOutbound fails closed for guest commands too.
