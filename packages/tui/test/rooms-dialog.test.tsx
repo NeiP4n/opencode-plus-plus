@@ -411,6 +411,9 @@ test("room management separates participants from safety rules and exposes guest
       if (url.pathname.startsWith(`/api/room/${room.id}/`)) return new Response(null, { status: 204 })
     },
   })
+  const bar = await setup.waitForFrame((frame) => frame.includes("+ Host"))
+  const host = cell(bar, "+ Host")
+  await setup.mockMouse.click(host.x, host.y)
   const overview = await setup.waitForFrame((frame) => frame.includes("Safety rules") && frame.includes("Participants"))
   expect(overview).toContain("Room management")
   const line = overview.split("\n").findIndex((item) => item.includes("Safety rules"))
