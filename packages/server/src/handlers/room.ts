@@ -548,7 +548,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const durable = sessions
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
             .pipe(Stream.orDie)
-          if (!ctx.query.follow) return durable
+          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
+          if (!ctx.query.follow)
+            return joined.room.rules?.hidePaths
+              ? durable.pipe(Stream.map((event) => redactRoomValue(event, directories)))
+              : durable
           // Permission requests are not in the durable log; a following guest hears this session's
           // live ones too, instead of polling for them.
           const live = Stream.callback<typeof RoomLiveEvent.Type>((queue) =>
@@ -584,7 +588,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               (unsubscribe) => unsubscribe,
             ),
           )
-          return durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
+          const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
+          return joined.room.rules?.hidePaths
+            ? stream.pipe(Stream.map((event) => redactRoomValue(event, directories)))
+            : stream
         }),
       )
       .handle(
