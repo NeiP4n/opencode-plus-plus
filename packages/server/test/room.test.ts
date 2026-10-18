@@ -425,7 +425,7 @@ it.live("guest log replay excludes host-only session events and hidden shell out
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { rules: { hideExecution: true, hidePaths: true } },
+      body: { rules: { hideExecution: true, hidePaths: true, noOutbound: false } },
     })
     expect(configured.status).toBe(200)
     const joined = yield* call("/api/room/join", {
@@ -461,7 +461,7 @@ it.live("hideExecution hides shell history from room guests", () =>
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { rules: { hideExecution: true } },
+      body: { rules: { hideExecution: true, noOutbound: false } },
     })
     expect(configured.status).toBe(200)
     const joined = yield* call("/api/room/join", {
@@ -491,7 +491,7 @@ it.live("hideExecution removes command details from guest-visible room feed", ()
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { defaultRole: "cohost", rules: { hideExecution: true } },
+      body: { defaultRole: "cohost", rules: { hideExecution: true, noOutbound: false } },
     })
     expect(configured.status).toBe(200)
     const joined = yield* call("/api/room/join", {
@@ -526,7 +526,7 @@ it.live("protected files cannot be read through guest shell commands", () =>
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { defaultRole: "cohost", rules: { protectedFiles: [".env*"] } },
+      body: { defaultRole: "cohost", rules: { protectedFiles: [".env*"], noOutbound: false } },
     })
     expect(configured.status).toBe(200)
     const joined = yield* call("/api/room/join", {
@@ -658,7 +658,7 @@ it.live("a following guest log carries the session's permission requests as they
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
-    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id } })).body
+    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id, rules: { noOutbound: false } } })).body
       .data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
@@ -970,7 +970,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
-    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id } })).body
+    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id, rules: { noOutbound: false } } })).body
       .data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
@@ -1042,6 +1042,12 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
 it.live("guests share the host project's DoD: one takes an item with a plot, the host frees it", () =>
   Effect.gen(function* () {
     const { call, room, code, directory } = yield* setup
+    const egressAllowed = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false } },
+    })
+    expect(egressAllowed.status).toBe(200)
     yield* Effect.promise(() =>
       Bun.write(
         path.join(directory, ".opencode", "dod.yaml"),
