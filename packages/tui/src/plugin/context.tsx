@@ -608,10 +608,37 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
         route: (id, name) => store.registrations[id]?.routes[name]?.render,
         slots: { register: registerSlot, resolved },
         markdown,
-        // Manual dialog toggles join the same chain as reconciles so a
-        // toggle mid-reload cannot mix registrations across generations.
-        activate: (id) => enqueue(() => activate(id)),
-        deactivate: (id) => enqueue(() => deactivate(id)),
+        // Persist exact directives so disabled lazy built-ins stay unloaded on the next launch.
+        activate: (id) =>
+          enqueue(async () => {
+            const changed = await activate(id)
+            if (!changed) return false
+            try {
+              await config.update((draft) => {
+                const directives = Array.isArray(draft.plugins) ? draft.plugins : []
+                draft.plugins = [...directives.filter((entry: unknown) => entry !== id && entry !== `-${id}`), id]
+              })
+              return true
+            } catch (error) {
+              await deactivate(id).catch(() => undefined)
+              throw error
+            }
+          }),
+        deactivate: (id) =>
+          enqueue(async () => {
+            const changed = await deactivate(id)
+            if (!changed) return false
+            try {
+              await config.update((draft) => {
+                const directives = Array.isArray(draft.plugins) ? draft.plugins : []
+                draft.plugins = [...directives.filter((entry: unknown) => entry !== id && entry !== `-${id}`), `-${id}`]
+              })
+              return true
+            } catch (error) {
+              await activate(id).catch(() => undefined)
+              throw error
+            }
+          }),
       }}
     >
       {props.children}
