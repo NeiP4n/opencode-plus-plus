@@ -746,6 +746,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               expires: plot.expires,
             })),
           }
+          return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
         }),
       )
       .handle(
