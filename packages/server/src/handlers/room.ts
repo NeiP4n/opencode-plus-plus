@@ -81,6 +81,10 @@ function guestSessionMessage(
       content: message.content.filter((part) => part.type !== "reasoning" && (!hideExecution || part.type !== "tool")),
       time: message.time,
       finish: message.finish,
+      // Expose only a generic rate-limit marker to guests; provider error details may contain sensitive data.
+      ...(message.error?.type === "provider.rate-limit"
+        ? { error: { type: "provider.rate-limit", message: "Rate limit reached" } }
+        : {}),
     }
   }
   if (message.type === "shell") return hideExecution ? undefined : message
