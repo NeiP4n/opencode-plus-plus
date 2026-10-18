@@ -108,7 +108,8 @@ try {
 
   $TuiLink = Join-Path $Source "packages\cli\node_modules\@opencode\tui"
   $TuiPackage = Join-Path $TuiLink "package.json"
-  $TuiRootPackage = Join-Path $Source "packages\tui\package.json"
+  $TuiRoot = Join-Path $Source "packages\tui"
+  $TuiRootPackage = Join-Path $TuiRoot "package.json"
 
   # Bun can leave a stale/broken workspace junction behind on Windows after a
   # filtered install. Test the actual package file, not just the directory.
@@ -123,7 +124,7 @@ try {
     $Scope = Split-Path $TuiLink -Parent
     New-Item -ItemType Directory -Force -Path $Scope | Out-Null
     Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $TuiLink
-    New-Item -ItemType Junction -Path $TuiLink -Target $TuiRootPackage | Out-Null
+    New-Item -ItemType Junction -Path $TuiLink -Target $TuiRoot | Out-Null
   }
 
   if (-not (Test-Path $TuiPackage)) {
