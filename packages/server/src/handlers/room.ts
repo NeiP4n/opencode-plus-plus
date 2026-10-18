@@ -872,12 +872,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             try: (signal) => Passport.run(command, directory, signal),
             catch: (error) => new InvalidRequestError({ message: `Could not run the check: ${String(error)}` }),
           })
+          const output = joined.room.rules?.hidePaths
+            ? RoomRules.redactPath(result.output, directory)
+            : result.output
           const dod = yield* Dod.accept({
             directory,
             id,
             command,
             exitCode: result.exitCode,
-            summary: outputSummary(result.output, result.exitCode),
+            summary: outputSummary(output, result.exitCode),
             by: owner.name,
           }).pipe(Effect.mapError(invalidDod))
           const passed = result.exitCode === 0
@@ -886,9 +889,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             kind: passed ? "pass" : "fail",
             who: owner.name,
             item: id,
-            ...(passed ? {} : { detail: outputSummary(result.output, result.exitCode).slice(0, 120) }),
+            ...(passed ? {} : { detail: outputSummary(output, result.exitCode).slice(0, 120) }),
           })
-          return { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output: result.output } }
+          return { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output } }
         }),
       )
       .handle(
