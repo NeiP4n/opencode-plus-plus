@@ -53,12 +53,23 @@ export interface Policy extends Schema.Schema.Type<typeof Policy> {}
 // A named set of projects the operator keeps together, such as "Shop" for its web, API and
 // mobile projects. The first project is the group's coordinator. A dedicated supervisor session
 // may monitor the group; it is stored here so notifications can wake the same session.
+export const CoordinationMode = Schema.Literals(["lead", "council"]).annotate({
+  identifier: "Federation.CoordinationMode",
+})
+export type CoordinationMode = typeof CoordinationMode.Type
+
 export const Group = Schema.Struct({
   name: Schema.String,
   projects: Schema.Array(ProjectID),
+  // Optional for compatibility with groups saved before coordination modes existed.
+  mode: CoordinationMode.pipe(Schema.optional),
   supervisor: SessionID.pipe(Schema.optional),
 }).annotate({ identifier: "Federation.Group" })
 export interface Group extends Schema.Schema.Type<typeof Group> {}
+
+export function modeOf(group: Pick<Group, "mode">): CoordinationMode {
+  return group.mode ?? "lead"
+}
 
 // Every unordered pair of a group's projects.
 export function pairs<T>(items: ReadonlyArray<T>): ReadonlyArray<readonly [T, T]> {

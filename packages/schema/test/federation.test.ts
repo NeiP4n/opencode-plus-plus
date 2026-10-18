@@ -71,3 +71,11 @@ test("only granted questions are answered without a human", () => {
   expect(Federation.autoAnswers(rules, a, "request")).toBe(false)
   expect(Federation.autoAnswers(policy([{ peer: a, allow: ["question"] }]), a, "question")).toBe(false)
 })
+
+test("legacy groups default to the single coordinator mode", () => {
+  expect(Federation.modeOf({})).toBe("lead")
+})
+
+test("groups can select the council coordination mode", () => {
+  expect(Federation.modeOf({ mode: "council" })).toBe("council")
+})
