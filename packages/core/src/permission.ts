@@ -535,7 +535,7 @@ const layer = Layer.effect(
             )
             // A host may tighten room rules or demote/remove the requesting member while the
             // program approval is open. Re-check before allowing the tool invocation to proceed.
-            if (result.roomPrograms?.length) {
+            if (RoomRules.commandActions.includes(input.action)) {
               const currentRules = yield* roomRulesForSession(input.sessionID)
               const currentPolicy = RoomRules.policy(currentRules, {
                 action: input.action,
@@ -586,10 +586,11 @@ const layer = Layer.effect(
                 RoomRules.programsRequiringApproval(currentRules, command),
               ))]
               const currentApproved = new Set(currentMemberContext?.member.approvedPrograms ?? [])
+              const previouslyRequired = new Set(result.roomPrograms ?? [])
               const newlyRequired = currentMemberContext?.member.role === "trusted"
                 ? []
                 : currentPrograms.filter(
-                    (program) => !result.roomPrograms?.includes(program) && !currentApproved.has(program),
+                    (program) => !previouslyRequired.has(program) && !currentApproved.has(program),
                   )
               if (newlyRequired.length) {
                 return yield* new BlockedError({
