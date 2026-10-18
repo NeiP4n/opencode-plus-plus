@@ -26,8 +26,8 @@ export function decide(service: LocalService, options: DiscoverOptions) {
     return fail(
       "Background service uses an incompatible health protocol. Update this client or explicitly restart the service.",
     )
+  if (service.state === "failed") return { _tag: "replace", pty: "clear" } as const
   if (service.state === "ready") return { _tag: "reuse" } as const
-  if (service.state === "failed") return fail("Background service failed to start")
   return { _tag: "wait" } as const
 }
 
