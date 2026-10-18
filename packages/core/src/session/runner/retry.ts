@@ -162,7 +162,9 @@ function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
       for (const entry of page.entries) {
         const state = decodeSharedRateLimit(entry.value)
         if (!state || state.providerID !== providerID || now - state.updatedAt >= RATE_LIMIT_STREAK_WINDOW) {
-          stale.push(entry.key)
+          // The success marker has a stable key and can be overwritten while this scan
+          // is in progress. Deleting it as stale could erase a concurrent fresh success.
+          if (entry.key !== prefix + "last-success") stale.push(entry.key)
           continue
         }
         if (state.outcome === "success") lastSuccessAt = Math.max(lastSuccessAt, state.updatedAt)
