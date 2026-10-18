@@ -16,8 +16,8 @@ export type LocalService = {
 }
 
 /**
- * What `ensure()` does with a registered service that answered: return it, keep polling while
- * it starts, replace it because its version does not meet the requirement, or fail.
+ * What `ensure()` does with a registered service that answered: reuse it when healthy, keep
+ * polling while it starts, replace it when its version mismatches or its health check fails.
  */
 export function decide(service: LocalService, options: DiscoverOptions) {
   if (!matchesVersion(service.version, options))
