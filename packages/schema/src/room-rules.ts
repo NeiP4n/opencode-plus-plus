@@ -264,13 +264,23 @@ function sanitizeExecutionPayload<T>(value: T): T {
 
 // Replaces the project's directory in text a guest will read, regardless of slash style/case.
 export function redactPath(text: string, directory: string) {
-  const forward = directory.replaceAll("\\", "/")
-  const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])]
+  const forward = directory.replaceAll("\\", "/").replace(/\/+$/, "")
+  const candidates = new Set<string>([directory, forward])
+  // A session may live inside a project subfolder. Mask ancestor paths too, so project metadata
+  // cannot expose the same host directory under a shorter canonical root.
+  let parent = forward
+  while (parent.length > 1) {
+    const index = parent.lastIndexOf("/")
+    if (index <= 0) break
+    parent = parent.slice(0, index)
+    if (parent.length > 1) candidates.add(parent)
+  }
+  const variants = [...candidates, ...[...candidates].map((item) => item.replaceAll("/", "\\"))]
     .filter((variant) => variant.length > 1)
     .sort((a, b) => b.length - a.length)
   return variants.reduce((out, variant) => {
-    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    return out.replace(new RegExp(escaped, "gi"), "<project>")
+    const escaped = variant.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")
+    return out.replace(new RegExp(escaped + "(?=$|[/\\\\\\s:'\"<>])", "gi"), "<project>")
   }, text)
 }
 
