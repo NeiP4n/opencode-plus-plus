@@ -8,11 +8,9 @@ import { Schema } from "effect"
 export const Rules = Schema.Struct({
   // Guests and their AIs never see the project's path on the host.
   hidePaths: Schema.Boolean.pipe(Schema.optional),
-  // Commands nobody runs in the room, by the host's AI, guests' commands or checks. A pattern
-  // matches the start of a command or of any part of a chained one; `*` stands for any text.
+  // Commands nobody runs in the room, by the host's AI, guests' commands or checks.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
-  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`), so
-  // their contents cannot be sent anywhere.
+  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`).
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
   // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
@@ -31,20 +29,32 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   }
 }
 
+// Both tools can execute local commands, so room command restrictions apply to both.
+export const commandActions: readonly string[] = ["shell", "hub"]
+
 // Permission actions that carry data out of the machine.
-export const outbound: readonly string[] = ["webfetch", "websearch", "peers", "federation"]
+export const outbound: readonly string[] = [
+  "webfetch",
+  "websearch",
+  "peers",
+  "federation",
+  "shell",
+  "hub",
+  "opencode_list_mcp_resources",
+  "opencode_read_mcp_resource",
+]
 
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
   const body = pattern
-    .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
     .replaceAll("*", ".*")
     .replaceAll("?", ".")
   return new RegExp(before + body + after, "i")
 }
 
 // The parts of a command line that each start a command. Wrapping a command in `bash -c`
-// or a subshell is not unpicked: patterns without `*` also match anywhere in the line.
+// is not unpicked; patterns are also checked against the complete command string.
 function segments(command: string) {
   return command
     .split(/&&|\|\||[;|\n]/)
@@ -56,21 +66,43 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
   return (rules?.blockCommands ?? []).find((raw) => {
     const pattern = raw.trim()
     if (!pattern) return false
+    if (glob(pattern, "").test(command)) return true
     const start = glob(pattern, "^")
-    if (segments(command).some((part) => start.test(part))) return true
-    return !pattern.includes("*") && command.toLowerCase().includes(pattern.toLowerCase())
+    return segments(command).some((part) => start.test(part))
   })
+}
+
+export function blockedCommandForAction(rules: Rules | undefined, action: string, commands: readonly string[]) {
+  if (!commandActions.includes(action)) return undefined
+  for (const command of commands) {
+    const blocked = blockedCommand(rules, command)
+    if (blocked !== undefined) return blocked
+  }
 }
 
 export function protectedFile(rules: Rules | undefined, file: string) {
   const normal = file.replaceAll("\\", "/")
   return (rules?.protectedFiles ?? []).find((raw) => {
-    const pattern = raw.trim()
-    return pattern !== "" && glob(pattern.replaceAll("\\", "/"), "(^|/)", "$").test(normal)
+    const pattern = raw.trim().replaceAll("\\", "/")
+    return pattern !== "" && glob(pattern, "(^|/)", "$").test(normal)
   })
 }
 
-// Replaces the project's directory in text a guest will read.
+// Conservatively detect protected paths directly mentioned in shell commands.
+// This does not replace OS-level sandboxing for indirect access via scripts or aliases.
+export function protectedFileInCommand(rules: Rules | undefined, command: string) {
+  const normal = command.replaceAll("\\", "/")
+  return (rules?.protectedFiles ?? []).find((raw) => {
+    const pattern = raw.trim().replaceAll("\\", "/")
+    if (!pattern) return false
+    const body = pattern
+    .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replaceAll("*", ".*")
+      .replaceAll("?", ".")
+    return new RegExp("(?:^|[\\s\"'=:/])" + body + "(?=$|[\\s\"/:])", "i").test(normal)
+  })
+}
+
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
   const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
