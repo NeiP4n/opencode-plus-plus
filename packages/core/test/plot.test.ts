@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import path from "node:path"
-import { symlink } from "node:fs/promises"
+import { mkdir, symlink } from "node:fs/promises"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
@@ -184,6 +184,30 @@ describe("Plot", () => {
         ),
       ).toContain("must stay inside the project directory")
       expect(yield* plots.list(directory)).toEqual([])
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("plot storage symlinks cannot read or delete files outside the project", () =>
+    Effect.gen(function* () {
+      if (process.platform === "win32") return
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-")))
+      const outside = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-outside-")))
+      const plots = yield* Plot.Service
+      const sessions = yield* Session.Service
+      const directory = tmp.path
+      const session = yield* sessions.create({ location: { directory: AbsolutePath.make(directory) } })
+      const externalFolder = path.join(outside.path, ".opencode", "plots")
+      yield* Effect.promise(() => mkdir(externalFolder, { recursive: true }))
+      const marker = path.join(externalFolder, "do-not-delete.json")
+      yield* Effect.promise(() => Bun.write(marker, "not a plot"))
+      yield* Effect.promise(() => symlink(path.join(outside.path, ".opencode"), path.join(directory, ".opencode")))
+
+      expect(yield* refusal(plots.claim({ sessionID: session.id, directory, paths: ["src"], purpose: "safe plot" }))).toContain(
+        "Plot storage must stay inside the project directory",
+      )
+      expect(yield* plots.release({ sessionID: session.id, directory })).toBe(0)
+      expect(yield* plots.list(directory)).toEqual([])
+      expect(yield* Effect.promise(() => Bun.file(marker).exists())).toBe(true)
     }).pipe(Effect.scoped),
   )
 
