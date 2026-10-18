@@ -1,6 +1,18 @@
 import type { ModelInfo, SessionMessageAssistant, SessionMessageInfo } from "@opencode/client"
 import { Locale } from "./locale"
 
+export const RATE_LIMIT_CONTINUATION_PROMPT =
+  "Continue the unfinished task from this session. The previous attempt stopped because the provider hit a rate limit. Inspect the latest conversation and current project state, preserve completed work, and continue from the next unfinished step. Do not repeat completed actions or restart the task. If the rate limit still prevents progress, stop and explain what remains."
+
+export function isRateLimitedTurnPending(messages: readonly SessionMessageInfo[], messageID: string) {
+  const index = messages.findIndex((message) => message.id === messageID)
+  if (index < 0) return false
+  const message = messages[index]
+  if (message.type !== "assistant" || message.error?.type !== "provider.rate-limit") return false
+  return !messages.slice(index + 1).some((message) => message.type === "assistant" || message.type === "user")
+}
+
+
 type SessionNode = {
   id: string
   parentID?: string | null

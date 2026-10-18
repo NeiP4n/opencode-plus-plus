@@ -18,6 +18,8 @@ export const context = createContext<{
    */
   terminal: { width: number; height: number }
   sessionID: string
+  /** Whether this transcript's viewer is allowed to resume rate-limited work. */
+  canResumeRateLimited?: boolean
   anchors: ReturnType<typeof createTimelineAnchors>
   /** Saved disclosure, falling back to the verbosity default for the group kind. */
   groupExpanded: (groupID: string, kind: GroupKind) => boolean

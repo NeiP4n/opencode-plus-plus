@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { SessionMessageInfo } from "@opencode/client"
-import { lastAssistantWithUsage, sessionFamily } from "../../src/util/session"
+import { isRateLimitedTurnPending, lastAssistantWithUsage, sessionFamily } from "../../src/util/session"
 
 const assistant = (id: string, input: number): SessionMessageInfo => ({
   id,
@@ -13,6 +13,20 @@ const assistant = (id: string, input: number): SessionMessageInfo => ({
 })
 
 describe("util.session", () => {
+  test("only offers continuation for the latest unresolved rate-limit error", () => {
+    const limited: SessionMessageInfo = {
+      ...assistant("msg_limited", 0),
+      error: { type: "provider.rate-limit", message: "Rate limit reached" },
+    }
+    const user: SessionMessageInfo = { id: "msg_user", type: "user", text: "Already continued", time: { created: 1 } }
+
+    expect(isRateLimitedTurnPending([limited], "msg_limited")).toBe(true)
+    expect(isRateLimitedTurnPending([limited, user], "msg_limited")).toBe(false)
+    expect(isRateLimitedTurnPending([limited, assistant("msg_after", 1)], "msg_limited")).toBe(false)
+    expect(isRateLimitedTurnPending([assistant("msg_other", 1)], "msg_other")).toBe(false)
+    expect(isRateLimitedTurnPending([limited], "msg_missing")).toBe(false)
+  })
+
   test("flattens nested subagents from any session in the family", () => {
     const sessions = [
       { id: "root" },

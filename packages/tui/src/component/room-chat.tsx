@@ -20,6 +20,7 @@ import { Locale } from "../util/locale"
 import { Spinner } from "./spinner"
 import { PromptMetadataRow } from "./prompt/metadata"
 import { errorMessage } from "../util/error"
+import { isRateLimitedTurnPending, RATE_LIMIT_CONTINUATION_PROMPT } from "../util/session"
 import { useT } from "../util/i18n"
 import type { JoinedRoom } from "../util/room"
 import { guestApi, ignoreGuestUnavailable, roomClient } from "../util/room-guest"
@@ -147,6 +148,7 @@ function RoomView(props: {
   const config = useConfig().data
   const dimensions = useTerminalDimensions()
   const t = useT()
+  const toast = useToast()
   const remote = roomClient(props.room)
   const [sending, setSending] = createSignal(0)
   const [failure, setFailure] = createSignal<string>()
@@ -275,6 +277,128 @@ function RoomView(props: {
 
   const padding = () => (dimensions().width < 44 ? 1 : 2)
   const writes = () => props.role !== "viewer"
+  const [rateLimitedSessions, setRateLimitedSessions] = createSignal<
+    Array<{ id: string; title: string; stamp: string }>
+  >([])
+  const [resumingAll, setResumingAll] = createSignal(false)
+  const rateLimitChecks = new Map<string, { stamp: string; limited: boolean; title: string }>()
+  onMount(() => {
+    let disposed = false
+    let checking = false
+    const read = async () => {
+      if (disposed || checking || !writes()) return
+      checking = true
+      try {
+        const result = await remote.room.guest.session.list({ roomID: props.room.roomID })
+        if (disposed) return
+        const sessions = result.data
+        const publish = () => {
+          setRateLimitedSessions(
+            sessions.flatMap((item) => {
+              const checked = rateLimitChecks.get(item.id)
+              return checked?.limited ? [{ id: item.id, title: checked.title, stamp: checked.stamp }] : []
+            }),
+          )
+        }
+        const sessionIDs = new Set(sessions.map((item) => item.id))
+        for (const id of rateLimitChecks.keys()) if (!sessionIDs.has(id)) rateLimitChecks.delete(id)
+        const changed = sessions.filter((item) => rateLimitChecks.get(item.id)?.stamp !== String(item.time.updated))
+        for (let offset = 0; offset < changed.length; offset += 8) {
+          await Promise.all(
+            changed.slice(offset, offset + 8).map(async (item) => {
+              const stamp = String(item.time.updated)
+              try {
+                const response = await remote.room.guest.session.messages({
+                  roomID: props.room.roomID,
+                  sessionID: item.id,
+                  limit: 30,
+                  order: "desc",
+                })
+                const chronological = response.data.toReversed()
+                const latestAssistant = chronological.findLast((message) => message.type === "assistant")
+                rateLimitChecks.set(item.id, {
+                  stamp,
+                  limited: latestAssistant ? isRateLimitedTurnPending(chronological, latestAssistant.id) : false,
+                  title: item.title?.trim() || item.id,
+                })
+              } catch {
+                // Keep the prior result and retry on the next pass after a transient error.
+              }
+            }),
+          )
+          if (disposed) return
+          publish()
+        }
+        publish()
+      } catch {
+        // A temporary host disconnect should not erase already detected rate limits.
+      } finally {
+        checking = false
+      }
+    }
+    void read()
+    const timer = setInterval(() => void read(), 10_000)
+    onCleanup(() => {
+      disposed = true
+      clearInterval(timer)
+    })
+  })
+
+  const resumeAll = async () => {
+    if (resumingAll() || rateLimitedSessions().length === 0) return
+    setResumingAll(true)
+    const succeeded = new Set<string>()
+    const stale = new Set<string>()
+    const failures: unknown[] = []
+    const targets = rateLimitedSessions()
+    try {
+      for (let offset = 0; offset < targets.length; offset += 4) {
+        await Promise.all(
+          targets.slice(offset, offset + 4).map(async (target) => {
+            try {
+              // Recheck before sending so a newer user prompt is never duplicated.
+              const response = await remote.room.guest.session.messages({
+                roomID: props.room.roomID,
+                sessionID: target.id,
+                limit: 30,
+                order: "desc",
+              })
+              const chronological = response.data.toReversed()
+              const latestAssistant = chronological.findLast((message) => message.type === "assistant")
+              if (!latestAssistant || !isRateLimitedTurnPending(chronological, latestAssistant.id)) {
+                stale.add(target.id)
+                return
+              }
+              await remote.room.guest.prompt({
+                roomID: props.room.roomID,
+                sessionID: target.id,
+                text: RATE_LIMIT_CONTINUATION_PROMPT,
+              })
+              succeeded.add(target.id)
+              const checked = rateLimitChecks.get(target.id)
+              if (checked) rateLimitChecks.set(target.id, { ...checked, limited: false })
+            } catch (error) {
+              failures.push(error)
+            }
+          }),
+        )
+      }
+      setRateLimitedSessions((current) =>
+        current.filter((item) => !succeeded.has(item.id) && !stale.has(item.id)),
+      )
+      if (succeeded.size > 0)
+        toast.show({
+          message: t("Continue requests sent to {count} sessions", { count: succeeded.size }),
+          variant: "success",
+        })
+      if (failures.length > 0) {
+        setFailure(t("{count} sessions could not be continued", { count: failures.length }))
+        toast.error(failures[0])
+      }
+    } finally {
+      setResumingAll(false)
+    }
+  }
 
   // The prompt takes the host agent's color, as a session's prompt takes its own agent's.
   const local = useLocal()
@@ -347,6 +471,7 @@ function RoomView(props: {
             <SessionTranscript
               sessionID={props.sessionID}
               width={dimensions().width - padding() * 2 - (sidebar() ? SIDEBAR_WIDTH : 0)}
+              canResumeRateLimited={writes()}
             />
           </Show>
         </Show>
@@ -432,6 +557,20 @@ function RoomView(props: {
             flexGrow={1}
             backgroundColor={promptBg()}
           >
+            <Show when={writes() && rateLimitedSessions().length > 0}>
+              <box flexDirection="row" gap={2} flexShrink={0} paddingBottom={1}>
+                <text
+                  fg={theme.text.action.primary.base}
+                  selectable={false}
+                  onMouseUp={() => void resumeAll()}
+                >
+                  {resumingAll()
+                    ? t("Continuing {count} sessions…", { count: rateLimitedSessions().length })
+                    : `↻ ${t("Continue all {count} sessions", { count: rateLimitedSessions().length })}`}
+                </text>
+                <text fg={theme.text.muted}>{t("Across this room")}</text>
+              </box>
+            </Show>
             <Show
               when={writes()}
               fallback={<text fg={theme.text.muted}>{t("You are watching this room; the host lets you write.")}</text>}

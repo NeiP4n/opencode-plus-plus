@@ -116,6 +116,7 @@ import { createDelayedPresence } from "../../util/delayed-presence"
 import { SessionLocationMissing } from "./location-missing"
 import { isRecord } from "../../util/record"
 import { roomAuthor } from "../../util/room"
+import { isRateLimitedTurnPending, RATE_LIMIT_CONTINUATION_PROMPT } from "../../util/session"
 import { RoomIndicator } from "../../component/room-indicator"
 import { NoteChip, NoteQuickActions } from "../../component/note-canvas"
 import { useNotes } from "../../context/notes"
@@ -1661,7 +1662,7 @@ export function Session(props: {
 // The transcript of a session that lives on another server, such as a room shared by
 // another host: the same rows and parts the session view draws, read from whichever
 // data layer encloses it. It neither prompts nor edits; those stay with the host.
-export function SessionTranscript(props: { sessionID: string; width: number }) {
+export function SessionTranscript(props: { sessionID: string; width: number; canResumeRateLimited?: boolean }) {
   const data = useData()
   const theme = useTheme()
   const config = useConfig().data
@@ -1693,6 +1694,7 @@ export function SessionTranscript(props: { sessionID: string; width: number }) {
           },
         },
         sessionID: props.sessionID,
+        canResumeRateLimited: props.canResumeRateLimited !== false,
         thinkingMode: () => config.session?.thinking ?? "hide",
         markdownMode: () => config.session?.markdown ?? "rendered",
         groupExploration: () => config.session?.grouping !== "none",
@@ -2073,6 +2075,9 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   const data = useData()
   const local = useLocal()
   const theme = useTheme()
+  const t = useT()
+  const toast = useToast()
+  const [continuing, setContinuing] = createSignal(false)
   const model = createMemo(
     () =>
       ctx
@@ -2081,6 +2086,16 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
         ?.name ?? `${props.message.model.providerID}/${props.message.model.id}`,
   )
   const messages = createMemo(() => data.session.message.list(ctx.sessionID))
+  const rateLimitPending = createMemo(() => isRateLimitedTurnPending(messages(), props.message.id))
+  const continueWork = () => {
+    if (continuing() || ctx.canResumeRateLimited === false || !rateLimitPending() || retry()) return
+    setContinuing(true)
+    void data.session
+      .prompt({ sessionID: ctx.sessionID, text: RATE_LIMIT_CONTINUATION_PROMPT })
+      .then(() => toast.show({ message: t("Continue request sent"), variant: "success" }))
+      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+      .finally(() => setContinuing(false))
+  }
   const duration = createMemo(() =>
     turnDuration(props.message, messages(), ctx.messageIndex(props.message.id), ctx.legacyTurns()),
   )
@@ -2103,6 +2118,13 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
       <Show when={props.message.error && !interrupted() && !retry()}>
         <box paddingLeft={3}>
           <text fg={theme.text.feedback.error.base}>Error: {errorMessage(props.message.error)}</text>
+        </box>
+      </Show>
+      <Show when={ctx.canResumeRateLimited !== false && rateLimitPending() && !retry()}>
+        <box paddingLeft={3}>
+          <text fg={theme.text.action.primary.base} selectable={false} onMouseUp={continueWork}>
+            {continuing() ? t("Continuing work…") : `↻ ${t("Continue work")}`}
+          </text>
         </box>
       </Show>
       <AssistantRetry retry={retry()} />

@@ -78,7 +78,7 @@ function redactRoomValue<T>(value: T, directories: readonly string[]): T {
 }
 const RANK: Record<Room.Role, number> = { viewer: 0, member: 1, helper: 2, cohost: 3, trusted: 4 }
 
-// Sessions a project room lists; enough for a shared project, bounded for a busy host.
+// A bounded page size; project rooms read every page so older sessions are not missed.
 const SESSION_LIMIT = 200
 
 // Guests a room keeps; joining an open room needs no code, so a flood of joins stops here.
@@ -977,8 +977,22 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               data: joined.room.rules?.hidePaths ? redactRoomValue(data, directories) : data,
             }
           }
-          const page = yield* sessions.list({ parentID: null, limit: SESSION_LIMIT })
-          const data = page.data.filter((session) => Orchestra.contains(directory, session.location.directory))
+          const all: Session.Info[] = []
+          let anchor: { id: Session.ID; time: number; direction: "next" } | undefined
+          for (;;) {
+            const page = yield* sessions.list({
+              parentID: null,
+              limit: SESSION_LIMIT,
+              order: "desc",
+              ...(anchor ? { anchor } : {}),
+            })
+            all.push(...page.data)
+            if (page.data.length < SESSION_LIMIT) break
+            const last = page.data.at(-1)
+            if (!last) break
+            anchor = { id: last.id, time: DateTime.toEpochMillis(last.time.updated), direction: "next" }
+          }
+          const data = all.filter((session) => Orchestra.contains(directory, session.location.directory))
           // The host's grouping, so a guest's tree shows the same categories as the host's.
           const visible = joined.room.rules?.hidePaths ? redactRoomValue(data, [directory]) : data
           return { data: visible, category: yield* orchestra.categories(data.map((session) => session.id)) }
