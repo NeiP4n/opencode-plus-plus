@@ -272,6 +272,31 @@ it.live("noOutbound refuses guest shell execution even for a cohost", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("hidePaths redacts project directories from guest room responses", () =>
+  Effect.gen(function* () {
+    const { call, session, directory } = yield* setup
+    const created = yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, name: "Private project", directory, rules: { hidePaths: true } },
+    })
+    expect(created.status).toBe(200)
+    const room = created.body.data
+    const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    expect(joined.body.room.directory).toBe("<project>")
+    const view = yield* call(`/api/room/${room.id}/guest`, {
+      headers: { authorization: `Bearer ${joined.body.token}` },
+    })
+    expect(view.status).toBe(200)
+    expect(JSON.stringify(view.body)).not.toContain(directory)
+  }).pipe(Effect.scoped),
+)
+
 it.live("the discovery responder answers a broadcast query with name and port", () =>
   Effect.gen(function* () {
     yield* ServerRoomDiscovery.respond(4321)
