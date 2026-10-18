@@ -29,9 +29,15 @@ export async function latest(root = checkout) {
 export async function apply(release: string, root = checkout) {
   await $`git -C ${root} fetch --tags origin`.quiet()
   return keepingEdits(root, async () => {
-    await $`git -C ${root} checkout --detach ${"refs/tags/" + PREFIX + release}`.quiet()
-    await $`${process.execPath} install --frozen-lockfile --filter ./packages/cli`.cwd(root).quiet()
-    await validateServer(root)
+    const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
+    try {
+      await $`git -C ${root} checkout --detach ${"refs/tags/" + PREFIX + release}`.quiet()
+      await installDependencies(root)
+      await validateServer(root)
+    } catch (error) {
+      await $`git -C ${root} reset --hard --quiet ${previous}`.quiet().nothrow()
+      throw error
+    }
   })
 }
 
@@ -45,9 +51,6 @@ export type Kept = { readonly type: "restored" } | { readonly type: "stashed"; r
  * conflicts after a successful update.
  */
 export async function keepingEdits(root: string, move: () => Promise<void>): Promise<Kept | undefined> {
-  // Only tracked modifications belong to the source checkout. Untracked files are left
-  // untouched; in particular this prevents runtime-generated .opencode files from entering
-  // the update stash.
   const trackedChanges = (await $`git -C ${root} status --porcelain --untracked-files=no`.quiet().text()).trim()
   if (!trackedChanges) {
     await move()
@@ -138,10 +141,23 @@ export async function install(root = checkout): Promise<Install> {
 
 export async function follow(root = checkout) {
   return keepingEdits(root, async () => {
-    await $`git -C ${root} checkout --quiet --detach ${"origin/" + INSTALL_BRANCH}`.quiet()
-    await $`${process.execPath} install --frozen-lockfile --filter ./packages/cli`.cwd(root).quiet()
-    await validateServer(root)
+    const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
+    try {
+      await $`git -C ${root} checkout --quiet --detach ${"origin/" + INSTALL_BRANCH}`.quiet()
+      await installDependencies(root)
+      await validateServer(root)
+    } catch (error) {
+      await $`git -C ${root} reset --hard --quiet ${previous}`.quiet().nothrow()
+      throw error
+    }
   })
+}
+
+async function installDependencies(root: string) {
+  // Validation uses the server's workspace compiler. Installing only the CLI filter can
+  // leave @typescript/native-preview (tsgo) or other workspace dev dependencies absent,
+  // making a perfectly valid update fail with a bare `tsgo -b` exit code.
+  await $`${process.execPath} install --frozen-lockfile`.cwd(root).quiet()
 }
 
 async function validateServer(root: string) {
@@ -172,7 +188,7 @@ export async function pull(root = checkout) {
         await $`git -C ${root} merge --ff-only ${target}`.quiet()
       }
       moved = true
-      await $`${process.execPath} install --frozen-lockfile --filter ./packages/cli`.cwd(root).quiet()
+      await installDependencies(root)
       await validateServer(root)
     } catch (error) {
       if (moved) await $`git -C ${root} reset --hard --quiet ${previous}`.quiet().nothrow()
