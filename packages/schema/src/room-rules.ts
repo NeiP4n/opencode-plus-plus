@@ -14,7 +14,7 @@ export const Rules = Schema.Struct({
   // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`), so
   // their contents cannot be sent anywhere.
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
-  // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
+  // Fail closed on shell execution too: command names cannot reliably distinguish local work from network egress.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Room.Rules" })
 export interface Rules extends Schema.Schema.Type<typeof Rules> {}
@@ -119,7 +119,7 @@ export function describe(rules: Rules | undefined) {
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
-    rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
+    rules.noOutbound ? "Send nothing out: no web requests, shell commands, or messages to other computers or projects." : undefined,
   ].filter((line): line is string => line !== undefined)
   return lines.length > 0 ? lines.join("\n") : undefined
 }
