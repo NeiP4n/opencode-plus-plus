@@ -144,7 +144,7 @@ const layer = Layer.effect(
       if (internal) {
         return {
           absolute,
-          resource: slash(path.relative(location.directory, absolute) || "."),
+          resource: slash(path.relative(activeDirectory, absolute) || "."),
         } satisfies Target
       }
       const type =
