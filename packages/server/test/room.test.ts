@@ -1423,23 +1423,17 @@ it.live("a DoD check is discarded if its assigned command changes during approva
       )!),
     )
 
-    // The assignment changes after the prompt was created but before the host answers it.
-    yield* Effect.promise(() =>
-      Bun.write(
-        path.join(directory, ".opencode", "dod.yaml"),
-        [
-          "leaves:",
-          "  - id: L-001",
-          '    what: "Verify the output"',
-          "    task_state: IN_PROGRESS",
-          "    owner: " + JSON.stringify("DoD checker"),
-          "    verification:",
-          "      state: NOT_CHECKED",
-          '      command: "echo replacement-check > stale-check.txt"',
-          "",
-        ].join("\n"),
-      ),
-    )
+    // Keep the task's real claimed/owned state, changing only the assigned command while
+    // the host approval is pending.
+    yield* Effect.promise(async () => {
+      const board = path.join(directory, ".opencode", "dod.yaml")
+      const contents = await Bun.file(board).text()
+      expect(contents).toContain('command: "echo old-check > stale-check.txt"')
+      await Bun.write(board, contents.replace(
+        'command: "echo old-check > stale-check.txt"',
+        'command: "echo replacement-check > stale-check.txt"',
+      ))
+    })
     yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
       method: "POST",
       headers: host,
