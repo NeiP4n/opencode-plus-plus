@@ -85,12 +85,12 @@ export const Plugin = {
                       const alternate = yield* alternatePath(requested.absolute).pipe(
                         Effect.orElseSucceed(() => undefined),
                       )
-                      if (!alternate) return yield* missing(input.path, requested.absolute)
+                      if (!alternate) return yield* missing(input.path, requested.absolute, rules)
                       const target = yield* access.authorizeRead(alternate, context, { siblingOf: requested })
                       const content = yield* read(target).pipe(
                         Effect.catchIf(
                           (error) => error instanceof Environment.NotFound,
-                          () => missing(input.path, requested.absolute),
+                          () => missing(input.path, requested.absolute, rules),
                         ),
                       )
                       if (content.type === "list-page") return yield* missing(input.path, requested.absolute)
@@ -184,13 +184,18 @@ export const Plugin = {
       return join(dirname(absolute), matches[0].name)
     })
 
-    const missing = Effect.fn("ReadTool.missing")(function* (input: string, absolute: string) {
+    const missing = Effect.fn("ReadTool.missing")(function* (
+      input: string,
+      absolute: string,
+      rules?: RoomRules.Rules,
+    ) {
       const base = basename(input).toLowerCase()
       const suggestions = yield* fs.readDirectory(dirname(absolute)).pipe(
         Effect.map((entries) =>
           entries
             .filter((entry) => {
               const candidate = entry.toLowerCase()
+              if (rules && RoomRules.protectedFile(rules, relative(location.directory, resolve(dirname(absolute), entry)))) return false
               return candidate.includes(base) || base.includes(candidate)
             })
             .map((entry) => join(dirname(input), entry))
