@@ -816,7 +816,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
             yield* freeDodPlots(directory, id)
             record("release", id)
-            return forGuest(dod, joined.member)
+            const data = forGuest(dod, joined.member)
+            return joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data
           }
           const alive = yield* live()
           const before = yield* Dod.read(directory, alive).pipe(Effect.mapError(invalidDod))
@@ -843,13 +844,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             taken: taken.id,
             note: yield* readHandover(joined.room, taken.id),
           }
+          const visibleResult = joined.room.rules?.hidePaths ? redactGuestData(result, directory) : result
           const paths = ctx.payload.paths ?? []
-          if (paths.length === 0) return result
+          if (paths.length === 0) return visibleResult
           // A refused plot undoes a fresh take, so the item is not left marked for work that cannot start.
           return yield* plots
             .claim({ sessionID: session.id, directory, paths, purpose: dodPurpose(taken.id, owner.name) })
             .pipe(
-              Effect.as(result),
+              Effect.as(visibleResult),
               Effect.catchTag("Plot.TakenError", (error) =>
                 Effect.gen(function* () {
                   if (previous?.ownerID !== owner.id) {
@@ -899,7 +901,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, directory, signal),
-            catch: (error) => new InvalidRequestError({ message: `Could not run the check: ${String(error)}` }),
+            catch: (error) =>
+              new InvalidRequestError({
+                message: `Could not run the check: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
+              }),
           })
           const dod = yield* Dod.accept({
             directory,
@@ -922,7 +927,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                   detail: outputSummary(visibleOutput, result.exitCode).slice(0, 120),
                 }),
           })
-          return { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output: visibleOutput } }
+          const data = { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output: visibleOutput } }
+          return joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data
         }),
       )
       .handle(
