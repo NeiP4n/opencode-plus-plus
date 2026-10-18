@@ -137,6 +137,10 @@ const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.tool.progress",
   "session.tool.success",
   "session.tool.failed",
+  "session.compaction.started",
+  "session.compaction.delta",
+  "session.compaction.ended",
+  "session.compaction.failed",
 ])
 
 function hiddenExecutionEvent(event: unknown) {
@@ -148,6 +152,14 @@ function hiddenExecutionEvent(event: unknown) {
     typeof value.data?.action === "string" &&
     HIDDEN_EXECUTION_ACTIONS.has(value.data.action)
   )
+}
+
+function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
+  if (!event || typeof event !== "object") return false
+  const value = event as { type?: unknown }
+  // Reasoning deltas are private model state and are never part of a guest transcript.
+  if (value.type === "session.reasoning.delta") return true
+  return hideExecution && hiddenExecutionEvent(event)
 }
 
 // The live events a following guest log adds to the durable ones. Stream fragments (text,
@@ -648,9 +660,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .pipe(Stream.orDie)
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
-            const visible = rules?.hideExecution
-              ? durable.pipe(Stream.filter((event) => !hiddenExecutionEvent(event)))
-              : durable
+            const visible = durable.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution))
             return rules?.hidePaths
               ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
               : visible
@@ -691,9 +701,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ),
           )
           const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
-          const visible = rules?.hideExecution
-            ? stream.pipe(Stream.filter((event) => !hiddenExecutionEvent(event)))
-            : stream
+          const visible = stream.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution))
           return rules?.hidePaths
             ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
             : visible
