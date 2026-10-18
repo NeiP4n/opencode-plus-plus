@@ -305,14 +305,16 @@ export function protectedFile(rules: Rules | undefined, file: string) {
 // Environment and credential dumps are forbidden even when outbound access is explicitly enabled.
 // Remote commands must not be able to print the host's account tokens or process environment.
 export function commandLeaksCredentials(command: string) {
+  // Normalize basic shell escapes and line continuations before matching credential dumps.
+  const normalized = command.replace(/\\\r?\n/g, "").replace(/\\(.)/gs, "$1")
   return (
-    /\b(env|printenv)\b/i.test(command) ||
-    /(?:^|[;&|()\s])set(?:\s|$)/i.test(command) ||
-    /\b(?:get-childitem|gci)\s+env:/i.test(command) ||
-    /\bpython(?:3)?\b.*(?:os\.environb?|os\.getenv|environ\s*\[|printenv)/is.test(command) ||
-    /\bnode\b.*(?:process\.env|Object\.keys\s*\(\s*process\.env)/is.test(command) ||
-    /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(command) ||
-    /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i.test(command)
+    /\b(env|printenv)\b/i.test(normalized) ||
+    /(?:^|[;&|()\s])set(?:\s|$)/i.test(normalized) ||
+    /\b(?:get-childitem|gci)\s+env:/i.test(normalized) ||
+    /\bpython(?:3)?\b.*(?:os\.environb?|os\.getenv|environ\s*\[|printenv)/is.test(normalized) ||
+    /\bnode\b.*(?:process\.env|Object\.keys\s*\(\s*process\.env)/is.test(normalized) ||
+    /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(normalized) ||
+    /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i.test(normalized)
   )
 }
 
