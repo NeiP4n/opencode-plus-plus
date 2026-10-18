@@ -558,6 +558,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
 
     // A member who left or was removed gives back what it held, and the room hears of it.
     const releaseMember = Effect.fnUntraced(function* (room: Room.Info, member: Room.Member) {
+      // Drop transient guest presence when membership ends, preserving current guest-event
+      // visibility and host-only metadata filtering in the room handler.
+      codes.forgetGuest(member.id)
       const directory = yield* roomDirectory(room).pipe(Effect.orElseSucceed(() => undefined))
       if (directory === undefined) return
       const freed = yield* Dod.releaseOwner({ directory, ownerID: member.id }).pipe(Effect.orElseSucceed(() => []))
@@ -599,7 +602,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       .handle(
         "room.remove",
         Effect.fn(function* (ctx) {
-          yield* rooms.remove(ctx.params.roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
+          const roomID = ctx.params.roomID
+          yield* rooms.get(roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
+          const members = yield* rooms.members(roomID)
+          yield* rooms.remove(roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
+          yield* codes.forget(roomID, members.map((member) => member.id))
           return HttpApiSchema.NoContent.make()
         }),
       )

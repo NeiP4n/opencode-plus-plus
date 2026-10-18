@@ -194,6 +194,31 @@ it.live("a join code admits a guest whose token opens only that room", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("removing a guest clears its membership without invalidating the room join code", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const joined = yield* call("/api/room/join", { method: "POST", body: { code, name: "Temporary guest" } })
+    expect(joined.status).toBe(200)
+    const guestID = joined.body.guest.id as string
+
+    expect((yield* call(`/api/room/${room.id}/member/${guestID}`, { method: "DELETE", headers: host })).status).toBe(204)
+    const members = yield* call(`/api/room/${room.id}/member`, { headers: host })
+    expect(members.body.data.some((member: { id: string }) => member.id === guestID)).toBe(false)
+
+    // Removing one guest must not retire the code shared with other devices.
+    expect((yield* call("/api/room/join", { method: "POST", body: { code, name: "Another guest" } })).status).toBe(200)
+  }).pipe(Effect.scoped),
+)
+
+it.live("removing a room releases its join code and transient state", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    expect((yield* call("/api/room/join", { method: "POST", body: { code, name: "Before removal" } })).status).toBe(200)
+    expect((yield* call(`/api/room/${room.id}`, { method: "DELETE", headers: host })).status).toBe(204)
+    expect((yield* call("/api/room/join", { method: "POST", body: { code, name: "After removal" } })).status).toBe(401)
+  }).pipe(Effect.scoped),
+)
+
 it.live("the room list anyone may read names only the open rooms; a closed one keeps its id but not its name", () =>
   Effect.gen(function* () {
     const { call, room } = yield* setup

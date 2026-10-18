@@ -25,6 +25,18 @@ describe("createScopedCache", () => {
     expect(disposed).toEqual(["b"])
   })
 
+  test("prunes an empty-string key when the cache is over capacity", () => {
+    const disposed: string[] = []
+    const cache = createScopedCache((key) => ({ key }), {
+      maxEntries: 0,
+      dispose: (value) => disposed.push(value.key),
+    })
+
+    cache.get("")
+    expect(cache.peek("")).toBeUndefined()
+    expect(disposed).toEqual([""])
+  })
+
   test("disposes entries on delete and clear", () => {
     const disposed: string[] = []
 
@@ -68,5 +80,29 @@ describe("createScopedCache", () => {
     const second = cache.get("a")
     expect(second.count).toBe(2)
     expect(disposed).toEqual(["a:1"])
+  })
+
+  test("sweeps expired entries from the oldest end of the LRU cache", () => {
+    let clock = 0
+    const disposed: string[] = []
+    const cache = createScopedCache((key) => ({ key }), {
+      ttlMs: 10,
+      now: () => clock,
+      dispose: (value) => disposed.push(value.key),
+    })
+
+    cache.get("old")
+    clock = 5
+    cache.get("recent")
+    clock = 8
+    cache.get("old")
+    clock = 11
+
+    expect(cache.peek("old")?.key).toBe("old")
+    expect(disposed).toEqual([])
+
+    clock = 19
+    expect(cache.peek("old")).toBeUndefined()
+    expect(disposed).toEqual(["recent", "old"])
   })
 })
