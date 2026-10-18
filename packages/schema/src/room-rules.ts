@@ -200,7 +200,8 @@ export function hideExecutionEvent(rules: Rules | undefined, event: unknown) {
     (type.startsWith("session.shell.") ||
       type.startsWith("session.tool.") ||
       type.startsWith("session.execution.") ||
-      type.startsWith("session.step."))
+      type.startsWith("session.step.") ||
+      type.startsWith("permission."))
 }
 
 // Suppress the room's public activity-feed entries that reveal a command and who ran it.
