@@ -78,7 +78,7 @@ const MEMBER_LIMIT = 100
 
 // Requests that run a command on the host for a guest. Only the host answers them, so a
 // cohost or helper cannot approve its own command.
-const HOST_ONLY = new Set(["room.run", "room.check"])
+const HOST_ONLY = new Set(["room.run", "room.check", "room.program"])
 
 // The live events a following guest log adds to the durable ones. Stream fragments (text,
 // reasoning, tool input, compaction) and tool progress are ephemeral, so they never appear in
