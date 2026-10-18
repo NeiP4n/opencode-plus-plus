@@ -544,7 +544,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const result = yield* messagePage(sessions, session.id, ctx.query)
           const directory = joined.room.directory ?? session.location.directory
-          return joined.room.rules?.hidePaths ? redactGuestData(result, directory) : result
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return rules?.hidePaths ? redactGuestData(result, directory) : result
         }),
       )
       .handle(
@@ -554,6 +555,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const data = { room: joined.room, guest: joined.guest, role: joined.member.role, session }
           const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, directory)
           return rules?.hidePaths ? redactGuestData(data, directory) : data
         }),
       )
@@ -563,8 +565,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const directory = joined.room.directory ?? session.location.directory
-          const redact = <A>(value: A) =>
-            joined.room.rules?.hidePaths ? redactGuestData(value, directory) : value
+          const rules = yield* rulesForRoom(joined.room, directory)
+          const redact = <A>(value: A) => (rules?.hidePaths ? redactGuestData(value, directory) : value)
           const durable = sessions
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
             .pipe(Stream.orDie)
@@ -617,15 +619,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession), Effect.orDie)
           const note = yield* boundNote(session.id)
           const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, directory)
           const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
           return {
-            data: joined.room.rules?.hidePaths
+            data: rules?.hidePaths
               ? data.map((message) => ({ ...message, text: RoomRules.redactPath(message.text, directory) }))
               : data,
             running: (yield* sessions.active).has(session.id),
             note: note && {
               name: note.name,
-              title: joined.room.rules?.hidePaths ? RoomRules.redactPath(note.frontmatter.title || note.name, directory) : note.frontmatter.title || note.name,
+              title: rules?.hidePaths ? RoomRules.redactPath(note.frontmatter.title || note.name, directory) : note.frontmatter.title || note.name,
             },
           }
         }),
@@ -637,7 +640,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const note = (yield* boundNote(session.id)) ?? null
           const directory = joined.room.directory ?? session.location.directory
-          return { data: joined.room.rules?.hidePaths ? redactGuestData(note, directory) : note }
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return { data: rules?.hidePaths ? redactGuestData(note, directory) : note }
         }),
       )
       .handle(
@@ -675,7 +679,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Effect.orDie,
             )
           const directory = yield* roomDirectory(joined.room)
-          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
@@ -689,7 +694,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             Effect.orDie,
           )
           const directory = yield* roomDirectory(joined.room)
-          return { data: joined.room.rules?.hidePaths ? redactGuestData(requests, directory) : requests }
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return { data: rules?.hidePaths ? redactGuestData(requests, directory) : requests }
         }),
       )
       .handle(
@@ -721,12 +727,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, undefined)
           const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, directory)
           const held = yield* plots.list(directory)
           const passport = Passport.read(directory)
           return {
             ...passport,
             // A room that hides paths shows guests "<project>" where the host's directory would be.
-            project: joined.room.rules?.hidePaths
+            project: rules?.hidePaths
               ? { ...passport.project, directory: RoomRules.redactPath(passport.project.directory, directory) }
               : passport.project,
             plots: held.map((plot) => ({
