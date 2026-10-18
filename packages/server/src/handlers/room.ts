@@ -1054,10 +1054,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
           })
           const owner = ownerOf(joined.member)
-          const id = ctx.payload.id.trim()
-          const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
           if (rules?.denyGuestCommands)
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
+          const id = ctx.payload.id.trim()
+          const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
