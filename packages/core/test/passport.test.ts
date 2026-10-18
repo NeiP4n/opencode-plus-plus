@@ -11,7 +11,7 @@ describe.skipIf(process.platform === "win32")("Passport.run", () => {
     expect(Date.now() - started).toBeLessThan(5_000)
   })
 
-  test("large command output is drained without exceeding the output limit", async () => {
+  test.skipIf(process.platform === "win32")("large command output is drained without exceeding the output limit", async () => {
     await using dir = await tmpdir()
     const result = await Passport.run(
       "i=0; while [ \"$i\" -lt 5000 ]; do printf '0123456789'; i=$((i + 1)); done",
