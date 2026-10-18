@@ -45,6 +45,12 @@ test("a session in several rooms gets the strictest rules", () => {
   expect(RoomRules.merge([undefined])).toBeUndefined()
 })
 
+test("outbound policy includes shell and MCP resource access", () => {
+  expect(RoomRules.outbound).toContain("shell")
+  expect(RoomRules.outbound).toContain("opencode_list_mcp_resources")
+  expect(RoomRules.outbound).toContain("opencode_read_mcp_resource")
+})
+
 test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toBeUndefined()
   expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
