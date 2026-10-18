@@ -68,6 +68,7 @@ test("redacting a path covers slash styles and Windows casing", () => {
   expect(RoomRules.redactPath("opened /Users/me/app/src", "/Users/me/app")).toBe("opened <project>/src")
   expect(RoomRules.redactPath("opened /Users/me/App/src", "/Users/me/app")).toBe("opened /Users/me/App/src")
   expect(RoomRules.redactPath("opened /Users/me/application/src", "/Users/me/app")).toBe("opened /Users/me/application/src")
+  expect(RoomRules.redactPath("opened /tmp/app{v1}/src", "/tmp/app{v1}")).toBe("opened <project>/src")
   expect(RoomRules.redactPath("opened C:\\work\\application\\src", "C:\\work\\app")).toBe("opened C:\\work\\application\\src")
 })
 
