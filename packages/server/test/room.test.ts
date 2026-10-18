@@ -1243,7 +1243,7 @@ it.live("demotion during program approval prevents a guest command from starting
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { defaultRole: "cohost", rules: { noOutbound: false, blockCommands: ["echo*"] } },
+      body: { rules: { noOutbound: false, blockCommands: ["echo*"] } },
     })
     expect(configured.status).toBe(200)
     const joined = (yield* call("/api/room/join", {
@@ -1251,6 +1251,12 @@ it.live("demotion during program approval prevents a guest command from starting
       body: { code, name: "Approval race" },
     })).body
     const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
     const command = "echo must-not-run > role-revoked.txt"
 
     const pending = yield* call(`/api/room/${room.id}/guest/run`, {
@@ -1298,7 +1304,7 @@ it.live("revoking a guest while a command runs withholds its output", () =>
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { defaultRole: "cohost", rules: { noOutbound: false, blockCommands: ["node*"] } },
+      body: { rules: { noOutbound: false, blockCommands: ["node*"] } },
     })
     expect(configured.status).toBe(200)
     const joined = (yield* call("/api/room/join", {
@@ -1306,6 +1312,12 @@ it.live("revoking a guest while a command runs withholds its output", () =>
       body: { code, name: "Long runner" },
     })).body
     const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
     const command = 'node -e "setTimeout(() => console.log(\'private-output\'), 1200)"'
     const pending = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
