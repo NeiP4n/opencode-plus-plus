@@ -94,6 +94,7 @@ test("redacting a nested session path hides likely project roots but not sibling
   expect(RoomRules.redactPath("project C:/Users/alice/repo", "C:/Users/alice/repo/src/session")).toBe("project <project>")
   expect(RoomRules.redactPath("unrelated /work/other", "/work/repo/src/session")).toBe("unrelated /work/other")
   expect(RoomRules.redactPath("unrelated /work/repository-other", "/work/repo/src/session")).toBe("unrelated /work/repository-other")
+  expect(RoomRules.redactPath("embedded x/work/repo/src", "/work/repo/src/session")).toBe("embedded x/work/repo/src")
   expect(RoomRules.redactPath("unrelated /work/Repo/src", "/work/repo/src/session")).toBe("unrelated /work/Repo/src")
   expect(RoomRules.redactPath("unrelated c:/USERS/ALICE/REPO/src", "C:/Users/alice/repo/src/session")).toBe("unrelated <project>/src")
 })
