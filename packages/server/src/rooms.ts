@@ -21,6 +21,7 @@ export interface Interface {
   readonly forget: (roomID: Room.ID, guestIDs?: readonly string[]) => Effect.Effect<void>
   // Presence lives in memory: every guest request marks its guest as seen.
   readonly touch: (guestID: string) => void
+  readonly forgetGuest: (guestID: string) => void
   readonly seen: (guestID: string) => number | undefined
   // When this server started, standing in for the last sight of a guest it has not heard from since.
   readonly started: number
@@ -59,6 +60,7 @@ const layer = Layer.effect(
     const after = (roomID: Room.ID, seq: number) => (feeds.get(roomID) ?? []).filter((event) => event.seq > seq)
     return Service.of({
       touch,
+      forgetGuest: (guestID) => void presence.delete(guestID),
       seen: (guestID) => presence.get(guestID),
       started: Date.now(),
       record: (roomID, event) => {
