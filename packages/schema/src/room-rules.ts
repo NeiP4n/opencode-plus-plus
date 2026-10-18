@@ -47,6 +47,7 @@ export function outboundAction(action: string) {
 
 const LOCAL_ONLY_ACTIONS = new Set([
   "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list", "shell",
+  "delete", "remove", "rename", "move", "copy", "chmod", "chown", "mkdir", "rmdir", "find", "cat", "readfile", "writefile",
   "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
 ])
 
@@ -60,11 +61,20 @@ export function localOnlyAction(action: string) {
 // added them to the custom list. Explicit room rules can add further patterns, not weaken this set.
 const SECRET_FILE_PATTERNS: readonly string[] = [
   ".env*",
+  "**/.ssh",
   "**/.ssh/**",
+  "**/.aws",
   "**/.aws/**",
+  "**/.azure",
   "**/.azure/**",
   "**/.config/gcloud/**",
   "**/.config/gh/**",
+  "**/.config/opencode/**",
+  "**/.local/share/opencode/auth.json",
+  "**/.claude/.credentials.json",
+  "**/.claude.json",
+  "**/.codex/auth.json",
+  "**/.config/codex/**",
   "**/.git-credentials",
   "**/.netrc",
   "**/.npmrc",
@@ -77,6 +87,9 @@ const SECRET_FILE_PATTERNS: readonly string[] = [
   "**/auth.json",
   "**/token.json",
   "**/tokens.json",
+  "**/*token*.json",
+  "**/*oauth*.json",
+  "**/*secret*.json",
   "**/credentials",
   "**/credentials/**",
   "**/secrets/**",
@@ -158,7 +171,7 @@ function commandAfterWrappers(command: string) {
 }
 
 function matchesCommand(pattern: string, command: string) {
-  const start = glob(pattern, "^")
+  const start = glob(pattern, " (^|[;&|\\\\s'\\\"(])".trim())
   if (
     segments(command).some((part) => start.test(part) || start.test(commandAfterWrappers(part)))
   ) return true
