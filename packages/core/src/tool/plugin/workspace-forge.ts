@@ -162,8 +162,16 @@ export const Plugin = {
                 const directory = input.directory?.trim()
                 if (!directory) return yield* new ToolFailure({ message: "create_session requires directory: an existing path. Call list for team IDs first." })
                 const team = input.team?.trim()
-                if (team && !(yield* orchestra.templates()).some((template) => template.id === team))
-                  return yield* new ToolFailure({ message: `Unknown team template ID "${team}". Call list and use an exact ID.` })
+                const roleID = input.role?.trim()
+                if (team && roleID)
+                  return yield* new ToolFailure({ message: "Choose either team (a full AI team template) or role (one AI agent), not both." })
+                const templates = yield* orchestra.templates()
+                if (team && !templates.some((template) => template.id === team))
+                  return yield* new ToolFailure({ message: 'Unknown team template ID "' + team + '". Call list and use an exact ID.' })
+                const roles = yield* orchestra.roles()
+                const selectedRole = roleID ? roles.find((role) => role.id === roleID) : undefined
+                if (roleID && !selectedRole)
+                  return yield* new ToolFailure({ message: 'Unknown AI role ID "' + roleID + '". Call list and use an exact role ID.' })
                 yield* assertExternalDirectories([directory])
                 const sandbox = sandboxChoice(input.sandbox)
                 const created = yield* orchestra.create({
@@ -173,18 +181,37 @@ export const Plugin = {
                   ...sandboxArgs(sandbox),
                 }).pipe(
                   Effect.mapError((error) => new ToolFailure({
-                    message: `Could not create workspace/session at "${directory}" using sandbox "${sandbox}": ${String(error)}. Check the path, repository and sandbox dependencies; retry with corrected arguments.`,
+                    message: 'Could not create workspace/session at "' + directory + '" using sandbox "' + sandbox + '": ' + String(error) + ". Check the path, repository and sandbox dependencies; retry with corrected arguments.",
                     error,
                   })),
                 )
-                const selectedTeam = team ? (yield* orchestra.templates()).find((template) => template.id === team) : undefined
+                const selectedTeam = team ? templates.find((template) => template.id === team) : undefined
+                let workerSessionID: string | undefined
+                if (selectedRole) {
+                  const worker = yield* orchestra.createMember({
+                    project: created,
+                    agent: selectedRole.agent,
+                    title: selectedRole.name,
+                    category: selectedRole.category,
+                  }).pipe(
+                    Effect.mapError((error) => new ToolFailure({
+                      message: 'Workspace ' + created.name + ' (' + created.id + ') was created, but the individual ' + selectedRole.name + ' session could not be created: ' + error.message,
+                      error,
+                    })),
+                  )
+                  workerSessionID = worker.id
+                }
                 return {
                   output: [
-                    `Created workspace ${created.name} (${created.id}).`,
-                    `Main Orchestrator session: ${created.main ?? "not initialized"}`,
-                    `Working directory: ${created.directory}`,
-                    `Sandbox: ${created.sandbox?.isolation ?? "none"}`,
-                    `AI team: ${selectedTeam ? `${selectedTeam.name} (${selectedTeam.id}); ${selectedTeam.members.length} role session(s)` : "Orchestrator only"}`,
+                    'Created workspace ' + created.name + ' (' + created.id + ').',
+                    'Main Orchestrator session: ' + (created.main ?? "not initialized"),
+                    'Working directory: ' + created.directory,
+                    'Sandbox: ' + (created.sandbox?.isolation ?? "none"),
+                    'AI setup: ' + (selectedTeam
+                      ? selectedTeam.name + ' (' + selectedTeam.id + '); ' + selectedTeam.members.length + ' role session(s)'
+                      : selectedRole
+                        ? selectedRole.name + ' (' + selectedRole.id + '); worker session ' + workerSessionID
+                        : "Orchestrator only"),
                     "The main session can now delegate work to its team with the sessions tool.",
                   ].join("\n"),
                 }
@@ -201,6 +228,7 @@ export const Plugin = {
 
                 const projects = yield* orchestra.projects()
                 const templates = yield* orchestra.templates()
+                const roles = yield* orchestra.roles()
                 const usedIDs = new Set<string>()
                 const specs: MemberSpec[] = []
                 for (let index = 0; index < inputMembers.length; index++) {
@@ -218,13 +246,20 @@ export const Plugin = {
                   const directory = member.directory?.trim()
                   if (!directory) return yield* new ToolFailure({ message: `Member ${index + 1}: provide projectID or directory.` })
                   const team = member.team?.trim()
+                  const roleID = member.role?.trim()
+                  if (team && roleID)
+                    return yield* new ToolFailure({ message: "Member " + (index + 1) + ": choose either team or role, not both." })
                   if (team && !templates.some((template) => template.id === team))
-                    return yield* new ToolFailure({ message: `Member ${index + 1}: unknown team template "${team}". Call list.` })
+                    return yield* new ToolFailure({ message: 'Member ' + (index + 1) + ': unknown team template "' + team + '". Call list.' })
+                  const role = roleID ? roles.find((item) => item.id === roleID) : undefined
+                  if (roleID && !role)
+                    return yield* new ToolFailure({ message: 'Member ' + (index + 1) + ': unknown AI role ID "' + roleID + '". Call list.' })
                   specs.push({
                     kind: "create",
                     name: member.name?.trim() ?? "",
                     directory,
                     ...(team ? { team } : {}),
+                    ...(role ? { role } : {}),
                     sandbox: sandboxChoice(member.sandbox),
                   })
                 }
@@ -266,6 +301,19 @@ export const Plugin = {
                     })),
                   )
                   resolved.push(project)
+                  if (spec.role) {
+                    yield* orchestra.createMember({
+                      project,
+                      agent: spec.role.agent,
+                      title: spec.role.name,
+                      category: spec.role.category,
+                    }).pipe(
+                      Effect.mapError((error) => new ToolFailure({
+                        message: "Group member workspace " + project.name + " (" + project.id + ") was created, but AI role " + spec.role!.name + " could not be started: " + error.message + ". No group was registered. Existing member projects:\n" + resolved.map(projectLine).join("\n"),
+                        error,
+                      })),
+                    )
+                  }
                 }
 
                 const unique = [...new Map(resolved.map((project) => [project.id, project])).values()]
