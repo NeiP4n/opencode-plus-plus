@@ -180,7 +180,7 @@ function hiddenExecutionEvent(event: unknown) {
   return typeof value.type === "string" && HIDDEN_EXECUTION_EVENTS.has(value.type)
 }
 
-function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
+export function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
   if (!event || typeof event !== "object") return false
   const value = event as { type?: unknown; data?: { action?: unknown } }
   // Program approval prompts are private to the host; other guests must not learn which
@@ -189,6 +189,7 @@ function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
   // These events contain private model context, not user-facing chat.
   if (
     value.type === "session.reasoning.delta" ||
+    value.type === "session.reasoning.ended" ||
     value.type === "session.synthetic" ||
     value.type === "session.skill.activated" ||
     (typeof value.type === "string" && value.type.startsWith("session.compaction."))
