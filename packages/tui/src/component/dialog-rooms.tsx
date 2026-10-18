@@ -1384,7 +1384,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
       <Header title={`${t("Room rules")} · ${props.name}`} onClose={props.onClose} />
       <text fg={theme.text.muted} wrapMode="word">
-        {t("Rules apply to everyone in the room, including the host's AI. They come before any role.")}
+        {t("Privacy, network and command/file restrictions also constrain the host's AI. Guest-only restrictions apply to every remote role.")}
       </text>
       <Show when={rooms.error}>
         {(error) => (
