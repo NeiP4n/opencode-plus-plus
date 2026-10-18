@@ -10,6 +10,22 @@ import { Orchestra } from "../orchestra.js"
 import { Room } from "../room.js"
 import { Session } from "../session.js"
 
+// Resolve outbound tool aliases centrally so the policy is independent of the tool's display name.
+export function blocksOutboundTool(tool: string, action?: string, namespaced = false) {
+  const outbound = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
+  const isOutbound = (name: string) => {
+    const normalized = name.toLowerCase().replace(/^opencode_/, "")
+    return (
+      outbound.has(name.toLowerCase()) ||
+      outbound.has(normalized) ||
+      normalized.startsWith("desktop_") ||
+      normalized.startsWith("mcp_") ||
+      normalized.startsWith("opencode_mcp_")
+    )
+  }
+  return isOutbound(tool) || (!!action && isOutbound(action)) || namespaced
+}
+
 // Applies a room's rules to the host's own AI. The server applies them to guests' commands and to
 // what guests see; this covers the sessions the room shares, subagents included, wherever they run.
 export const Plugin = define({
@@ -49,23 +65,11 @@ export const Plugin = define({
         const input =
           event.input && typeof event.input === "object" ? (event.input as Record<string, unknown>) : undefined
         const action = typeof input?.action === "string" ? input.action.toLowerCase() : undefined
-        const outbound = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
         const registered = yield* ctx.tool.list()
         const registeredTool = registered.find((item) => item.name.toLowerCase() === tool)
-        const isOutbound = (name: string) => {
-          const normalized = name.replace(/^opencode_/, "")
-          return (
-            outbound.has(name) ||
-            outbound.has(normalized) ||
-            name.startsWith("desktop_") ||
-            name.startsWith("mcp_") ||
-            name.startsWith("opencode_mcp_")
-          )
-        }
         // MCP tool names are server-defined, so a name-only allowlist is insufficient.
         // Registered namespaced tools are treated as MCP transports for this rule.
-        const isMcp = !!registeredTool?.options?.namespace
-        if (isOutbound(tool) || (action && isOutbound(action)) || isMcp)
+        if (blocksOutboundTool(tool, action, !!registeredTool?.options?.namespace))
           return yield* new Tool.Error({
             message: "This room does not allow tools that can send data out.",
             metadata: { rule: "noOutbound", tool: event.tool, action },
