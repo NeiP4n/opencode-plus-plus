@@ -46,8 +46,13 @@ function glob(pattern: string, before: string, after = "") {
 // The parts of a command line that each start a command. Wrapping a command in `bash -c`
 // or a subshell is not unpicked: patterns without `*` also match anywhere in the line.
 function segments(command: string) {
+  // Shell commands can be nested in substitutions, quoted wrappers, subshells,
+  // redirections and background jobs. Splitting only on ;, pipes and newlines
+  // misses e.g. `$(git push*)` or `bash -c 'git push*'`. This is deliberately
+  // conservative: policy matching may reject a harmless command containing a
+  // blocked invocation, but must not silently permit common shell wrappers.
   return command
-    .split(/&&|\|\||[;|\n]/)
+    .split(/[;&|()\n\r\t`<>$"'\\\\]+/)
     .map((part) => part.trim())
     .filter(Boolean)
 }
