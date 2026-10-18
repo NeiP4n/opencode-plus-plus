@@ -38,11 +38,14 @@ function Mark(props: { multi: boolean; picked: boolean; onClick?: (event: MouseE
   )
 }
 
+const OPTION_ICONS = ["sparkles", "layers", "zap", "shield-check", "rocket", "palette", "target", "wand-sparkles"] as const
+
 function Option(props: {
   multi: boolean
   picked: boolean
   label: string
   description?: string
+  index: number
   disabled: boolean
   ref?: (el: HTMLButtonElement) => void
   onFocus?: VoidFunction
@@ -53,18 +56,30 @@ function Option(props: {
       type="button"
       ref={props.ref}
       data-slot="question-option"
+      data-visual="card"
       data-picked={props.picked}
+      data-index={props.index}
       role={props.multi ? "checkbox" : "radio"}
       aria-checked={props.picked}
       disabled={props.disabled}
       onFocus={props.onFocus}
       onClick={props.onClick}
     >
-      <Mark multi={props.multi} picked={props.picked} />
+      <span data-slot="question-option-art" aria-hidden="true">
+        <Icon name={OPTION_ICONS[props.index % OPTION_ICONS.length]} size="large" />
+      </span>
       <span data-slot="question-option-main">
+        <span data-slot="question-option-eyebrow">
+          {String(props.index + 1).padStart(2, "0")} {props.multi ? "· SELECT" : "· OPTION"}
+        </span>
         <span data-slot="option-label">{props.label}</span>
         <Show when={props.description}>
           <span data-slot="option-description">{props.description}</span>
+        </Show>
+      </span>
+      <span data-slot="question-option-trailing" aria-hidden="true">
+        <Show when={props.picked} fallback={<Icon name="arrow-up-right" size="small" />}>
+          <Icon name="check-circle-filled" size="large" />
         </Show>
       </span>
     </button>
@@ -564,7 +579,10 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
         onKeyDown={nav}
         header={
           <>
-            <div data-slot="question-header-title">{summary()}</div>
+            <div data-slot="question-header-title">
+              <span data-slot="question-header-kicker"><Icon name="messages-square" size="small" /> INTERACTIVE RESPONSE</span>
+              <span data-slot="question-header-progress-label">{summary()}</span>
+            </div>
             <div data-slot="question-header-actions">
               <Show when={total() > 1}>
                 <div data-slot="question-progress">
@@ -646,16 +664,26 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
             overflow: store.minimized ? "hidden" : undefined,
           }}
         >
-          {question()?.question}
+          <span data-slot="question-text-mark" aria-hidden="true"><Icon name="message-circle-question" size="large" /></span>
+          <span data-slot="question-text-content">
+            <span data-slot="question-text-eyebrow">YOUR INPUT NEEDED</span>
+            <span data-slot="question-text-title">{question()?.header || "Choose an answer"}</span>
+            <span data-slot="question-text-description">{question()?.question}</span>
+          </span>
         </div>
         <Show when={!store.minimized}>
           <Show when={multi()} fallback={<div data-slot="question-hint">{language.t("ui.question.singleHint")}</div>}>
             <div data-slot="question-hint">{language.t("ui.question.multiHint")}</div>
           </Show>
         </Show>
+        <div data-slot="question-choice-heading">
+          <span>{multi() ? "SELECT ALL THAT APPLY" : "CHOOSE ONE OPTION"}</span>
+          <span data-slot="question-choice-count">{options().length} {options().length === 1 ? "CHOICE" : "CHOICES"}</span>
+        </div>
         <div
           ref={(el) => (optionsRef = el)}
           data-slot="question-options"
+          data-visual-layout={options().length >= 3 ? "grid" : "stack"}
           aria-hidden={store.minimized || optionsOff() ? "true" : undefined}
           classList={{ "pointer-events-none": hidden() > 0.1 }}
           style={{
@@ -671,6 +699,7 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
                 picked={picked(opt.value)}
                 label={opt.label}
                 description={opt.description}
+                index={i()}
                 disabled={sending()}
                 ref={(el) => (optsRef[i()] = el)}
                 onFocus={() => setStore("focus", i())}
@@ -686,6 +715,7 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
                 type="button"
                 ref={customRef}
                 data-slot="question-option"
+                data-visual="card"
                 data-custom="true"
                 data-picked={on()}
                 role={multi() ? "checkbox" : "radio"}
@@ -700,6 +730,11 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
                   <span data-slot="option-description" dir="auto">
                     {input() || customPlaceholder()}
                   </span>
+                </span>
+                <span data-slot="question-option-trailing" aria-hidden="true">
+                  <Show when={on()} fallback={<Icon name="arrow-up-right" size="small" />}>
+                    <Icon name="check-circle-filled" size="large" />
+                  </Show>
                 </span>
               </button>
             }
