@@ -1343,19 +1343,32 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
   const fields: Record<string, InputRenderable> = {}
   const [rooms, { refetch }] = createResource(() => client.api.room.list())
   const room = () => (rooms.error ? undefined : rooms.latest)?.find((item) => item.id === props.roomID)
-  const rules = () => room()?.rules ?? {}
+  // Room updates replace the whole rules object. Keep an optimistic pending copy and serialize
+  // writes so quick toggles cannot overwrite one another with stale settings.
+  let pendingRules: NonNullable<RoomInfo["rules"]> | undefined
+  let saveQueue: Promise<void> = Promise.resolve()
+  const rules = () => pendingRules ?? room()?.rules ?? {}
   const list = (value: string) =>
     value
       .split(",")
       .map((item) => item.trim())
       .filter(Boolean)
 
-  // An update replaces the rules whole, so every save sends the full set.
-  const save = (patch: NonNullable<RoomInfo["rules"]>) =>
-    void client.api.room
-      .update({ roomID: props.roomID, rules: { ...rules(), ...patch } })
-      .then(() => refetch())
-      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+  const save = (patch: NonNullable<RoomInfo["rules"]>) => {
+    pendingRules = { ...rules(), ...patch }
+    const snapshot = pendingRules
+    saveQueue = saveQueue
+      .catch(() => undefined)
+      .then(async () => {
+        await client.api.room.update({ roomID: props.roomID, rules: snapshot })
+        await refetch()
+        if (pendingRules === snapshot) pendingRules = undefined
+      })
+      .catch((error: unknown) => {
+        if (pendingRules === snapshot) pendingRules = undefined
+        toast.show({ message: errorMessage(error), variant: "error" })
+      })
+  }
 
   const field = (key: "blockCommands" | "protectedFiles", placeholder: string) => (
     <>
