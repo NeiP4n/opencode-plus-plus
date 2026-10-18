@@ -320,6 +320,30 @@ it.live("denyGuestPrompts blocks guest messages before they reach the host AI", 
   }).pipe(Effect.scoped),
 )
 
+it.live("denyGuestPrompts also blocks creating a guest-owned AI session", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { denyGuestPrompts: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const created = yield* call(`/api/room/${room.id}/guest/session`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { title: "Should be denied" },
+    })
+    expect(created.status).toBe(403)
+    expect(created.body.message).toContain("does not allow guests to prompt")
+  }).pipe(Effect.scoped),
+)
+
 it.live("guest commands inherit stricter rules from another room sharing the session", () =>
   Effect.gen(function* () {
     const { call, session, room, code } = yield* setup
