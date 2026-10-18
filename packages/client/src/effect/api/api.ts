@@ -121,6 +121,7 @@ export type SessionListInput = {
   readonly order?: "asc" | "desc" | undefined
   readonly search?: string | undefined
   readonly parentID?: Session.ID | null | undefined
+  readonly archived?: boolean | undefined
   readonly directory?: AbsolutePath | undefined
   readonly project?: Project.ID | undefined
   readonly subpath?: RelativePath | undefined
@@ -255,6 +256,7 @@ export type SessionSwitchModelOperation<E = never> = (
 export type SessionUpdateInput = {
   readonly sessionID: Session.ID
   readonly title?: string | undefined
+  readonly archived?: boolean | undefined
   readonly metadata?: Session.Metadata | undefined
   readonly permissions?: Permission.Ruleset | undefined
 }
@@ -2581,9 +2583,13 @@ export type RoomCreateInput = {
   readonly rules?:
     | {
         readonly hidePaths?: boolean | undefined
+        readonly hideExecution?: boolean | undefined
+        readonly hideScreenshots?: boolean | undefined
         readonly blockCommands?: ReadonlyArray<string> | undefined
         readonly protectedFiles?: ReadonlyArray<string> | undefined
         readonly noOutbound?: boolean | undefined
+        readonly denyGuestPrompts?: boolean | undefined
+        readonly denyGuestCommands?: boolean | undefined
       }
     | undefined
   readonly directory?: string | undefined
@@ -2602,9 +2608,13 @@ export type RoomUpdateInput = {
   readonly rules?:
     | {
         readonly hidePaths?: boolean | undefined
+        readonly hideExecution?: boolean | undefined
+        readonly hideScreenshots?: boolean | undefined
         readonly blockCommands?: ReadonlyArray<string> | undefined
         readonly protectedFiles?: ReadonlyArray<string> | undefined
         readonly noOutbound?: boolean | undefined
+        readonly denyGuestPrompts?: boolean | undefined
+        readonly denyGuestCommands?: boolean | undefined
       }
     | undefined
 }
@@ -4539,10 +4549,17 @@ export type OrchestraCategoryOperation<E = never> = (
 export type OrchestraGroupListOutput = ReadonlyArray<{
   readonly name: string
   readonly projects: ReadonlyArray<Orchestra.ProjectID>
+  readonly mode?: ("lead" | "council") | undefined
+  readonly supervisor?: Session.ID | undefined
 }>
 export type OrchestraGroupListOperation<E = never> = () => Effect.Effect<OrchestraGroupListOutput, E>
 
-export type OrchestraGroupSaveInput = { readonly name: string; readonly projects: ReadonlyArray<Orchestra.ProjectID> }
+export type OrchestraGroupSaveInput = {
+  readonly name: string
+  readonly projects: ReadonlyArray<Orchestra.ProjectID>
+  readonly mode?: ("lead" | "council") | undefined
+  readonly supervisor?: Session.ID | undefined
+}
 export type OrchestraGroupSaveOutput = void
 export type OrchestraGroupSaveOperation<E = never> = (
   input: OrchestraGroupSaveInput,

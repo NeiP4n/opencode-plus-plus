@@ -536,6 +536,7 @@ export type RoomGuest = { id: string; name: string }
 export type RoomRules1 = {
   hidePaths?: boolean | null
   hideExecution?: boolean | null
+  hideScreenshots?: boolean | null
   blockCommands?: Array<string> | null
   protectedFiles?: Array<string> | null
   noOutbound?: boolean | null
@@ -616,7 +617,7 @@ export type OrchestraOrigin = "builtin" | "edited" | "custom"
 
 export type OrchestraAccess = "hidden" | "read" | "write" | "full"
 
-export type FederationGroup = { name: string; projects: Array<string>; supervisor?: string | undefined }
+export type FederationCoordinationMode = "lead" | "council"
 
 export type SessionMessageLocationSwitched = {
   id: string
@@ -2006,6 +2007,13 @@ export type OrchestraRole = {
   origin: OrchestraOrigin
 }
 
+export type FederationGroup = {
+  name: string
+  projects: Array<string>
+  mode?: FederationCoordinationMode | undefined
+  supervisor?: string | undefined
+}
+
 export type SessionInboxMove = {
   id: string
   sessionID: string
@@ -3237,6 +3245,7 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -3247,6 +3256,7 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -3257,6 +3267,7 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -3267,16 +3278,29 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
     readonly cursor?: string | undefined
   }["parentID"]
+  readonly archived?: {
+    readonly limit?: number | undefined
+    readonly order?: "asc" | "desc" | undefined
+    readonly search?: string | undefined
+    readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
+    readonly directory?: string | undefined
+    readonly project?: string | undefined
+    readonly subpath?: string | undefined
+    readonly cursor?: string | undefined
+  }["archived"]
   readonly directory?: {
     readonly limit?: number | undefined
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -3287,6 +3311,7 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -3297,6 +3322,7 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -3307,6 +3333,7 @@ export type SessionListInput = {
     readonly order?: "asc" | "desc" | undefined
     readonly search?: string | undefined
     readonly parentID?: string | null | undefined
+    readonly archived?: boolean | undefined
     readonly directory?: string | undefined
     readonly project?: string | undefined
     readonly subpath?: string | undefined
@@ -4533,13 +4560,23 @@ export type SessionUpdateInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
   readonly title?: {
     readonly title?: string | undefined
+    readonly archived?: boolean | undefined
     readonly metadata?: { readonly [x: string]: JsonValue } | undefined
     readonly permissions?:
       | ReadonlyArray<{ readonly action: string; readonly resource: string; readonly effect: "allow" | "deny" | "ask" }>
       | undefined
   }["title"]
+  readonly archived?: {
+    readonly title?: string | undefined
+    readonly archived?: boolean | undefined
+    readonly metadata?: { readonly [x: string]: JsonValue } | undefined
+    readonly permissions?:
+      | ReadonlyArray<{ readonly action: string; readonly resource: string; readonly effect: "allow" | "deny" | "ask" }>
+      | undefined
+  }["archived"]
   readonly metadata?: {
     readonly title?: string | undefined
+    readonly archived?: boolean | undefined
     readonly metadata?: { readonly [x: string]: JsonValue } | undefined
     readonly permissions?:
       | ReadonlyArray<{ readonly action: string; readonly resource: string; readonly effect: "allow" | "deny" | "ask" }>
@@ -4547,6 +4584,7 @@ export type SessionUpdateInput = {
   }["metadata"]
   readonly permissions?: {
     readonly title?: string | undefined
+    readonly archived?: boolean | undefined
     readonly metadata?: { readonly [x: string]: JsonValue } | undefined
     readonly permissions?:
       | ReadonlyArray<{ readonly action: string; readonly resource: string; readonly effect: "allow" | "deny" | "ask" }>
@@ -7544,11 +7582,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7565,11 +7604,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7586,11 +7626,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7607,11 +7648,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7628,11 +7670,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7649,11 +7692,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7670,11 +7714,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7691,11 +7736,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7712,11 +7758,12 @@ export type RoomCreateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
     readonly directory?: string | undefined
@@ -7738,11 +7785,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["name"]
@@ -7757,11 +7805,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["hostName"]
@@ -7776,11 +7825,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["ai"]
@@ -7795,11 +7845,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["guestApprovals"]
@@ -7814,11 +7865,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["defaultRole"]
@@ -7833,11 +7885,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["open"]
@@ -7852,11 +7905,12 @@ export type RoomUpdateInput = {
       | {
           readonly hidePaths?: boolean | undefined
           readonly hideExecution?: boolean | undefined
-          readonly denyGuestPrompts?: boolean | undefined
-          readonly denyGuestCommands?: boolean | undefined
+          readonly hideScreenshots?: boolean | undefined
           readonly blockCommands?: ReadonlyArray<string> | undefined
           readonly protectedFiles?: ReadonlyArray<string> | undefined
           readonly noOutbound?: boolean | undefined
+          readonly denyGuestPrompts?: boolean | undefined
+          readonly denyGuestCommands?: boolean | undefined
         }
       | undefined
   }["rules"]
@@ -9018,9 +9072,30 @@ export type OrchestraCategoryOutput = void
 export type OrchestraGroupListOutput = Array<FederationGroup>
 
 export type OrchestraGroupSaveInput = {
-  readonly name: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string | undefined }["name"]
-  readonly projects: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string | undefined }["projects"]
-  readonly supervisor?: { readonly name: string; readonly projects: ReadonlyArray<string>; readonly supervisor?: string | undefined }["supervisor"]
+  readonly name: {
+    readonly name: string
+    readonly projects: ReadonlyArray<string>
+    readonly mode?: ("lead" | "council") | undefined
+    readonly supervisor?: string | undefined
+  }["name"]
+  readonly projects: {
+    readonly name: string
+    readonly projects: ReadonlyArray<string>
+    readonly mode?: ("lead" | "council") | undefined
+    readonly supervisor?: string | undefined
+  }["projects"]
+  readonly mode?: {
+    readonly name: string
+    readonly projects: ReadonlyArray<string>
+    readonly mode?: ("lead" | "council") | undefined
+    readonly supervisor?: string | undefined
+  }["mode"]
+  readonly supervisor?: {
+    readonly name: string
+    readonly projects: ReadonlyArray<string>
+    readonly mode?: ("lead" | "council") | undefined
+    readonly supervisor?: string | undefined
+  }["supervisor"]
 }
 
 export type OrchestraGroupSaveOutput = void
