@@ -879,13 +879,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             project: rules?.hidePaths
               ? { ...passport.project, directory: RoomRules.redactPath(passport.project.directory, directory) }
               : passport.project,
-            plots: held.map((plot) => ({
-              team: plot.team,
-              machine: plot.machine,
-              purpose: plot.purpose,
-              paths: plot.paths.map((item) => path.relative(directory, item) || "."),
-              expires: plot.expires,
-            })),
+            // Active work assignments expose file paths, ownership and execution purpose.
+            // Keep them private when the room hides execution details.
+            plots: rules?.hideExecution
+              ? []
+              : held.map((plot) => ({
+                  team: plot.team,
+                  machine: plot.machine,
+                  purpose: plot.purpose,
+                  paths: plot.paths.map((item) => path.relative(directory, item) || "."),
+                  expires: plot.expires,
+                })),
           }
           return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
         }),
