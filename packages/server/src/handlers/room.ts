@@ -286,6 +286,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       const programs = RoomRules.programsRequiringApproval(input.room.rules, input.command)
       const knownMember = yield* rooms.member(input.room.id, input.member.id)
       const approved = new Set(knownMember?.approvedPrograms ?? input.member.approvedPrograms ?? [])
+      const executable = RoomRules.programName(input.command)
+      if (programs.length === 0 && executable && approved.has(executable)) return
       for (const program of programs) {
         if (approved.has(program)) continue
         yield* Permission.Service.use((permission) =>
