@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-gates-${{ github.event.pull_request.number || github.ref }}
+  group: quality-gates-${{ (github.ref == 'refs/heads/lan-rooms' && github.run_id) || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref_name != 'lan-rooms' && github.base_ref != 'lan-rooms' }}
 
 env:
