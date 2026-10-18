@@ -153,8 +153,9 @@ function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
   let lastSuccessAt = Number.NEGATIVE_INFINITY
   const stale: string[] = []
   const streaks: { updatedAt: number; consecutive: number }[] = []
-  const scan = (after?: string): Effect.Effect<void> =>
-    Effect.gen(function* () {
+  const scan = Effect.gen(function* () {
+    let after: string | undefined
+    while (true) {
       const page = yield* kv.scan({ prefix, after, limit: 1000 })
       // Process each page before fetching the next. The previous implementation retained every
       // raw KV entry and then allocated a second array of decoded states for the whole prefix.
@@ -170,10 +171,12 @@ function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
           streaks.push({ updatedAt: state.updatedAt, consecutive: state.consecutive })
         }
       }
-      if (page.next) yield* scan(page.next)
-    })
+      if (!page.next) break
+      after = page.next
+    }
+  })
   return Effect.gen(function* () {
-    yield* scan()
+    yield* scan
     const consecutive = streaks.reduce(
       (max, state) => (state.updatedAt > lastSuccessAt ? Math.max(max, state.consecutive) : max),
       0,
