@@ -50,6 +50,7 @@ export const outbound: readonly string[] = [
   "shell",
   "hub",
   "desktop",
+  "playtest",
   "opencode_list_mcp_resources",
   "opencode_read_mcp_resource",
 ]
