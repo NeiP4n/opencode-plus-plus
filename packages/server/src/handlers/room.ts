@@ -533,7 +533,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           return {
-            room: redactRoomValue(joined.room, directories),
+            room: joined.room.rules?.hidePaths ? redactRoomValue(joined.room, directories) : joined.room,
             guest: joined.guest,
             role: joined.member.role,
             session: joined.room.rules?.hidePaths ? redactRoomValue(session, directories) : session,
