@@ -694,8 +694,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               // system prompts, permission rules, raw message rewrites and other host-only events
               // cannot leak through replay merely because they are durable. Rebuild the public
               // envelope as the live path does, omitting host-only location and metadata fields.
-              Stream.filter((event) => Option.isSome(decodeGuestRoomEvent(event))),
-              Stream.map((event) => Option.getOrUndefined(decodeGuestRoomEvent(event))!),
+              // Decode once per event; this runs for every record in the guest replay.
+              Stream.map((event) => ({ decoded: decodeGuestRoomEvent(event) })),
+              Stream.filter((item) => Option.isSome(item.decoded)),
+              Stream.map((item) => Option.getOrUndefined(item.decoded)!),
             )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
