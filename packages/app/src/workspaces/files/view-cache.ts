@@ -88,6 +88,7 @@ function createViewSession(scope: ServerScope, dir: string, id: string | undefin
   const selectedLines = (path: string) => view.file[path]?.selectedLines
 
   const setScrollTop = (path: string, top: number) => {
+    const added = view.file[path] === undefined
     setView(
       produce((draft) => {
         const file = draft.file[path] ?? (draft.file[path] = {})
@@ -96,10 +97,11 @@ function createViewSession(scope: ServerScope, dir: string, id: string | undefin
         file.scrollTop = top
       }),
     )
-    pruneView(path)
+    if (added) pruneView(path)
   }
 
   const setScrollLeft = (path: string, left: number) => {
+    const added = view.file[path] === undefined
     setView(
       produce((draft) => {
         const file = draft.file[path] ?? (draft.file[path] = {})
@@ -108,11 +110,12 @@ function createViewSession(scope: ServerScope, dir: string, id: string | undefin
         file.scrollLeft = left
       }),
     )
-    pruneView(path)
+    if (added) pruneView(path)
   }
 
   const setSelectedLines = (path: string, range: SelectedLineRange | null) => {
     const next = range ? normalizeSelectedLines(range) : null
+    const added = view.file[path] === undefined
     setView(
       produce((draft) => {
         const file = draft.file[path] ?? (draft.file[path] = {})
@@ -121,7 +124,7 @@ function createViewSession(scope: ServerScope, dir: string, id: string | undefin
         file.selectedLines = next
       }),
     )
-    pruneView(path)
+    if (added) pruneView(path)
   }
 
   return {
