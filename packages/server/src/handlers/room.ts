@@ -838,7 +838,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = yield* roomDirectory(joined.room)
           const rules = yield* effectiveRules(joined.room, directory)
-          const dod = yield* Dod.read(directory, yield* live()).pipe(Effect.mapError(invalidDod))
+          const dod = yield* Dod.read(directory, yield* live()).pipe(
+            Effect.mapError((error) => new InvalidRequestError({
+              message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
+            })),
+          )
           const visible = rules?.hidePaths
             ? redactRoomValue(dod, [joined.room.directory ?? "", directory].filter(Boolean))
             : dod
@@ -852,6 +856,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const directory = yield* roomDirectory(joined.room)
           const rules = yield* effectiveRules(joined.room, directory)
+          const dodError = (error: Dod.DodError) => new InvalidRequestError({
+            message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
+          })
           const owner = ownerOf(joined.member)
           const record = (kind: Room.EventKind, item: string, who = owner.name) =>
             codes.record(joined.room.id, { kind, who, item })
@@ -859,7 +866,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             const id = ctx.payload.id?.trim()
             if (!id) return yield* new InvalidRequestError({ message: "Name the item to give back", field: "id" })
             // Release first: it refuses an item the guest does not hold, and the handover is only the holder's to write.
-            const dod = yield* Dod.release({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
+            const dod = yield* Dod.release({ directory, id, owner }).pipe(Effect.mapError(dodError))
             if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
             yield* freeDodPlots(directory, id)
             record("release", id)
@@ -867,16 +874,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
           }
           const alive = yield* live()
-          const before = yield* Dod.read(directory, alive).pipe(Effect.mapError(invalidDod))
+          const before = yield* Dod.read(directory, alive).pipe(Effect.mapError(dodError))
           const taken = ctx.payload.next
-            ? yield* Dod.next({ directory, owner, live: alive }).pipe(Effect.mapError(invalidDod))
+            ? yield* Dod.next({ directory, owner, live: alive }).pipe(Effect.mapError(dodError))
             : yield* Effect.gen(function* () {
                 const id = ctx.payload.id?.trim()
                 if (!id)
                   return yield* new InvalidRequestError({ message: "Name the item to take, or pass next", field: "id" })
                 return {
                   id,
-                  dod: yield* Dod.take({ directory, id, owner, live: alive }).pipe(Effect.mapError(invalidDod)),
+                  dod: yield* Dod.take({ directory, id, owner, live: alive }).pipe(Effect.mapError(dodError)),
                 }
               })
           const previous = before.items.find((item) => item.id === taken.id)
@@ -905,7 +912,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                     yield* Dod.release({ directory, id: taken.id, owner }).pipe(Effect.ignore)
                     record("release", taken.id)
                   }
-                  return yield* new ForbiddenError({ message: error.message })
+                  return yield* new ForbiddenError({
+                    message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
+                  })
                 }),
               ),
             )
@@ -919,7 +928,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           let rules = yield* effectiveRules(joined.room, directory)
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
-          const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
+          const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
@@ -974,7 +983,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             exitCode: result.exitCode,
             summary: outputSummary(output, result.exitCode),
             by: owner.name,
-          }).pipe(Effect.mapError(invalidDod))
+          }).pipe(Effect.mapError(dodError))
           const passed = result.exitCode === 0
           if (passed) yield* freeDodPlots(directory, id)
           codes.record(joined.room.id, {
