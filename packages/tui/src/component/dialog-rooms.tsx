@@ -1412,6 +1412,14 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
           </Button>
         </Setting>
         <Setting
+          label={t("Screenshots & images")}
+          help={t("Hides image attachments and screenshot payloads in guest history and live room events, without hiding ordinary text.")}
+        >
+          <Button onClick={() => save({ hideScreenshots: !rules().hideScreenshots })}>
+            {rules().hideScreenshots ? t("Hidden") : t("Visible")}
+          </Button>
+        </Setting>
+        <Setting
           label={t("Sending out")}
           help={t("Blocked by default: web, MCP, connected-account tools, shell/hub and unknown integrations. Custom native binaries can still open sockets when commands are allowed; use an OS firewall for a hard network boundary.")}
         >
