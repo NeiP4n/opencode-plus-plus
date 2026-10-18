@@ -34,11 +34,11 @@ export interface Decision {
 const RETRY_AFTER_MAX = Duration.toMillis("15 minutes")
 
 const retryAfter = (input: Input) => {
-  if (input.cause.reason._tag === "RateLimit" || input.cause.reason._tag === "ProviderInternal")
-    return input.cause.reason.retryAfterMs === undefined
-      ? undefined
-      : Math.min(input.cause.reason.retryAfterMs, RETRY_AFTER_MAX)
-  return undefined
+  if (input.cause.reason._tag !== "RateLimit" && input.cause.reason._tag !== "ProviderInternal") return undefined
+  const value = input.cause.reason.retryAfterMs
+  // Provider metadata is untrusted: NaN or negative delays must not poison Effect durations.
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.min(value, RETRY_AFTER_MAX)
 }
 
 // Exponential from 2s capped at 10s per gap, for 10 retries: 2, 4, 8, then 10 × 7, about 84s of
