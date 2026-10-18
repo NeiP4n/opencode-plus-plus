@@ -123,12 +123,11 @@ export function createTimelineVirtualizer(input: Input) {
 
   const getItemKey = createMemo(() => {
     const keys = rowKeys()
-    keys
-      .filter((key) => !knownKeys.has(key))
-      .forEach((key) => {
-        knownKeys.add(key)
-        addedKeys.add(key)
-      })
+    for (const key of keys) {
+      if (knownKeys.has(key)) continue
+      knownKeys.add(key)
+      addedKeys.add(key)
+    }
 
     return (index: number) => keys[index] ?? `removed:${index}`
   })
