@@ -114,6 +114,22 @@ test("outbound access is denied by default whenever room rules are active", () =
   expect(RoomRules.merge([{ noOutbound: false }])?.noOutbound).toBe(false)
 })
 
+test("room policy fails closed for unknown tools and MCP transport metadata", () => {
+  const rules: RoomRules.Rules = { noOutbound: true }
+  expect(RoomRules.policy(rules, { action: "read", resources: [] })).toBeUndefined()
+  expect(RoomRules.policy(rules, { action: "custom_upload", resources: [] })).toMatchObject({
+    effect: "deny",
+  })
+  expect(
+    RoomRules.policy(rules, {
+      action: "read",
+      resources: [],
+      metadata: { transport: "mcp" },
+    }),
+  ).toMatchObject({ effect: "deny" })
+  expect(RoomRules.policy({ noOutbound: false }, { action: "custom_upload", resources: [] })).toBeUndefined()
+})
+
 test("outbound policy includes shell and MCP resource access", () => {
   expect(RoomRules.outbound).toContain("shell")
   expect(RoomRules.outbound).toContain("desktop")
