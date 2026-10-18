@@ -8,11 +8,9 @@ import { Schema } from "effect"
 export const Rules = Schema.Struct({
   // Guests and their AIs never see the project's path on the host.
   hidePaths: Schema.Boolean.pipe(Schema.optional),
-  // Commands nobody runs in the room, by the host's AI, guests' commands or checks. A pattern
-  // matches the start of a command or of any part of a chained one; `*` stands for any text.
+  // Commands nobody runs in the room, by the host's AI, guests' commands or checks.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
-  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`), so
-  // their contents cannot be sent anywhere.
+  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`).
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
   // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
@@ -49,14 +47,14 @@ export const outbound: readonly string[] = [
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
   const body = pattern
-    .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replaceAll(/[.+^$${}()|[\]\\]/g, "\\$&")
     .replaceAll("*", ".*")
     .replaceAll("?", ".")
   return new RegExp(before + body + after, "i")
 }
 
 // The parts of a command line that each start a command. Wrapping a command in `bash -c`
-// or a subshell is not unpicked: patterns without `*` also match anywhere in the line.
+// is not unpicked; patterns are also checked against the complete command string.
 function segments(command: string) {
   return command
     .split(/&&|\|\||[;|\n]/)
@@ -68,10 +66,8 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
   return (rules?.blockCommands ?? []).find((raw) => {
     const pattern = raw.trim()
     if (!pattern) return false
-    const start = glob(pattern, "^")
-    // Also inspect the full command so wrappers such as bash -c cannot hide a wildcard rule.
-    // This is intentionally conservative: a match anywhere in the command is denied.
     if (glob(pattern, "").test(command)) return true
+    const start = glob(pattern, "^")
     return segments(command).some((part) => start.test(part))
   })
 }
@@ -87,8 +83,8 @@ export function blockedCommandForAction(rules: Rules | undefined, action: string
 export function protectedFile(rules: Rules | undefined, file: string) {
   const normal = file.replaceAll("\\", "/")
   return (rules?.protectedFiles ?? []).find((raw) => {
-    const pattern = raw.trim()
-    return pattern !== "" && glob(pattern.replaceAll("\\", "/"), "(^|/)", "$").test(normal)
+    const pattern = raw.trim().replaceAll("\\", "/")
+    return pattern !== "" && glob(pattern, "(^|/)", "$").test(normal)
   })
 }
 
@@ -100,18 +96,13 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
     const body = pattern
-      .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replaceAll(/[.+^$${}()|[\]\\]/g, "\\$&")
       .replaceAll("*", ".*")
       .replaceAll("?", ".")
     return new RegExp("(?:^|[\\s\"'=:/])" + body + "(?=$|[\\s\"/:])", "i").test(normal)
   })
 }
-export function redactPath(text: string, directory: string) {")
-      .replaceAll("*", ".*")
-      .replaceAll("?", ".")
-    return new RegExp("(?:^|[\\\\s\\\"'=:/])" + body + "(?=$|[\\\\s\\\"/:])", "i").test(command.replaceAll("\\\\", "/"))
-  })
-}
+
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
   const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
