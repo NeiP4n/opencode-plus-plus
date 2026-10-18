@@ -141,8 +141,8 @@ test("credential and environment dumps stay blocked even when outbound access is
 
 
 test("describe states only the rules that are set", () => {
-  expect(RoomRules.describe({})).toBeUndefined()
-  expect(RoomRules.describe({ noOutbound: true })).toContain("desktop control, playtest app execution")
+  expect(RoomRules.describe({})).toContain("Credential and secret files")
+  expect(RoomRules.describe({ noOutbound: true })).toContain("Outbound access is denied by default")
   expect(RoomRules.describe({ hideExecution: true })).toContain("screenshots to other guests")
   expect(RoomRules.describe({ denyGuestPrompts: true })).toContain("must not submit prompts")
   expect(RoomRules.describe({ denyGuestCommands: true })).toContain("must not invoke slash commands")
