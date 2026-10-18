@@ -102,7 +102,7 @@ export const Plugin = define({
         )
           return deny("This room blocks external, connected-account and unrecognized tools")
         if (event.action === "shell") {
-          const command = event.resources.join("\\n")
+          const command = event.resources.join("\n")
           if (rules.noOutbound && RoomRules.commandSendsOutbound(command))
             return deny("This room does not let the AI send commands that connect or send data outside")
           const protectedFile = event.resources.find((item) => RoomRules.commandTouchesProtectedFile(rules, item))
