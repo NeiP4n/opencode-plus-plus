@@ -122,6 +122,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
       await client.api.session.prompt({
         sessionID: created.id,
         text: bootstrap,
+        metadata: { "opencode-pp:group-supervisor-bootstrap": true },
       })
       if (openAfterCreate) {
         route.navigate({ type: "session", sessionID: created.id })
