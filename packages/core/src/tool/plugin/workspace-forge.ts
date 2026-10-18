@@ -101,7 +101,9 @@ export const Plugin = {
                   ),
                 ]
                 if (external.length === 0) return
-                yield* permission.assert({
+                // Explicit confirmation bypasses the Orchestra team's unattended external-directory
+                // auto-allow hook. A saved operator grant for these exact resources can still apply.
+                yield* permission.confirm({
                   action: "external_directory",
                   resources: external,
                   save: [],
