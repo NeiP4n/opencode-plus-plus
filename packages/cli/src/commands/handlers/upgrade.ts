@@ -4,7 +4,7 @@ import { Commands } from "../commands"
 import { Runtime } from "../../framework/runtime"
 import { Updater } from "../../services/updater"
 import { handlePromptErrors } from "../../ui/prompt"
-import { OPENCODE_VERSION } from "../../version"
+import { OPENCODE_LOCAL, OPENCODE_VERSION } from "../../version"
 import { stripVTControlCharacters } from "node:util"
 
 export default Runtime.handler(
@@ -13,6 +13,29 @@ export default Runtime.handler(
     function* (input) {
       intro("Upgrade")
       const updater = yield* Updater.Service
+
+      // Opencode++ source installs update from release/* tags or the configured development
+      // branch. Never ask the public opencode.ai updater for a source checkout: that would offer
+      // an upstream OpenCode version (for example 2.0.32) instead of the fork's update.
+      if (OPENCODE_LOCAL) {
+        const status = yield* updater.check()
+        if (!status) {
+          outro("Already up to date")
+          return
+        }
+        if (status.type === "unavailable") return yield* Effect.fail(new Error(status.message))
+        const target = status.version
+        log.info(`From ${OPENCODE_VERSION} → ${target}`)
+        const progress = spinner()
+        progress.start("Updating Opencode++...")
+        yield* updater.apply(target).pipe(
+          Effect.tap(() => Effect.sync(() => progress.stop("Update complete"))),
+          Effect.tapCause(() => Effect.sync(() => progress.stop("Update failed", 1))),
+        )
+        outro("Done")
+        return
+      }
+
       const method = Option.getOrUndefined(input.method) ?? (yield* updater.method())
       if (!method)
         return yield* Effect.fail(
