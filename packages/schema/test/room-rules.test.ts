@@ -28,6 +28,8 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/secrets/key.pem")).toBe("secrets/*")
   expect(RoomRules.protectedFile(rules, "/work/app/environment.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
+  expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh/id_ed25519")).toContain(".ssh")
+  expect(RoomRules.protectedFile(undefined, "/work/app/.env.local")).toBe(".env*")
 })
 
 test("redacting a path covers both slash styles", () => {
@@ -41,13 +43,20 @@ test("a session in several rooms gets the strictest rules", () => {
     { noOutbound: true, blockCommands: ["a", "b"] },
     undefined,
   ])
-  expect(merged).toEqual({ hidePaths: true, noOutbound: true, blockCommands: ["a", "b"], protectedFiles: [] })
+  expect(merged).toEqual({
+    hidePaths: true,
+    noOutbound: true,
+    hideCommandExecution: false,
+    hideScreenshots: false,
+    blockCommands: ["a", "b"],
+    protectedFiles: [],
+  })
   expect(RoomRules.merge([undefined])).toBeUndefined()
 })
 
-test("describe states only the rules that are set", () => {
-  expect(RoomRules.describe({})).toBeUndefined()
-  expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
+test("describe always warns that credentials and secret files stay protected", () => {
+  expect(RoomRules.describe({})).toContain("Credential and secret files are protected by default")
+  expect(RoomRules.describe({ noOutbound: true })).toContain("Do not use network")
 })
 
 
@@ -73,4 +82,46 @@ test("outbound shell commands are detected", () => {
 test("nested response values are path-redacted", () => {
   expect(RoomRules.redactPaths({ session: { directory: "C:\\Users\\me\\app", text: "in C:/Users/me/app/src" } }, "C:\\Users\\me\\app"))
     .toEqual({ session: { directory: "<project>", text: "in <project>/src" } })
+})
+
+test("hide-command-execution filters tool events and activity feed entries", () => {
+  const privateRules = { hideCommandExecution: true }
+  expect(RoomRules.hideExecutionEvent(privateRules, { type: "session.shell.started" })).toBe(true)
+  expect(RoomRules.hideExecutionEvent(privateRules, { type: "session.tool.success" })).toBe(true)
+  expect(RoomRules.hideExecutionEvent(privateRules, { type: "session.text.ended" })).toBe(false)
+  expect(RoomRules.hideExecutionFeed(privateRules, { events: [{ kind: "run" }, { kind: "join" }] }))
+    .toEqual({ events: [{ kind: "join" }] })
+})
+
+test("screenshot privacy strips image attachments and replaces tool images with text", () => {
+  const input = {
+    files: [
+      { mime: "image/png", source: { type: "inline" }, data: "YWJj" },
+      { mime: "text/plain", source: { type: "inline" }, data: "YWJj" },
+    ],
+    content: [{ type: "file", mime: "image/png", uri: "file:///tmp/cap.png" }, { type: "text", text: "done" }],
+  }
+  expect(RoomRules.sanitizeScreenshots(input, true)).toEqual({
+    files: [{ mime: "text/plain", source: { type: "inline" }, data: "YWJj" }],
+    content: [{ type: "text", text: "[image hidden by room rules]" }, { type: "text", text: "done" }],
+  })
+})
+
+test("strict outbound mode blocks connected account actions as well as web tools", () => {
+  expect(RoomRules.outboundAction("webfetch")).toBe(true)
+  expect(RoomRules.outboundAction("github__create_issue")).toBe(true)
+  expect(RoomRules.outboundAction("gmail_send")).toBe(true)
+  expect(RoomRules.outboundAction("read")).toBe(false)
+})
+
+test("execution privacy removes tool calls but keeps the assistant's ordinary text", () => {
+  expect(RoomRules.sanitizeForGuest({
+    content: [{ type: "text", text: "Finished" }, { type: "tool", name: "shell", state: { input: { command: "git status" } } }],
+  }, { hideCommandExecution: true }, "/work/app")).toEqual({
+    content: [{ type: "text", text: "Finished" }],
+  })
+})
+
+test("project path redaction also masks an ancestor project root", () => {
+  expect(RoomRules.redactPath("project at /work/repo/src/sub", "/work/repo/src/sub")).toBe("project at <project>")
 })
