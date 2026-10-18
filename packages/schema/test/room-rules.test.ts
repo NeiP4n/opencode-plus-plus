@@ -16,6 +16,12 @@ test("a blocked command matches at the start of the line or of any chained part"
 test("blocked wildcard patterns cannot be hidden inside shell wrappers", () => {
   expect(RoomRules.blockedCommand(rules, 'bash -c "git push origin main"')).toBe("git push*")
   expect(RoomRules.blockedCommand(rules, 'sh -c "echo hi; curl https://example.test"')).toBe("curl")
+  expect(RoomRules.blockedCommand(rules, "echo $(git push origin main)")).toBe("git push*")
+  expect(RoomRules.blockedCommand(rules, "(git push origin main)")).toBe("git push*")
+  expect(RoomRules.blockedCommand(rules, "sudo git push origin main")).toBe("git push*")
+  expect(RoomRules.blockedCommand(rules, "env GIT_TRACE=1 git push origin main")).toBe("git push*")
+  expect(RoomRules.blockedCommand(rules, "g\\it push origin main")).toBe("git push*")
+  expect(RoomRules.blockedCommand(rules, "git \\\n push origin main")).toBe("git push*")
 })
 
 test("room command policy covers shell and Registry hub actions", () => {
@@ -48,6 +54,8 @@ test("protected files are detected when directly referenced in shell commands", 
   expect(RoomRules.protectedFileInCommand(rules, "cat .env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, 'cat ".env.local"')).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "cat ./secrets/key.pem")).toBe("secrets/*")
+  expect(RoomRules.protectedFileInCommand(rules, "cat C:\\work\\app\\.env")).toBe(".env*")
+  expect(RoomRules.protectedFileInCommand(rules, "bash -c 'cat .env'")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "git status")).toBeUndefined()
   expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
 })
@@ -87,5 +95,5 @@ test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
   expect(RoomRules.describe({ hideExecution: true })).toContain("screenshots to other guests")
   expect(RoomRules.describe({ denyGuestPrompts: true })).toContain("must not submit prompts")
-  expect(RoomRules.describe({ denyGuestCommands: true })).toContain("must not execute shell commands")
+  expect(RoomRules.describe({ denyGuestCommands: true })).toContain("must not invoke slash commands")
 })
