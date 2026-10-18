@@ -214,13 +214,13 @@ describe("Federation", () => {
     }),
   )
 
-  it.live("notifies the group supervisor when a federated ticket changes state", () =>
+  it.live("keeps a group-bound chat idle when project tickets change", () =>
     Effect.gen(function* () {
       const { a, b } = yield* setup
       const federation = yield* Federation.Service
       const sessions = yield* Session.Service
       const supervisor = yield* sessions.create({
-        title: "Group Orchestrator · Shop",
+        title: "President · Shop",
         agent: Orchestra.agent,
         location: { directory: AbsolutePath.make(a.directory) },
         metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id } },
@@ -238,10 +238,12 @@ describe("Federation", () => {
 
       const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "API status", body: "Is the route ready?" })
       expect(ticket.status).toBe("pending")
-      expect((yield* supervisorTexts).some((text) => text.includes("<federation-event") && text.includes(ticket.id))).toBe(true)
+      expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "pending")).toBe(true)
+      expect((yield* supervisorTexts).some((text) => text.includes("<federation-event"))).toBe(false)
 
       yield* federation.decide({ id: ticket.id, project: b.id, accept: false })
-      expect((yield* supervisorTexts).some((text) => text.includes("<federation-event") && text.includes('status="rejected"'))).toBe(true)
+      expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "rejected")).toBe(true)
+      expect((yield* supervisorTexts).some((text) => text.includes("<federation-event"))).toBe(false)
     }),
   )
 
