@@ -59,10 +59,21 @@ export const outbound: readonly string[] = [
 
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
+  // In filesystem globs, **/ must also match the root (e.g. .ssh or auth.json).
+  // Protect the token before escaping and expanding ordinary * wildcards.
+  const recursiveDirectory = "\u0000"
+  const body = pattern
+    .replaceAll("**/", recursiveDirectory)
+    .replaceAll(/[.+^${}()|[\]\\]/g, "\\function glob(pattern: string, before: string, after = "") {
   const body = pattern
     .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
     .replaceAll("*", ".*")
     .replaceAll("?", ".")
+  return new RegExp(before + body + after, "i")
+}")
+    .replaceAll("*", ".*")
+    .replaceAll("?", ".")
+    .replaceAll(recursiveDirectory, "(?:.*/)?")
   return new RegExp(before + body + after, "i")
 }
 
