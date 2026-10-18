@@ -129,7 +129,7 @@ const MEMBER_LIMIT = 100
 
 // Requests that run a command on the host for a guest. Only the host answers them, so a
 // cohost or helper cannot approve its own command.
-const HOST_ONLY = new Set(["room.run", "room.check"])
+const HOST_ONLY = new Set(["room.run", "room.check", "room.program"])
 const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.shell.started",
   "session.shell.ended",
@@ -398,6 +398,88 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             : [],
         ),
       )
+    })
+
+        // Rules in blockCommands require approval to use the executable, not a global approval
+    // for one command string. "Always allow" writes to this member's room record only.
+    const confirmRoomCommand = Effect.fnUntraced(function* (input: {
+      room: Room.Info
+      member: Room.Member
+      guestName: string
+      session: Session.Info
+      command: string
+      fallbackAction: "room.run" | "room.check"
+      metadata?: Record<string, unknown>
+      rules?: RoomRules.Rules
+    }) {
+      const programs = RoomRules.programsRequiringApproval(input.rules, input.command)
+      if (input.member.role === "trusted") return programs
+      if (RoomRules.blockedCommand(input.rules, input.command) && programs.length === 0)
+        return yield* new ForbiddenError({
+          message: "This command rule has no identifiable program; use an explicit executable name in the room rules",
+        })
+
+      const currentMember = yield* rooms.member(input.room.id, input.member.id)
+      const approved = new Set(currentMember?.approvedPrograms ?? input.member.approvedPrograms ?? [])
+      if (programs.length) {
+        for (const program of programs) {
+          if (approved.has(program)) continue
+          yield* Permission.Service.use((permission) =>
+            permission.confirm({
+              action: "room.program",
+              resources: [program],
+              save: [program],
+              force: true,
+              scoped: true,
+              metadata: {
+                ...input.metadata,
+                scope: "room-member-program",
+                roomID: input.room.id,
+                memberID: input.member.id,
+                guest: input.guestName,
+                program,
+                command: input.command,
+              },
+              sessionID: input.session.id,
+              onAlways: () =>
+                Effect.gen(function* () {
+                  const latest = yield* rooms.member(input.room.id, input.member.id)
+                  if (!latest) return
+                  yield* rooms.saveMember(input.room.id, {
+                    ...latest,
+                    approvedPrograms: [...new Set([...(latest.approvedPrograms ?? []), program])],
+                  })
+                }),
+            }),
+          ).pipe(
+            instances.provide(input.session),
+            locationErrors,
+            Effect.catchTag("LocationNotFoundError", Effect.die),
+            Effect.mapError(() => new ForbiddenError({ message: "The host did not approve use of " + program })),
+          )
+          approved.add(program)
+        }
+        return programs
+      }
+
+      // Commands outside blockCommands retain per-command confirmation, but can never
+      // create a project-wide saved permission when the request comes from a room member.
+      yield* Permission.Service.use((permission) =>
+        permission.confirm({
+          action: input.fallbackAction,
+          resources: [input.command],
+          metadata: { ...input.metadata, guest: input.guestName, command: input.command },
+          sessionID: input.session.id,
+          force: true,
+          scoped: true,
+        }),
+      ).pipe(
+        instances.provide(input.session),
+        locationErrors,
+        Effect.catchTag("LocationNotFoundError", Effect.die),
+        Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
+      )
+      return []
     })
 
     // A member keeps a DoD item while it stays in some room on this server and was heard
