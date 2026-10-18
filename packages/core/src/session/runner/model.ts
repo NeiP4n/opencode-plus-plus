@@ -79,30 +79,35 @@ const layer = Layer.effect(
           if (resolved) return resolved
           return yield* new ModelNotSelectedError({ sessionID: session.id })
         }
+
         const catalog = yield* available()
+        const requested = session.model
+
+        // Migrate the model reference before looking it up. Older OpenCode++ builds could
+        // persist this removed Zen free-tier model even after it disappeared from the catalog.
+        // Never send that stale reference to the provider and never hardcode a replacement model.
+        const legacyMuse = requested.providerID === "opencode" && requested.id === "muse-spark-1.3-contributor-free"
+        if (legacyMuse) {
+          const replacement =
+            catalog.find((model) => model.providerID === requested.providerID && model.id !== requested.id) ??
+            catalog.find((model) => model.id !== requested.id)
+          if (replacement) return yield* resolver.resolveModel(replacement, undefined)
+          return yield* new ModelUnavailableError({
+            providerID: requested.providerID,
+            modelID: requested.id,
+          })
+        }
+
         const selected = catalog.find(
-          (model) => model.providerID === session.model?.providerID && model.id === session.model.id,
+          (model) => model.providerID === requested.providerID && model.id === requested.id,
         )
         if (!selected)
           return yield* new ModelUnavailableError({
-            providerID: session.model.providerID,
-            modelID: session.model.id,
+            providerID: requested.providerID,
+            modelID: requested.id,
           })
 
-        // Old OpenCode++ builds could persist the removed Zen free-tier Muse Spark
-        // reference in a session. Do not send that dead reference to the provider.
-        // Prefer another currently available model from the same provider; otherwise
-        // use the first currently available model. No specific replacement is hardcoded.
-        const legacyFreeTierMuse =
-          selected.providerID === "opencode" && selected.id === "muse-spark-1.3-contributor-free"
-        if (legacyFreeTierMuse) {
-          const replacement =
-            catalog.find((model) => model.providerID === selected.providerID && model.id !== selected.id) ??
-            catalog.find((model) => model.id !== selected.id)
-          if (replacement) return yield* resolver.resolveModel(replacement, undefined)
-        }
-
-        return yield* resolver.resolveModel(selected, session.model.variant)
+        return yield* resolver.resolveModel(selected, requested.variant)
       }),
     })
   }),
