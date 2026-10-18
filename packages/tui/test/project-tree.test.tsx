@@ -269,7 +269,12 @@ test("the orchestrator council mode button saves the group mode when clicked", a
       (call) => call.method === "PUT" && call.path === "/api/orchestra/group" && (call.body as { mode?: string })?.mode === "council",
     ),
   )
-  await setup.waitForFrame((frame) => frame.includes("★ Общество · Открыть"))
+  await setup.waitForFrame(
+    (frame) =>
+      frame.includes("★ Общество · Открыть") &&
+      frame.includes("To use the council, open Society above") &&
+      frame.includes("Changing the mode alone does not send tasks"),
+  )
 })
 
 test("deleting a session takes two clicks on its ×", async () => {
