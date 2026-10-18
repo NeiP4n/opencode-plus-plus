@@ -98,7 +98,7 @@ function providerError(type: string, reason: AIError["reason"]): SessionError.Er
   const status = reason.http?.status
   const raw = [reason.message, reason.body].filter(Boolean).join("\n")
   const message = raw.includes(OPENCODE_FREE_TIER_ERROR)
-    ? "The provider rejected this free-tier request. Check the selected model's availability and provider access, then retry or choose another available model."
+    ? "Zen rejected this request. The provider refused the selected model/access. Retrying the identical request will not change that decision. Check the provider connection or select another currently available model."
     : (Object.entries(tokenSharingMessages).find(([code]) => reason.body?.includes(code))?.[1] ?? reason.message)
   return {
     type,
