@@ -1144,7 +1144,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             record("release", id)
             const visible = rules?.hideExecution ? hideDodExecution(dod) : dod
             const result = forGuest(visible, joined.member)
-            return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
+            const pathSafe = rules?.hidePaths ? redactRoomValue(result, [directory]) : result
+            return RoomRules.sanitizeScreenshots(pathSafe, !!rules?.hideScreenshots)
           }
           const alive = yield* live()
           const before = yield* Dod.read(directory, alive).pipe(Effect.mapError(dodError))
@@ -1172,7 +1173,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             note: yield* readHandover(joined.room, taken.id),
           }
           const safeResult = rules?.hideExecution ? hideDodExecution(rawResult) : rawResult
-          const result = rules?.hidePaths ? redactRoomValue(safeResult, [directory]) : safeResult
+          const pathSafe = rules?.hidePaths ? redactRoomValue(safeResult, [directory]) : safeResult
+          const result = RoomRules.sanitizeScreenshots(pathSafe, !!rules?.hideScreenshots)
           const paths = ctx.payload.paths ?? []
           if (paths.length === 0) return result
           // A refused plot undoes a fresh take, so the item is not left marked for work that cannot start.
@@ -1292,7 +1294,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const visible = rules?.hideExecution
             ? { ...feed, events: feed.events.filter((event) => !["run", "pass", "fail"].includes(event.kind)) }
             : feed
-          return rules?.hidePaths ? redactRoomValue(visible, [directory]) : visible
+          const pathSafe = rules?.hidePaths ? redactRoomValue(visible, [directory]) : visible
+          return RoomRules.sanitizeScreenshots(pathSafe, !!rules?.hideScreenshots)
         }),
       )
       .handle(
@@ -1324,9 +1327,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (directory === undefined) {
             const data = Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option))
             const directories = [joined.room.directory ?? "", ...data.map((item) => item.location.directory)].filter(Boolean)
-            return {
-              data: rules?.hidePaths ? redactRoomValue(data, directories) : data,
-            }
+            const pathSafe = rules?.hidePaths ? redactRoomValue(data, directories) : data
+            return { data: RoomRules.sanitizeScreenshots(pathSafe, !!rules?.hideScreenshots) }
           }
           const all: Session.Info[] = []
           let anchor: { id: Session.ID; time: number; direction: "next" } | undefined
@@ -1345,7 +1347,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           const data = all.filter((session) => Orchestra.contains(directory, session.location.directory))
           // The host's grouping, so a guest's tree shows the same categories as the host's.
-          const visible = rules?.hidePaths ? redactRoomValue(data, [directory]) : data
+          const pathSafe = rules?.hidePaths ? redactRoomValue(data, [directory]) : data
+          const visible = RoomRules.sanitizeScreenshots(pathSafe, !!rules?.hideScreenshots)
           return { data: visible, category: yield* orchestra.categories(data.map((session) => session.id)) }
         }),
       )
