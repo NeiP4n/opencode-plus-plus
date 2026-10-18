@@ -46,8 +46,8 @@ export function outboundAction(action: string) {
 }
 
 const LOCAL_ONLY_ACTIONS = new Set([
-  "read", "edit", "write", "patch", "multiedit", "grep", "glob", "list", "shell",
-  "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod", "memory",
+  "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list", "shell",
+  "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
 ])
 
 // Privacy mode is deny-by-default for tool actions: tools that are not explicitly known to be
