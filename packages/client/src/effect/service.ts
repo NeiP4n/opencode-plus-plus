@@ -43,8 +43,8 @@ export const incumbent = Effect.fn("service.incumbent")(function* (
 })
 
 // Idempotent ensure-running: reuses a healthy compatible server, replaces a
-// version-mismatched one, and otherwise spawns small contenders until a server
-// becomes discoverable. A contender is never killed merely for slow startup.
+// version-mismatched or failed server, and otherwise spawns small contenders
+// until a server becomes discoverable. A contender is never killed merely for slow startup.
 /** Ensure a healthy, compatible local service is running. */
 export const ensure = Effect.fn("service.ensure")(function* (options: EnsureOptions = {}) {
   const timing = ensureTiming(options)
