@@ -61,17 +61,17 @@ export class WarpError extends Error {
   }
 }
 
-export function proxyUrl(port = HTTP_BRIDGE_PORT) {
+export function proxyUrl(port = DEFAULT_PORT) {
   return `http://127.0.0.1:${port}`
 }
 
 /** The `config.proxy` value that sends only OpenCode traffic through the local WARP endpoint. */
-export function proxyConfig(port = HTTP_BRIDGE_PORT) {
+export function proxyConfig(port = DEFAULT_PORT) {
   const url = proxyUrl(port)
   return { http: url, https: url, no_proxy: [...PROXY_BYPASS] }
 }
 
-export function isWarpProxy(value: { http?: string; https?: string } | null | undefined, port = HTTP_BRIDGE_PORT) {
+export function isWarpProxy(value: { http?: string; https?: string } | null | undefined, port = DEFAULT_PORT) {
   const url = proxyUrl(port)
   return value?.http === url && value?.https === url
 }
