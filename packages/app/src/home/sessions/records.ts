@@ -33,12 +33,14 @@ export function buildHomeSessionRecords(input: {
 
   // Preserve Array.find's first-match behavior while indexing once instead of
   // rescanning every project and sandbox for every session row.
+  const indexDirectory = (directory: string, project: LocalProject) => {
+    const key = pathKey(directory)
+    if (!byDirectory.has(key)) byDirectory.set(key, project)
+  }
   for (const project of projects) {
     if (!byID.has(project.id)) byID.set(project.id, project)
-    for (const directory of [project.worktree, ...(project.sandboxes ?? [])]) {
-      const key = pathKey(directory)
-      if (!byDirectory.has(key)) byDirectory.set(key, project)
-    }
+    indexDirectory(project.worktree, project)
+    for (const sandbox of project.sandboxes ?? []) indexDirectory(sandbox, project)
   }
 
   return [...new Map(sessions.map((session) => [session.id, session] as const)).values()]
