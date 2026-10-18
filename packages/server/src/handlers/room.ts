@@ -802,11 +802,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.dod.get",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          const dod = yield* Dod.read(yield* roomDirectory(joined.room), yield* live()).pipe(
-            Effect.mapError(invalidDod),
-          )
-          const visible = joined.room.rules?.hidePaths && joined.room.directory
-            ? redactRoomValue(dod, [joined.room.directory])
+          const directory = yield* roomDirectory(joined.room)
+          const dod = yield* Dod.read(directory, yield* live()).pipe(Effect.mapError(invalidDod))
+          const visible = joined.room.rules?.hidePaths
+            ? redactRoomValue(dod, [joined.room.directory ?? "", directory].filter(Boolean))
             : dod
           return forGuest(visible, joined.member)
         }),
