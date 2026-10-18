@@ -29,6 +29,8 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/environment.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh/id_ed25519")).toContain(".ssh")
+  expect(RoomRules.protectedFile(undefined, ".ssh/id_ed25519")).toContain(".ssh")
+  expect(RoomRules.protectedFile(undefined, ".config/opencode/auth.json")).toContain(".config/opencode")
   expect(RoomRules.protectedFile(undefined, "/work/app/.env.local")).toBe(".env*")
   expect(RoomRules.protectedFile(undefined, "/home/alice/.config/opencode/auth.json")).toBe("**/.config/opencode/**")
   expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh")).toBe("**/.ssh")
