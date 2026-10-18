@@ -66,6 +66,7 @@ const SessionsQueryFields = {
   }),
   search: Schema.optional(Schema.String),
   parentID: ParentIDFilter.pipe(Schema.optional),
+  archived: BooleanFromString.pipe(Schema.optional).annotate({ description: "When true, list archived sessions instead of active sessions." }),
 }
 
 const SessionsDirectoryQuery = Schema.Struct({
@@ -363,6 +364,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S, FormI ext
         params: { sessionID: Session.ID },
         payload: Schema.Struct({
           title: Schema.String.pipe(Schema.optional),
+          archived: Schema.Boolean.pipe(Schema.optional),
           metadata: Session.Metadata.pipe(Schema.optional),
           permissions: Permission.Ruleset.pipe(Schema.optional),
         }),
