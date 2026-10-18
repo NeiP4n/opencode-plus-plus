@@ -60,6 +60,18 @@ describe("buildHomeSessionRecords", () => {
     expect(records[0]?.project.worktree).toBe("/repo/a/packages/app")
   })
 
+  test("matches a session sandbox before falling back to its project ID", () => {
+    const sandbox = { id: "project-b", worktree: "/repo/b", sandboxes: ["/repo/a/.worktrees/feature"] } as LocalProject
+
+    const records = buildHomeSessionRecords({
+      sessions: () => [session("w", "/repo/a/.worktrees/feature", "project-a")],
+      projectDirectories: () => undefined,
+      projects: () => [opened, sandbox],
+    })
+
+    expect(records[0]?.project.worktree).toBe("/repo/b")
+  })
+
   test("orders by update time and uses the id only to break equal timestamps", () => {
     const at = (id: string, updated: number) => ({
       ...session(id, "/repo/a", "project-a"),
