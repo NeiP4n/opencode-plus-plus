@@ -81,6 +81,7 @@ describe("createScopedCache", () => {
     expect(second.count).toBe(2)
     expect(disposed).toEqual(["a:1"])
   })
+
   test("sweeps expired entries from the oldest end of the LRU cache", () => {
     let clock = 0
     const disposed: string[] = []
@@ -104,5 +105,4 @@ describe("createScopedCache", () => {
     expect(cache.peek("old")).toBeUndefined()
     expect(disposed).toEqual(["recent", "old"])
   })
-
 })
