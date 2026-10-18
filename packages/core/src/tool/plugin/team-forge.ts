@@ -480,7 +480,7 @@ function groupPrompt(request: string) {
     "7. Report the saved group, selected mode, projects, roles/templates added, and any limitations. Existing projects retain their own rules, permissions, and approvals. A group chat coordinates work; it does not gain permission to access project files or bypass member approvals.",
     "",
     "Do not create project records or directories unless the operator explicitly supplies the directories and asks for new projects. If required details are missing, ask before making changes.",
-  ].join("\\n")
+  ].join("\n")
 }
 
 function prompt(count: number, focus: string) {
