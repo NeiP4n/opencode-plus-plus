@@ -13,8 +13,12 @@ export const Rules = Schema.Struct({
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
   // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`).
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
-  // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
+  // The room's AI cannot make network requests, use connected services, or message other computers/projects.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
+  // Other room members do not see shell/tool execution events, raw tool inputs or tool output.
+  hideCommandExecution: Schema.Boolean.pipe(Schema.optional),
+  // Hide image attachments and images returned by tools from other room members.
+  hideScreenshots: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Room.Rules" })
 export interface Rules extends Schema.Schema.Type<typeof Rules> {}
 
@@ -25,13 +29,44 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   return {
     hidePaths: rules.some((item) => item.hidePaths),
     noOutbound: rules.some((item) => item.noOutbound),
+    hideCommandExecution: rules.some((item) => item.hideCommandExecution),
+    hideScreenshots: rules.some((item) => item.hideScreenshots),
     blockCommands: [...new Set(rules.flatMap((item) => item.blockCommands ?? []))],
     protectedFiles: [...new Set(rules.flatMap((item) => item.protectedFiles ?? []))],
   }
 }
 
-// Permission actions that carry data out of the machine.
+// Permission actions and connected-service tools that can open a network connection or send data out.
 export const outbound: readonly string[] = ["webfetch", "websearch", "peers", "federation"]
+
+export function outboundAction(action: string) {
+  const value = action.toLowerCase()
+  return outbound.includes(value) || /(?:web|http|fetch|browser|peer|federation|mcp|integration|connector|api|github|gitlab|slack|discord|telegram|whatsapp|email|gmail|outlook|mail|message|send|publish|upload|request|network|remote|external|dropbox|drive|notion|linear|jira|salesforce|shopify|calendar|cloud|account)/.test(value)
+}
+
+// Credential files are protected in every shared room by default, even when the host has not
+// added them to the custom list. Explicit room rules can add further patterns, not weaken this set.
+const SECRET_FILE_PATTERNS: readonly string[] = [
+  ".env*",
+  "**/.ssh/**",
+  "**/.aws/**",
+  "**/.azure/**",
+  "**/.config/gcloud/**",
+  "**/.config/gh/**",
+  "**/.git-credentials",
+  "**/.netrc",
+  "**/.npmrc",
+  "**/.pypirc",
+  "**/*credentials*.json",
+  "**/*service-account*.json",
+  "**/*.pem",
+  "**/*.key",
+  "**/*.p12",
+  "**/*.pfx",
+  "**/*.keystore",
+  "**/id_rsa*",
+  "**/id_ed25519*",
+]
 
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
@@ -100,7 +135,7 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
 
 export function protectedFile(rules: Rules | undefined, file: string) {
   const normal = file.replaceAll("\\", "/")
-  return (rules?.protectedFiles ?? []).find((raw) => {
+  return [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])].find((raw) => {
     const pattern = raw.trim()
     return pattern !== "" && glob(pattern.replaceAll("\\", "/"), "(^|/)", "$").test(normal)
   })
@@ -131,6 +166,100 @@ export function commandSendsOutbound(command: string) {
     /\bdocker\s+(pull|push|login)\b/.test(value) ||
     /\bhttps?:\/\//.test(value)
   )
+}
+
+// Whether a log event contains command/tool execution details that should stay host-side.
+export function hideExecutionEvent(rules: Rules | undefined, event: unknown) {
+  if (!rules?.hideCommandExecution || event === null || typeof event !== "object" || !("type" in event)) return false
+  const type = (event as { type?: unknown }).type
+  return typeof type === "string" &&
+    (type.startsWith("session.shell.") ||
+      type.startsWith("session.tool.") ||
+      type.startsWith("session.execution.") ||
+      type.startsWith("session.step."))
+}
+
+// Suppress the room's public activity-feed entries that reveal a command and who ran it.
+export function hideExecutionFeed(rules: Rules | undefined, value: unknown) {
+  if (!rules?.hideCommandExecution || value === null || typeof value !== "object") return value
+  const record = value as Record<string, unknown>
+  if (Array.isArray(record.events)) {
+    return { ...record, events: record.events.filter((item) =>
+      !(item && typeof item === "object" && "kind" in item && (item as { kind?: unknown }).kind === "run"),
+    ) }
+  }
+  if (Array.isArray(value)) {
+    return value.filter((item) => !(item && typeof item === "object" && "kind" in item && (item as { kind?: unknown }).kind === "run"))
+  }
+  return value
+}
+
+// Redact image/screenshot payloads from messages and tool results. We cannot reliably distinguish
+// a screenshot from an image pasted by a user, so the rule suppresses all embedded images.
+export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
+  if (!enabled) return value
+  const visit = (item: unknown, key?: string): unknown => {
+    if (typeof item === "string") {
+      if (/^data:image\//i.test(item) || (key && /(image|screenshot|base64)/i.test(key))) {
+        return "[image hidden by room rules]"
+      }
+      return item
+    }
+    if (Array.isArray(item)) {
+      return item.flatMap((child) => {
+        const result = visit(child)
+        return result === undefined ? [] : [result]
+      })
+    }
+    if (item === null || typeof item !== "object") return item
+    const record = item as Record<string, unknown>
+    const mime = typeof record.mime === "string" ? record.mime.toLowerCase() : ""
+    if (mime.startsWith("image/")) {
+      // A prompt image has inline/remote data; drop the attachment entirely. Tool file content
+      // is represented as a valid text item so consumers of Tool.Content can keep rendering.
+      if ("data" in record || "source" in record) return undefined
+      if (record.type === "file") return { type: "text", text: "[image hidden by room rules]" }
+      return "[image hidden by room rules]"
+    }
+    if (record.type === "tool") return "[tool execution hidden by room rules]"
+    const output: Record<string, unknown> = {}
+    for (const [childKey, child] of Object.entries(record)) {
+      const result = visit(child, childKey)
+      if (result !== undefined) output[childKey] = result
+    }
+    return output
+  }
+  return visit(value) as T
+}
+
+// Apply the host's current room privacy rules to a response payload.
+export function sanitizeForGuest<T>(value: T, rules: Rules | undefined, directory: string): T {
+  let result = sanitizeScreenshots(value, rules?.hideScreenshots === true)
+  if (rules?.hideCommandExecution) result = sanitizeExecutionPayload(result)
+  if (rules?.hidePaths) result = redactPaths(result, directory)
+  return result
+}
+
+// Remove tool parts from persisted assistant messages while leaving normal assistant text intact.
+function sanitizeExecutionPayload<T>(value: T): T {
+  const visit = (item: unknown): unknown => {
+    if (Array.isArray(item)) {
+      return item.flatMap((child) => {
+        const result = visit(child)
+        return result === undefined ? [] : [result]
+      })
+    }
+    if (item === null || typeof item !== "object") return item
+    const record = item as Record<string, unknown>
+    if (record.type === "tool") return undefined
+    const output: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(record)) {
+      const result = visit(child)
+      if (result !== undefined) output[key] = result
+    }
+    return output
+  }
+  return visit(value) as T
 }
 
 // Replaces the project's directory in text a guest will read, regardless of slash style/case.
@@ -169,7 +298,10 @@ export function describe(rules: Rules | undefined) {
       ? `These programs require approval per room member: ${rules.blockCommands.join(", ")}.`
       : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
-    rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
+    rules.noOutbound ? "Do not use network, browser, connected-account, integration or cross-computer tools; do not send data outside." : undefined,
+    rules.hideCommandExecution ? "Do not expose shell commands, tool inputs, execution events or tool output to other room members." : undefined,
+    rules.hideScreenshots ? "Do not expose screenshots or embedded images to other room members." : undefined,
+    "Credential and secret files are protected by default; do not read, print, copy or disclose them.",
   ].filter((line): line is string => line !== undefined)
   return lines.length > 0 ? lines.join("\n") : undefined
 }
