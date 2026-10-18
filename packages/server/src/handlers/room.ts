@@ -1116,12 +1116,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = yield* roomDirectory(joined.room)
-          const rules = yield* effectiveRules(joined.room, directory)
+          let rules = yield* effectiveRules(joined.room, directory)
           const dod = yield* Dod.read(directory, yield* live()).pipe(
             Effect.mapError((error) => new InvalidRequestError({
               message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
             })),
           )
+          // Reading the board may involve disk I/O; use the latest privacy settings on the response.
+          rules = yield* effectiveRules(joined.room, directory)
           const visible = rules?.hidePaths
             ? redactRoomValue(dod, [joined.room.directory ?? "", directory].filter(Boolean))
             : dod
