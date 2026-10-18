@@ -179,7 +179,7 @@ test("screenshot privacy removes nested image payloads while retaining text", ()
       { mime: "text/plain", data: "visible notes" },
     ],
     content: [
-      { type: "image", url: "https://example.test/capture.png" },
+      { type: "image_payload", url: "https://example.test/capture.png" },
       { type: "text", text: "capture complete" },
     ],
     screenshot: { uri: "/tmp/capture.png" },
