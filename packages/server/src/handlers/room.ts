@@ -182,6 +182,11 @@ function forGuest(dod: Room.Dod, member: Room.Member): Room.Dod {
   return { ...dod, items: dod.items.map((item) => (item.ownerID === member.id ? { ...item, mine: true } : item)) }
 }
 
+// DoD verification commands are execution details too; preserve task state but hide commands.
+function hideDodExecution<T extends Room.Dod>(dod: T): T {
+  return { ...dod, items: dod.items.map(({ verify: _verify, ...item }) => item) } as T
+}
+
 // The handover note of a DoD item: L-003 keeps its notes in dod-l-003.
 function handoverName(id: string) {
   return `dod-${id
@@ -882,7 +887,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const visible = rules?.hidePaths
             ? redactRoomValue(dod, [joined.room.directory ?? "", directory].filter(Boolean))
             : dod
-          return forGuest(visible, joined.member)
+          const safe = rules?.hideExecution ? hideDodExecution(visible) : visible
+          return forGuest(safe, joined.member)
         }),
       )
       .handle(
@@ -906,7 +912,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
             yield* freeDodPlots(directory, id)
             record("release", id)
-            const result = forGuest(dod, joined.member)
+            const visible = rules?.hideExecution ? hideDodExecution(dod) : dod
+            const result = forGuest(visible, joined.member)
             return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
           }
           const alive = yield* live()
@@ -934,7 +941,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             taken: taken.id,
             note: yield* readHandover(joined.room, taken.id),
           }
-          const result = rules?.hidePaths ? redactRoomValue(rawResult, [directory]) : rawResult
+          const safeResult = rules?.hideExecution ? hideDodExecution(rawResult) : rawResult
+          const result = rules?.hidePaths ? redactRoomValue(safeResult, [directory]) : safeResult
           const paths = ctx.payload.paths ?? []
           if (paths.length === 0) return result
           // A refused plot undoes a fresh take, so the item is not left marked for work that cannot start.
@@ -1031,7 +1039,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             item: id,
             ...(passed ? {} : { detail: outputSummary(output, result.exitCode).slice(0, 120) }),
           })
-          return { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output } }
+          const safeDod = rules?.hideExecution ? hideDodExecution(dod) : dod
+          return rules?.hideExecution
+            ? forGuest(safeDod, joined.member)
+            : { ...forGuest(safeDod, joined.member), check: { exitCode: result.exitCode, output } }
         }),
       )
       .handle(
@@ -1041,7 +1052,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const directory = yield* roomDirectory(joined.room)
           const rules = yield* effectiveRules(joined.room, directory)
           const feed = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
-          return rules?.hidePaths ? redactRoomValue(feed, [directory]) : feed
+          const visible = rules?.hideExecution
+            ? {
+                ...feed,
+                events: feed.events.map((event) => {
+                  if (event.kind !== "run" && event.kind !== "fail") return event
+                  const { detail: _detail, ...safe } = event
+                  return safe
+                }),
+              }
+            : feed
+          return rules?.hidePaths ? redactRoomValue(visible, [directory]) : visible
         }),
       )
       .handle(
