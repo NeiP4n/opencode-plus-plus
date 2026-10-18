@@ -184,7 +184,14 @@ function forGuest(dod: Room.Dod, member: Room.Member): Room.Dod {
 
 // DoD verification commands are execution details too; preserve task state but hide commands.
 function hideDodExecution<T extends Room.Dod>(dod: T): T {
-  return { ...dod, items: dod.items.map(({ verify: _verify, ...item }) => item) } as T
+  return {
+    ...dod,
+    items: dod.items.map((item) => {
+      const safe = { ...item }
+      delete safe.verify
+      return safe
+    }),
+  } as T
 }
 
 // The handover note of a DoD item: L-003 keeps its notes in dod-l-003.
