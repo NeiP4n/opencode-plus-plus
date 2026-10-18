@@ -2,8 +2,8 @@ export * as RoomRules from "./room-rules.js"
 
 import { Schema } from "effect"
 
-// What the host decides for everyone in a room, the host's own AI included. These are rules
-// about data and commands, not roles: a role says who may do what, a rule says what nobody may.
+// The host decides these rules for the room. Privacy, network and command restrictions also
+// constrain the host's AI; guest-only restrictions apply to every remote role.
 // The host enforces them; a guest's client cannot switch one off.
 export const Rules = Schema.Struct({
   // Guests and their AIs never see the project's path on the host.
