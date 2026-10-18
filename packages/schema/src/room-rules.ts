@@ -106,7 +106,14 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
   const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
+  return variants.reduce((out, variant) => {
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\export function redactPath(text: string, directory: string) {
+  const forward = directory.replaceAll("\\", "/")
+  const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
   return variants.reduce((out, variant) => out.split(variant).join("<project>"), text)
+}")
+    return out.replace(new RegExp(escaped, "gi"), "<project>")
+  }, text)
 }
 
 // A one-paragraph statement of the rules for the AI that has to follow them.
