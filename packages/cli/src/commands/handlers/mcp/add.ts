@@ -1,6 +1,6 @@
 import { EOL } from "node:os"
 import path from "node:path"
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises"
 import { Effect, Option } from "effect"
 import { applyEdits, modify } from "jsonc-parser"
 import { Global } from "@opencode/util/global"
@@ -61,8 +61,29 @@ async function write(configPath: string, name: string, server: unknown) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return "{}"
     throw error
   })
+  const { parse, printParseErrorCode } = await import("jsonc-parser")
+  const errors: import("jsonc-parser").ParseError[] = []
+  const document: unknown = parse(text, errors, { allowTrailingComma: true })
+  if (errors.length || typeof document !== "object" || document === null || Array.isArray(document)) {
+    const details = errors.length ? ` (${errors.map((error) => printParseErrorCode(error.error)).join(", ")})` : ""
+    throw new Error(`Invalid OpenCode configuration: ${configPath}${details}`)
+  }
+
+  const mcp = "mcp" in document ? document.mcp : undefined
+  if (mcp !== undefined && (typeof mcp !== "object" || mcp === null || Array.isArray(mcp))) {
+    throw new Error(`Invalid MCP configuration in ${configPath}: "mcp" must be an object`)
+  }
+  const servers = mcp && "servers" in mcp ? mcp.servers : undefined
+  if (servers !== undefined && (typeof servers !== "object" || servers === null || Array.isArray(servers))) {
+    throw new Error(`Invalid MCP configuration in ${configPath}: "mcp.servers" must be an object`)
+  }
+
   const edits = modify(text, ["mcp", "servers", name], server, {
     formattingOptions: { tabSize: 2, insertSpaces: true },
   })
-  await writeFile(configPath, applyEdits(text, edits))
+  const updated = applyEdits(text, edits)
+  await mkdir(path.dirname(configPath), { recursive: true })
+  const temporary = `${configPath}.${process.pid}.tmp`
+  await writeFile(temporary, updated.endsWith("\n") ? updated : updated + "\n", { mode: 0o600 })
+  await rename(temporary, configPath)
 }
