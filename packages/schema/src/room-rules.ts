@@ -47,7 +47,7 @@ export const outbound: readonly string[] = [
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
   const body = pattern
-    .replaceAll(/[.+^$${}()|[\]\\]/g, "\\$&")
+    .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
     .replaceAll("*", ".*")
     .replaceAll("?", ".")
   return new RegExp(before + body + after, "i")
@@ -96,7 +96,7 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
     const body = pattern
-      .replaceAll(/[.+^$${}()|[\]\\]/g, "\\$&")
+    .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
       .replaceAll("*", ".*")
       .replaceAll("?", ".")
     return new RegExp("(?:^|[\\s\"'=:/])" + body + "(?=$|[\\s\"/:])", "i").test(normal)
