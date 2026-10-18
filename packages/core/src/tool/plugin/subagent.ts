@@ -97,6 +97,17 @@ export const Plugin = {
       return ref
     })
 
+    // Agent configuration can outlive the provider catalog. Never resurrect a removed
+    // model from a saved agent when continuing or switching a subagent.
+    const availableConfiguredModel = Effect.fn("SubagentTool.availableConfiguredModel")(function* (model: Model.Ref | undefined) {
+      if (model === undefined) return undefined
+      const available = yield* models.available()
+      const current = available.find((item) => item.providerID === model.providerID && item.id === model.modelID)
+      if (!current) return undefined
+      if (model.variant !== undefined && !current.variants.some((variant) => variant.id === model.variant)) return undefined
+      return model
+    })
+
     yield* ctx.tool
       .transform((editor) =>
         editor.add({
@@ -122,7 +133,8 @@ export const Plugin = {
                   .get(current.parentID)
                   .pipe(
                     Effect.mapError(
-                      (error) => new ToolFailure({ message: `Parent session not found: ${current.parentID}`, error }),
+                      (error) =>
+                        new ToolFailure({ message: `Parent session not found: ${current.parentID}`, error }),
                     ),
                   )
               }
@@ -166,11 +178,14 @@ export const Plugin = {
                   message: `Session ${existing.id} is not a child of the current session`,
                 })
               const override = input.model === undefined ? undefined : yield* resolveModel(input.model)
-              // Continuing with a different agent switches the child, mirroring create semantics
-              // where an explicit model wins over the agent's configured model, which wins over the inherited one.
+              const configuredAgentModel = yield* availableConfiguredModel(agent.model)
+              const configuredParentModel = yield* availableConfiguredModel(parent.model)
+              // Continuing with a different agent may carry an old model reference in the
+              // agent configuration. Only switch when that reference still exists in the
+              // current provider catalog; otherwise keep the session's current model.
               if (existing !== undefined) {
                 const switched = existing.agent !== agent.id
-                const model = override ?? (switched ? agent.model : undefined)
+                const model = override ?? (switched ? configuredAgentModel : undefined)
                 yield* Effect.all([
                   switched ? sessions.switchAgent({ sessionID: existing.id, agent: agent.id }) : Effect.void,
                   model === undefined ? Effect.void : sessions.switchModel({ sessionID: existing.id, model }),
@@ -181,7 +196,7 @@ export const Plugin = {
                 )
               }
 
-              const model = override ?? agent.model ?? parent.model
+              const model = override ?? configuredAgentModel ?? configuredParentModel
               const child =
                 existing ??
                 (yield* sessions
@@ -200,8 +215,6 @@ export const Plugin = {
               const background = input.background === true
               yield* context.progress({ sessionID: child.id, status: "running" })
 
-              // Standard prompt admission outside the job: Job.start joining a running child skips
-              // its run effect, and the default wake starts an idle child or steers a running one.
               yield* sessions
                 .prompt({
                   sessionID: child.id,
@@ -242,7 +255,6 @@ export const Plugin = {
                 yield* subagents.notify(recovery, result.info.started_at)
                 return backgroundResult(child.id)
               }
-              // Failure surfaces keep the sessionID visible so the model can continue the child.
               if (result?.info.status === "error")
                 return yield* new ToolFailure({
                   message: `Subagent failed (sessionID: ${child.id}): ${result.info.error ?? "unknown error"}`,
