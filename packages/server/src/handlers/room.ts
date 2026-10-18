@@ -1064,7 +1064,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 ...feed,
                 events: feed.events.map((event) => {
                   if (event.kind !== "run" && event.kind !== "fail") return event
-                  const { detail: _detail, ...safe } = event
+                  const safe = { ...event }
+                  delete safe.detail
                   return safe
                 }),
               }
