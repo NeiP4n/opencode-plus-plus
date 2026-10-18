@@ -1413,7 +1413,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Sending out")}
-          help={t("Blocked by default: web, MCP, connected-account tools, shell/hub and unknown integrations. Explicitly allow only when needed; use an OS firewall for a hard network boundary.")}
+          help={t("Blocked by default: web, MCP, connected-account tools, shell/hub and unknown integrations. Custom native binaries can still open sockets when commands are allowed; use an OS firewall for a hard network boundary.")}
         >
           <Button onClick={() => save({ noOutbound: rules().noOutbound === false })}>
             {rules().noOutbound === false ? t("Allowed") : t("Forbidden")}
