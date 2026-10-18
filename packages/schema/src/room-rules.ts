@@ -16,6 +16,10 @@ export const Rules = Schema.Struct({
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
   // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
+  // Guests cannot submit prompts to the host's AI.
+  denyGuestPrompts: Schema.Boolean.pipe(Schema.optional),
+  // Guests cannot execute shell commands or submit DoD command checks, regardless of role.
+  denyGuestCommands: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Room.Rules" })
 export interface Rules extends Schema.Schema.Type<typeof Rules> {}
 
@@ -27,6 +31,8 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
     hidePaths: rules.some((item) => item.hidePaths),
     hideExecution: rules.some((item) => item.hideExecution),
     noOutbound: rules.some((item) => item.noOutbound),
+    denyGuestPrompts: rules.some((item) => item.denyGuestPrompts),
+    denyGuestCommands: rules.some((item) => item.denyGuestCommands),
     blockCommands: [...new Set(rules.flatMap((item) => item.blockCommands ?? []))],
     protectedFiles: [...new Set(rules.flatMap((item) => item.protectedFiles ?? []))],
   }
@@ -124,6 +130,8 @@ export function describe(rules: Rules | undefined) {
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
+    rules.denyGuestPrompts ? "Guests must not submit prompts to the host's AI." : undefined,
+    rules.denyGuestCommands ? "Guests must not execute shell commands or submit command checks." : undefined,
   ].filter((line): line is string => line !== undefined)
   return lines.length > 0 ? lines.join("\n") : undefined
 }
