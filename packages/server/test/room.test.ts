@@ -387,6 +387,42 @@ it.live("guest prompt and command rules also block slash commands", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("guest log replay excludes host-only session events and hidden shell output", () =>
+  Effect.gen(function* () {
+    const { call, handler, room, session, code, directory } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hideExecution: true, hidePaths: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const command = "echo private-replay-command"
+    const executed = yield* call(`/api/session/${session.id}/shell`, {
+      method: "POST",
+      headers: host,
+      body: { command },
+    })
+    expect(executed.status).toBe(204)
+    const response = yield* Effect.promise(() =>
+      handler(
+        new Request(`http://opencode.local/api/room/${room.id}/guest/log?follow=false`, {
+          headers: { authorization: `Bearer ${joined.body.token}` },
+        }),
+      ),
+    )
+    expect(response.status).toBe(200)
+    const body = yield* Effect.promise(() => response.text())
+    expect(body).not.toContain("session.created")
+    expect(body).not.toContain("private-replay-command")
+    expect(body).not.toContain(directory)
+  }).pipe(Effect.scoped),
+)
+
 it.live("hideExecution hides shell history from room guests", () =>
   Effect.gen(function* () {
     const { call, room, session, code } = yield* setup
