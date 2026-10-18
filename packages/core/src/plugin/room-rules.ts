@@ -45,8 +45,10 @@ export const Plugin = define({
       const messages = yield* sessions.messages({ sessionID, limit: 100, order: "desc" }).pipe(
         Effect.orElseSucceed(() => []),
       )
-      const sourceIndex = sourceMessageID ? messages.findIndex((item) => item.id === sourceMessageID) : -1
-      const recent = sourceIndex >= 0 ? messages.slice(sourceIndex) : messages
+      if (!sourceMessageID) return undefined
+      const sourceIndex = messages.findIndex((item) => item.id === sourceMessageID)
+      if (sourceIndex < 0) return undefined
+      const recent = messages.slice(sourceIndex)
       const prompt = recent.find((item) => {
         if (item.type !== "user" || !item.metadata || typeof item.metadata !== "object") return false
         const room = (item.metadata as Record<string, unknown>).room
@@ -81,16 +83,20 @@ export const Plugin = define({
           const protectedFile = event.resources.find((item) => RoomRules.commandTouchesProtectedFile(rules, item))
           if (protectedFile) return deny("This room keeps that file off limits to the AI")
 
-          const programs = [...new Set(event.resources.flatMap((item) => RoomRules.programsRequiringApproval(rules, item)))]
+          const matchedPrograms = [...new Set(event.resources.flatMap((item) => RoomRules.programsRequiringApproval(rules, item)))]
           const identity = yield* guestContext(event.sessionID, event.source?.messageID)
           if (identity?.member.role === "trusted") return
           const commandPrograms = [...new Set(event.resources.map((item) => RoomRules.programName(item)).filter((item): item is string => !!item))]
           if (
             identity &&
-            programs.length === 0 &&
+            matchedPrograms.length === 0 &&
             commandPrograms.length > 0 &&
             commandPrograms.every((program) => identity.member.approvedPrograms?.includes(program))
           ) return
+          if (matchedPrograms.length === 0) return
+          const programs = identity
+            ? matchedPrograms.filter((program) => !identity.member.approvedPrograms?.includes(program))
+            : matchedPrograms
           if (programs.length === 0) return
 
           // The regular permission UI still asks before running the shell tool. "Always allow"
