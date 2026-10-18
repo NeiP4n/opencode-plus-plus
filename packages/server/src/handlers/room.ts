@@ -328,13 +328,29 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       // Commands not listed in the program rules retain the old per-execution host confirmation,
       // but never create a project-wide "Always allow" permission.
       if (programs.length === 0) {
+        const executable = RoomRules.programName(input.command)
         yield* Permission.Service.use((permission) =>
           permission.confirm({
             action: input.fallbackAction,
             resources: [input.command],
-            metadata: { ...input.metadata, guest: input.member.name, command: input.command },
+            // "Always allow" is a member-scoped grant for the executable, never the exact command
+            // and never a project-wide saved permission.
+            save: executable ? [executable] : [],
+            metadata: { ...input.metadata, guest: input.member.name, command: input.command, program: executable },
             sessionID: input.session.id,
             force: true,
+            onAlways: executable
+              ? () =>
+                  Effect.gen(function* () {
+                    const current = yield* rooms.member(input.room.id, input.member.id)
+                    if (!current) return
+                    yield* rooms.saveMember(input.room.id, {
+                      ...current,
+                      approvedPrograms: [...new Set([...(current.approvedPrograms ?? []), executable])],
+                    })
+                    return
+                  })
+              : undefined,
           }),
         ).pipe(
           instances.provide(input.session),
