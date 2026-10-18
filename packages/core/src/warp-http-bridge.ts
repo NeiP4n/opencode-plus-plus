@@ -45,6 +45,8 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
     if (finished) return
     if (retryable && stage !== "stream" && retries < 2) {
       retries += 1
+      if (timer) clearTimeout(timer)
+      timer = undefined
       upstream?.destroy()
       upstream = undefined
       buffer = Buffer.alloc(0)
@@ -53,6 +55,7 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
     }
     finished = true
     if (timer) clearTimeout(timer)
+    timer = undefined
     if (!client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
     upstream?.destroy()
   }
@@ -61,6 +64,7 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
     if (finished) return
     finished = true
     if (timer) clearTimeout(timer)
+    timer = undefined
   }
 
   const handleData = (data: Buffer) => {
