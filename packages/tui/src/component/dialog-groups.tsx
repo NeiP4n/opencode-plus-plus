@@ -115,6 +115,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
         ],
       })
       const sessionID = created.id
+      // Group chats are ordinary sessions, but they must be explicitly owned by the
+      // coordinator project or the project tree's scoped session query can omit them.
+      await client.api.orchestra.owner.set({ sessionID, projectID: leaderID })
       await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: sessionID, mode })
       await client.api.session.prompt({
         sessionID,
