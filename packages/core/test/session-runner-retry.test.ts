@@ -118,6 +118,24 @@ describe("SessionRunnerRetry shared rate-limit gate", () => {
     }),
   )
 
+  it.effect("ignores invalid Retry-After values from provider metadata", () =>
+    Effect.gen(function* () {
+      for (const retryAfterMs of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+        const cause = new AIError({
+          reason: new RateLimitError({ message: "Too many requests", retryAfterMs }),
+        })
+        const retry = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_invalid_retry_after"))
+        const decision = yield* retry(input(cause))
+        expect(decision.retry).toBe(true)
+        if (decision.retry) {
+          expect(Number.isFinite(decision.delay)).toBe(true)
+          expect(decision.delay).toBeGreaterThanOrEqual(0)
+          expect(decision.delay).toBeLessThanOrEqual(Duration.toMillis("15 minutes"))
+        }
+      }
+    }),
+  )
+
   it.effect("waits on a provider gate created by another agent session", () =>
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
