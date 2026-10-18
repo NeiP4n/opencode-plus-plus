@@ -1,9 +1,11 @@
 import { RGBA } from "@opentui/core"
 
+const ANSI_FALLBACK_TEXT = "#c4cad4"
+
 export function ansiToRgba(code: number): RGBA {
   if (code < 16) {
     const ansiColors = [
-      "#000000",
+      ANSI_FALLBACK_TEXT,
       "#800000",
       "#008000",
       "#808000",
@@ -20,7 +22,7 @@ export function ansiToRgba(code: number): RGBA {
       "#00ffff",
       "#ffffff",
     ]
-    return RGBA.fromHex(ansiColors[code] ?? "#000000")
+    return RGBA.fromHex(ansiColors[code] ?? ANSI_FALLBACK_TEXT)
   }
 
   if (code < 232) {
@@ -37,7 +39,7 @@ export function ansiToRgba(code: number): RGBA {
     return RGBA.fromInts(gray, gray, gray)
   }
 
-  return RGBA.fromInts(0, 0, 0)
+  return RGBA.fromHex(ANSI_FALLBACK_TEXT)
 }
 
 export function tint(base: RGBA, overlay: RGBA, alpha: number): RGBA {
