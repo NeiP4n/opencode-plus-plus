@@ -67,6 +67,11 @@ test("protected files are detected when directly referenced in shell commands", 
   expect(RoomRules.protectedFileInCommand(rules, "cat .env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, 'cat ".env.local"')).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "cat ./secrets/key.pem")).toBe("secrets/*")
+  const exactRules: RoomRules.Rules = { protectedFiles: ["secrets/key.pem"] }
+  expect(RoomRules.protectedFileInCommand(exactRules, "cat secrets/key.pem")).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(exactRules, "cat 'secrets/key.pem'")).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(exactRules, 'cat "secrets/key.pem"')).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(exactRules, "tool --config='secrets/key.pem'")).toBe("secrets/key.pem")
   expect(RoomRules.protectedFileInCommand(rules, "cat C:\\work\\app\\.env")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "tool --config=.env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "echo secret > .env.local")).toBe(".env*")
@@ -165,6 +170,8 @@ test("outbound access is denied by default across overlapping rooms", () => {
 test("credential and environment dumps stay blocked even when outbound access is allowed", () => {
   expect(RoomRules.commandLeaksCredentials("env")).toBe(true)
   expect(RoomRules.commandLeaksCredentials("printenv")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("e\\nv")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("print\\env")).toBe(true)
   expect(RoomRules.commandLeaksCredentials("echo $OPENAI_API_KEY")).toBe(true)
   expect(RoomRules.commandLeaksCredentials("Get-ChildItem Env:")).toBe(true)
   expect(RoomRules.commandLeaksCredentials('python -c "import os; print(os.environ)"')).toBe(true)
