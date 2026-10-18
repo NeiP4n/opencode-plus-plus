@@ -1428,11 +1428,10 @@ it.live("a DoD check is discarded if its assigned command changes during approva
     yield* Effect.promise(async () => {
       const board = path.join(directory, ".opencode", "dod.yaml")
       const contents = await Bun.file(board).text()
-      expect(contents).toContain('command: "echo old-check > stale-check.txt"')
-      await Bun.write(board, contents.replace(
-        'command: "echo old-check > stale-check.txt"',
-        'command: "echo replacement-check > stale-check.txt"',
-      ))
+      expect(contents).toContain("echo old-check > stale-check.txt")
+      const updated = contents.replace("echo old-check > stale-check.txt", "echo replacement-check > stale-check.txt")
+      expect(updated).not.toBe(contents)
+      await Bun.write(board, updated)
     })
     yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
       method: "POST",
