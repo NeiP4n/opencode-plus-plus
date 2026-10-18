@@ -878,10 +878,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           const visibleNote = note && { name: note.name, title: note.frontmatter.title || note.name }
+          const pathSafeData = rules?.hidePaths ? redactRoomValue(data, directories) : data
+          const pathSafeNote = rules?.hidePaths ? redactRoomValue(visibleNote, directories) : visibleNote
           return {
-            data: rules?.hidePaths ? redactRoomValue(data, directories) : data,
+            data: RoomRules.sanitizeScreenshots(pathSafeData, !!rules?.hideScreenshots),
             running: (yield* sessions.active).has(session.id),
-            note: rules?.hidePaths ? redactRoomValue(visibleNote, directories) : visibleNote,
+            note: RoomRules.sanitizeScreenshots(pathSafeNote, !!rules?.hideScreenshots),
           }
         }),
       )
@@ -892,11 +894,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
           const rules = yield* effectiveRules(joined.room, session.location.directory)
           const note = (yield* boundNote(session.id)) ?? null
-          return {
-            data: rules?.hidePaths
-              ? redactRoomValue(note, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
-              : note,
-          }
+          const visible = rules?.hidePaths
+            ? redactRoomValue(note, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
+            : note
+          return { data: RoomRules.sanitizeScreenshots(visible, !!rules?.hideScreenshots) }
         }),
       )
       .handle(
@@ -1117,7 +1118,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ? redactRoomValue(dod, [joined.room.directory ?? "", directory].filter(Boolean))
             : dod
           const safe = rules?.hideExecution ? hideDodExecution(visible) : visible
-          return forGuest(safe, joined.member)
+          return RoomRules.sanitizeScreenshots(forGuest(safe, joined.member), !!rules?.hideScreenshots)
         }),
       )
       .handle(
