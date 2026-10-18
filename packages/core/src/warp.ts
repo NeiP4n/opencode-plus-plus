@@ -13,6 +13,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, w
 import { homedir, tmpdir } from "node:os"
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { createConnection } from "node:net"
+import { startHttpBridge } from "./warp-http-bridge"
 import path from "node:path"
 import { HttpsProxyAgent } from "https-proxy-agent"
 
@@ -31,6 +32,7 @@ export function log(message: string) {
 const STATE_CHANGING = new Set(["connect", "disconnect", "mode", "registration", "register", "delete", "tunnel", "proxy", "set-mode"])
 
 export const DEFAULT_PORT = 40000
+export const HTTP_BRIDGE_PORT = 40001
 export const PROXY_BYPASS = ["localhost", "127.0.0.1", "::1"] as const
 const TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"
 const COMMAND_TIMEOUT_MS = 20_000
@@ -59,17 +61,17 @@ export class WarpError extends Error {
   }
 }
 
-export function proxyUrl(port = DEFAULT_PORT) {
+export function proxyUrl(port = HTTP_BRIDGE_PORT) {
   return `http://127.0.0.1:${port}`
 }
 
 /** The `config.proxy` value that sends only OpenCode traffic through the local WARP endpoint. */
-export function proxyConfig(port = DEFAULT_PORT) {
+export function proxyConfig(port = HTTP_BRIDGE_PORT) {
   const url = proxyUrl(port)
   return { http: url, https: url, no_proxy: [...PROXY_BYPASS] }
 }
 
-export function isWarpProxy(value: { http?: string; https?: string } | null | undefined, port = DEFAULT_PORT) {
+export function isWarpProxy(value: { http?: string; https?: string } | null | undefined, port = HTTP_BRIDGE_PORT) {
   const url = proxyUrl(port)
   return value?.http === url && value?.https === url
 }
@@ -499,10 +501,15 @@ export async function ensureProxy(port = DEFAULT_PORT, options: { takeOverDevice
     )
   }
   if (await isSocksOnly(effectivePort)) {
-    throw new WarpError(
-      "socks-only",
-      `The WARP proxy on 127.0.0.1:${effectivePort} speaks SOCKS5 only, but OpenCode needs an HTTP proxy. Update Cloudflare WARP to a version with an HTTP/HTTPS local proxy.`,
-    )
+    try {
+      await startHttpBridge(effectivePort, HTTP_BRIDGE_PORT)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      throw new WarpError(
+        "proxy-unreachable",
+        `Could not start the OpenCode-only HTTP-to-SOCKS5 bridge on 127.0.0.1:${HTTP_BRIDGE_PORT}: ${message}`,
+      )
+    }
   }
   return status()
 }
