@@ -1402,7 +1402,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Sending out")}
-          help={t("Blocks known network commands and connected-account tools. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.")}
+          help={t("Blocks connected-account and unknown tools plus common network commands. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.")}
         >
           <Button onClick={() => save({ noOutbound: !rules().noOutbound })}>
             {rules().noOutbound ? t("Forbidden") : t("Allowed")}
