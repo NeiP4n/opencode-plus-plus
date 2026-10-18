@@ -8,6 +8,8 @@ import { Schema } from "effect"
 export const Rules = Schema.Struct({
   // Guests and their AIs never see the project's path on the host.
   hidePaths: Schema.Boolean.pipe(Schema.optional),
+  // Guests do not receive raw tool inputs/outputs, command execution details, or screenshots.
+  hideExecution: Schema.Boolean.pipe(Schema.optional),
   // Commands nobody runs in the room, by the host's AI, guests' commands or checks.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
   // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`).
@@ -23,6 +25,7 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   if (rules.length === 0) return undefined
   return {
     hidePaths: rules.some((item) => item.hidePaths),
+    hideExecution: rules.some((item) => item.hideExecution),
     noOutbound: rules.some((item) => item.noOutbound),
     blockCommands: [...new Set(rules.flatMap((item) => item.blockCommands ?? []))],
     protectedFiles: [...new Set(rules.flatMap((item) => item.protectedFiles ?? []))],
@@ -117,6 +120,7 @@ export function describe(rules: Rules | undefined) {
   if (!rules) return undefined
   const lines = [
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
+    rules.hideExecution ? "Do not expose raw tool inputs or outputs, command execution details, or screenshots to guests. The host alone handles approvals for shell, hub and desktop actions." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
