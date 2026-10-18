@@ -272,6 +272,30 @@ it.live("noOutbound refuses guest shell execution even for a cohost", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("protected files cannot be read through guest shell commands", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { protectedFiles: [".env*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { command: "cat .env.local" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("keeps that file off limits")
+  }).pipe(Effect.scoped),
+)
+
 it.live("hidePaths redacts project directories from guest room responses", () =>
   Effect.gen(function* () {
     const { call, session, directory } = yield* setup
