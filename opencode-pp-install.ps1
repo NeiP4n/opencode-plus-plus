@@ -107,10 +107,27 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "bun install failed." }
 
   $TuiLink = Join-Path $Source "packages\cli\node_modules\@opencode\tui"
-  if (-not (Test-Path $TuiLink)) {
-    Write-Host "TUI workspace link is missing; running the full workspace install..."
+  $TuiPackage = Join-Path $TuiLink "package.json"
+  $TuiRootPackage = Join-Path $Source "packages\tui\package.json"
+
+  # Bun can leave a stale/broken workspace junction behind on Windows after a
+  # filtered install. Test the actual package file, not just the directory.
+  if (-not (Test-Path $TuiPackage)) {
+    Write-Host "TUI workspace link is missing or broken; repairing it..."
     bun install --frozen-lockfile
     if ($LASTEXITCODE -ne 0) { throw "bun workspace install failed." }
+  }
+
+  if (-not (Test-Path $TuiPackage)) {
+    Write-Host "Bun did not create a usable TUI workspace link; creating a Windows junction..."
+    $Scope = Split-Path $TuiLink -Parent
+    New-Item -ItemType Directory -Force -Path $Scope | Out-Null
+    Remove-Item -Force -Recurse -ErrorAction SilentlyContinue $TuiLink
+    New-Item -ItemType Junction -Path $TuiLink -Target $TuiRootPackage | Out-Null
+  }
+
+  if (-not (Test-Path $TuiPackage)) {
+    throw "Cannot link @opencode/tui. Expected $TuiPackage"
   }
 } finally {
   Pop-Location
