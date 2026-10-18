@@ -418,7 +418,6 @@ function HomeSessionSearch(
 
 function HomeSessionSearchResultRow(
   props: HomeSessionsViewProps & {
-    archivedMode: boolean
     record: HomeSessionRecord
     selected: boolean
     showLocations: boolean
@@ -511,6 +510,7 @@ function HomeSessionGroupHeader(props: {
 
 function HomeSessionRow(
   props: HomeSessionsViewProps & {
+    archivedMode: boolean
     record: HomeSessionRecord
     rowUI: HomeSessionRowUI
     setRowUI: SetStoreFunction<HomeSessionRowUI>
