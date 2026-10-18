@@ -75,10 +75,15 @@ export function DialogGroups(props: { onClose?: () => void }) {
     act(() => client.api.orchestra.group.remove({ name }))
   }
 
-  const startSupervisor = async (
-    group: { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" },
-    openAfterCreate = true,
-  ) => {
+  type GroupToStart = { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }
+
+  // Multiple reactive paths can request the same group chat at once (Save and the
+  // auto-repair effect). Deduplicate per group and serialize creation so a transient
+  // "another group is opening" state never silently drops a chat-creation request.
+  const supervisorTasks = new Map<string, Promise<void>>()
+  let supervisorQueue: Promise<void> = Promise.resolve()
+
+  const createSupervisor = async (group: GroupToStart, openAfterCreate = true) => {
     const mode = group.mode ?? "lead"
     const existing = supervisorOf(group)
     if (existing) {
@@ -88,7 +93,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
       }
       return
     }
-    if (opening()) return
     const leaderID = group.projects[0]
     const leader = projects.list().find((project) => project.id === leaderID)
     if (!leaderID || !leader) {
@@ -144,6 +148,26 @@ export function DialogGroups(props: { onClose?: () => void }) {
     } finally {
       setOpening(undefined)
     }
+  }
+
+  const startSupervisor = (group: GroupToStart, openAfterCreate = true): Promise<void> => {
+    const pending = supervisorTasks.get(group.name)
+    if (pending) return pending
+    const task = supervisorQueue.then(() => createSupervisor(group, openAfterCreate))
+    supervisorTasks.set(group.name, task)
+    supervisorQueue = task.then(
+      () => undefined,
+      () => undefined,
+    )
+    void task.then(
+      () => {
+        if (supervisorTasks.get(group.name) === task) supervisorTasks.delete(group.name)
+      },
+      () => {
+        if (supervisorTasks.get(group.name) === task) supervisorTasks.delete(group.name)
+      },
+    )
+    return task
   }
 
   // Groups created by the AI command or another client also get their
