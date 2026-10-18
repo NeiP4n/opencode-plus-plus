@@ -45,15 +45,13 @@ export function DialogGroups(props: { onClose?: () => void }) {
     const sameProjects =
       previous?.projects.length === members.length && previous.projects.every((id, index) => id === members[index])
     act(async () => {
-      await client.api.orchestra.group.save({ name, projects: members as never, mode })
-      // A group always has its mode's shared chat. Reuse it when the mode is
-      // unchanged; when switching modes, create the matching chat automatically.
-      await startSupervisor({
-        name,
-        projects: members,
-        mode,
-        supervisor: previous?.mode === mode && sameProjects ? previous.supervisor : undefined,
-      }, false)
+      const saved = await client.api.orchestra.group.save({ name, projects: members as never, mode })
+      // The server-side group record is the source of truth for the singleton supervisor.
+      // Reuse its session instead of starting another reactive creation path.
+      if (saved?.id) {
+        route.navigate({ type: "session", sessionID: saved.id })
+        props.onClose?.()
+      }
       if (nameField) nameField.value = ""
       setPicked([])
     })
@@ -78,10 +76,17 @@ export function DialogGroups(props: { onClose?: () => void }) {
 
   type GroupToStart = { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }
 
-  // Multiple reactive paths can request the same group chat at once (Save and the
-  // auto-repair effect). Deduplicate per group and serialize creation so a transient
-  // "another group is opening" state never silently drops a chat-creation request.
+  // Multiple reactive paths can request the same group chat at once. Keep this queue as a
+  // client-side guard, while the deterministic session ID below provides the durable guard.
   const supervisorTasks = createTaskQueue<string>()
+
+  const supervisorSessionID = (name: string, mode: "lead" | "council") => {
+    // Session IDs only need to start with `ses`. A stable hash makes repeated requests for
+    // the same group+mode converge on exactly the same Session instead of creating a new one.
+    let hash = 2166136261
+    for (const char of `${mode}:${name}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619)
+    return `ses_group_${(hash >>> 0).toString(36)}`
+  }
 
   const createSupervisor = async (group: GroupToStart, openAfterCreate = true) => {
     const mode = group.mode ?? "lead"
@@ -101,7 +106,26 @@ export function DialogGroups(props: { onClose?: () => void }) {
     }
     setOpening(group.name)
     try {
-      const created = await client.api.session.create({
+      // Recover a supervisor created by an earlier version or by a previous race. Keep the
+      // oldest matching session and remove only the extra auto-generated duplicates.
+      const response = await client.api.session.list({
+        directory: leader.directory,
+        parentID: null,
+        limit: 500,
+        order: "asc",
+      })
+      const matches = response.data
+        .filter((session) => {
+          const marker = session.metadata?.["opencode-pp:group-supervisor"]
+          if (!marker || typeof marker !== "object" || Array.isArray(marker)) return false
+          const value = marker as Record<string, unknown>
+          return value.groupName === group.name && value.leader === leaderID && (value.mode === "council" ? "council" : "lead") === mode
+        })
+        .sort((a, b) => new Date(a.time.created).getTime() - new Date(b.time.created).getTime())
+
+      const sessionID = matches[0]?.id ?? supervisorSessionID(group.name, mode)
+      const created = matches[0] ?? await client.api.session.create({
+        id: sessionID,
         title: mode === "council" ? "общество" : "President",
         agent: "orchestrator",
         location: { directory: leader.directory },
@@ -114,13 +138,20 @@ export function DialogGroups(props: { onClose?: () => void }) {
           { action: "federation", resource: "*", effect: "ask" },
         ],
       })
-      const sessionID = created.id
-      // Group chats are ordinary sessions, but they must be explicitly owned by the
-      // coordinator project or the project tree's scoped session query can omit them.
-      await client.api.orchestra.owner.set({ sessionID, projectID: leaderID })
-      await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: sessionID, mode })
+
+      // Do NOT claim this session for the coordinator project. The session is a group-level
+      // chat and must stay out of the project's owned-session tree. Its group identity lives
+      // in metadata and in Federation.Group.supervisor.
+      await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: created.id, mode })
+
+      // Clean up only duplicate group-supervisor sessions from the old spawning logic.
+      for (const duplicate of matches.slice(1)) {
+        if (duplicate.id === created.id) continue
+        await client.api.session.remove({ sessionID: duplicate.id }).catch(() => {})
+      }
+
       await client.api.session.prompt({
-        sessionID,
+        sessionID: created.id,
         text: (mode === "council"
           ? [
               "You facilitate the shared Society chat for federation group \"" + group.name + "\".",
@@ -142,7 +173,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
             ]).join("\n"),
       })
       if (openAfterCreate) {
-        route.navigate({ type: "session", sessionID })
+        route.navigate({ type: "session", sessionID: created.id })
         props.onClose?.()
       }
     } catch (error) {
@@ -169,8 +200,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
         .then(() => refetch())
         .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
         .finally(() => autoStarting.delete(group.name))
-      // Only one supervisor may be created at a time. When opening clears or
-      // the refreshed group list arrives, the effect picks the next missing chat.
       break
     }
   })
