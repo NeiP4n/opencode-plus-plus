@@ -107,7 +107,13 @@ export interface Interface {
   // Asks the operator whatever the agent's rules say, for requests that come from outside
   // the model, such as a room guest's command; an earlier "always" still counts. A decline
   // is an ordinary failure here, not the defect assert raises to stop a model's tool.
-  readonly confirm: (input: AssertInput) => Effect.Effect<void, DeclinedError | CorrectedError>
+  readonly confirm: (
+    input: AssertInput & {
+      readonly force?: boolean
+      readonly scoped?: boolean
+      readonly onAlways?: () => Effect.Effect<void>
+    },
+  ) => Effect.Effect<void, DeclinedError | CorrectedError>
   readonly reply: (input: ReplyInput) => Effect.Effect<void, NotFoundError>
   readonly get: (id: ID) => Effect.Effect<Request | undefined>
   readonly forSession: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<Request>>
@@ -120,6 +126,9 @@ interface Pending {
   readonly request: Request
   readonly agent?: Agent.ID
   readonly deferred: Deferred.Deferred<void, DeclinedError | CorrectedError>
+  // Room-member grants are stored on that member, never in project-wide PermissionSaved.
+  readonly saveGlobally: boolean
+  readonly onAlways?: () => Effect.Effect<void>
 }
 
 const layer = Layer.effect(
@@ -205,11 +214,21 @@ const layer = Layer.effect(
       }
     }
 
-    const create = (request: Request, agent?: Agent.ID) =>
+    const create = (
+      request: Request,
+      agent?: Agent.ID,
+      options?: { readonly saveGlobally?: boolean; readonly onAlways?: () => Effect.Effect<void> },
+    ) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
           const deferred = yield* Deferred.make<void, DeclinedError | CorrectedError>()
-          const item = { request, agent, deferred }
+          const item: Pending = {
+            request,
+            agent,
+            deferred,
+            saveGlobally: options?.saveGlobally ?? true,
+            onAlways: options?.onAlways,
+          }
           if (closed) {
             yield* Deferred.fail(deferred, new DeclinedError())
             return item
@@ -283,6 +302,9 @@ const layer = Layer.effect(
               input.message ? new CorrectedError({ feedback: input.message }) : new DeclinedError(),
             )
             pending.delete(input.requestID)
+            // A scoped room-member denial must not reject another participant's queued request
+            // just because everyone shares one host session.
+            if (!existing.saveGlobally) return
             for (const [id, item] of pending) {
               if (item.request.sessionID !== existing.request.sessionID) continue
               yield* bus.publish(Permission.Event.Replied, {
@@ -301,15 +323,19 @@ const layer = Layer.effect(
           }
 
           if (input.reply === "always" && existing.request.save?.length) {
-            yield* saved.add({
-              projectID: location.project.id,
-              action: existing.request.action,
-              resources: existing.request.save,
-            })
+            if (existing.saveGlobally) {
+              yield* saved.add({
+                projectID: location.project.id,
+                action: existing.request.action,
+                resources: existing.request.save,
+              })
+            }
+            if (existing.onAlways) yield* existing.onAlways()
           }
           yield* Deferred.succeed(existing.deferred, undefined)
           pending.delete(input.requestID)
-          if (input.reply !== "always" || !existing.request.save?.length) return
+          // Scoped grants are deliberately not propagated to other requests or persisted globally.
+          if (input.reply !== "always" || !existing.request.save?.length || !existing.saveGlobally) return
 
           for (const [id, item] of pending) {
             const result = yield* evaluateInput({ ...item.request, agent: item.agent }).pipe(
@@ -340,13 +366,22 @@ const layer = Layer.effect(
       return Array.from(pending.values(), (item) => item.request).filter((request) => request.sessionID === sessionID)
     })
 
-    const confirm = Effect.fn("Permission.confirm")(function* (input: AssertInput) {
-      if (closed) return yield* new DeclinedError()
-      const saved = yield* savedRules()
-      if (input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
-      const item = yield* create(request(input), input.agent)
-      return yield* Deferred.await(item.deferred)
-    })
+    const confirm = Effect.fn("Permission.confirm")(
+      function* (input: AssertInput & {
+        readonly force?: boolean
+        readonly scoped?: boolean
+        readonly onAlways?: () => Effect.Effect<void>
+      }) {
+        if (closed) return yield* new DeclinedError()
+        const saved = yield* savedRules()
+        if (!input.force && input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
+        const item = yield* create(request(input), input.agent, {
+          saveGlobally: !input.scoped,
+          onAlways: input.onAlways,
+        })
+        return yield* Deferred.await(item.deferred)
+      },
+    )
 
     return Service.of({ ask, assert, confirm, reply, get, forSession, list, close })
   }),
