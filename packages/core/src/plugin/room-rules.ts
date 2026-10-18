@@ -29,13 +29,14 @@ export const Plugin = define({
       const session = yield* top(sessionID)
       if (!session) return undefined
       const directory = session.location.directory
-      return RoomRules.merge(
-        (yield* rooms.list()).flatMap((room) =>
-          room.rules && (room.sessionID === session.id || (room.directory && Orchestra.contains(room.directory, directory)))
-            ? [room.rules]
-            : [],
-        ),
+      const shared = (yield* rooms.list()).filter(
+        (room) =>
+          room.sessionID === session.id ||
+          (room.directory && Orchestra.contains(room.directory, directory)),
       )
+      // Any room gets built-in secret-file protections, even when the host has not configured
+      // any optional rules yet. Rules from overlapping rooms are merged restrictively.
+      return RoomRules.merge(shared.map((room) => room.rules ?? {}))
     })
 
     // A shell tool call belongs to the user prompt that triggered its assistant message.
@@ -74,7 +75,7 @@ export const Plugin = define({
           event.effect = "deny"
           event.message = message
         }
-        if (rules.noOutbound && RoomRules.outbound.includes(event.action))
+        if (rules.noOutbound && RoomRules.outboundAction(event.action))
           return deny("This room does not let the AI send anything out")
         if (event.action === "shell") {
           const command = event.resources.join("\\n")
