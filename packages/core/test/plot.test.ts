@@ -113,6 +113,38 @@ describe("Plot", () => {
     }).pipe(Effect.scoped),
   )
 
+  it.live("plot claims cannot escape the project directory", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-")))
+      const plots = yield* Plot.Service
+      const sessions = yield* Session.Service
+      const directory = tmp.path
+      const session = yield* sessions.create({ location: { directory: AbsolutePath.make(directory) } })
+
+      expect(
+        yield* refusal(
+          plots.claim({
+            sessionID: session.id,
+            directory,
+            paths: ["../outside"],
+            purpose: "attempted path escape",
+          }),
+        ),
+      ).toContain("must stay inside the project directory")
+      expect(
+        yield* refusal(
+          plots.claim({
+            sessionID: session.id,
+            directory,
+            paths: [path.resolve(directory, "..", "outside")],
+            purpose: "attempted absolute path escape",
+          }),
+        ),
+      ).toContain("must stay inside the project directory")
+      expect(yield* plots.list(directory)).toEqual([])
+    }).pipe(Effect.scoped),
+  )
+
   it.live("an orchestrator's plot covers its team, and a plot left behind runs out", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-")))
