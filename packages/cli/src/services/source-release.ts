@@ -165,18 +165,35 @@ export async function follow(root = checkout) {
   })
 }
 
+async function runBun(args: string[], root: string, timeout: number) {
+  // The Bun shell Command API in some bundled runtimes does not implement .timeout().
+  // Bun.spawn supports a timeout option and keeps the updater from hanging indefinitely.
+  const child = Bun.spawn([process.execPath, ...args], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout,
+  })
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  return { stdout, stderr, exitCode }
+}
+
 async function installDependencies(root: string) {
-  const result = await $`${process.execPath} install --frozen-lockfile`.cwd(root).nothrow().quiet().timeout(DEPENDENCY_TIMEOUT_MS)
+  const result = await runBun(["install", "--frozen-lockfile"], root, DEPENDENCY_TIMEOUT_MS)
   if (result.exitCode !== 0) {
-    const detail = result.stderr.toString().trim() || result.stdout.toString().trim()
+    const detail = result.stderr.trim() || result.stdout.trim()
     throw new Error(detail || `Dependency installation failed with exit code ${result.exitCode}`)
   }
 }
 
 async function validateServer(root: string) {
-  const result = await $`${process.execPath} --cwd packages/server run typecheck`.cwd(root).nothrow().timeout(VALIDATION_TIMEOUT_MS)
+  const result = await runBun(["--cwd", "packages/server", "run", "typecheck"], root, VALIDATION_TIMEOUT_MS)
   if (result.exitCode !== 0) {
-    const detail = result.stderr.toString().trim() || result.stdout.toString().trim() || `Server typecheck exited with code ${result.exitCode}`
+    const detail = result.stderr.trim() || result.stdout.trim() || `Server typecheck exited with code ${result.exitCode}`
     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
   }
 }
