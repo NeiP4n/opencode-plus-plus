@@ -636,31 +636,31 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const participants = [
             ...new Set([hostName, ...(yield* rooms.members(joined.room.id)).map((member) => member.name)]),
           ]
-          return {
-            data: yield* sessions
-              .prompt({
-                sessionID: session.id,
-                id: ctx.payload.id,
-                text: ctx.payload.text,
-                // The server stamps the author from the token, so a guest cannot speak as someone else.
-                metadata: {
-                  room: {
-                    id: joined.room.id,
-                    guest: joined.guest,
-                    hostName,
-                    participants,
-                    ...(ctx.payload.ai ? { ai: true } : {}),
-                  },
+          const data = yield* sessions
+            .prompt({
+              sessionID: session.id,
+              id: ctx.payload.id,
+              text: ctx.payload.text,
+              // The server stamps the author from the token, so a guest cannot speak as someone else.
+              metadata: {
+                room: {
+                  id: joined.room.id,
+                  guest: joined.guest,
+                  hostName,
+                  participants,
+                  ...(ctx.payload.ai ? { ai: true } : {}),
                 },
-              })
-              .pipe(
-                Effect.catchTag("Session.NotFoundError", missingSession),
-                Effect.catchTag("Session.PromptConflictError", () =>
-                  Effect.fail(new InvalidRequestError({ message: "This message ID is already taken", field: "id" })),
-                ),
-                Effect.orDie,
+              },
+            })
+            .pipe(
+              Effect.catchTag("Session.NotFoundError", missingSession),
+              Effect.catchTag("Session.PromptConflictError", () =>
+                Effect.fail(new InvalidRequestError({ message: "This message ID is already taken", field: "id" })),
               ),
-          }
+              Effect.orDie,
+            )
+          const directory = yield* roomDirectory(joined.room)
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
@@ -673,7 +673,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             locationErrors,
             Effect.orDie,
           )
-          return { data: requests }
+          const directory = yield* roomDirectory(joined.room)
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(requests, directory) : requests }
         }),
       )
       .handle(
@@ -1010,24 +1011,18 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.model.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            data: yield* atRoom(
-              joined.room,
-              Model.Service.use((models) => models.available()),
-            ),
-          }
+          const data = yield* atRoom(joined.room, Model.Service.use((models) => models.available()))
+          const directory = yield* roomDirectory(joined.room)
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
         "room.guest.agent.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            data: yield* atRoom(
-              joined.room,
-              Agent.Service.use((agents) => agents.list()),
-            ),
-          }
+          const data = yield* atRoom(joined.room, Agent.Service.use((agents) => agents.list()))
+          const directory = yield* roomDirectory(joined.room)
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
@@ -1038,19 +1033,18 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             joined.room,
             Mcp.Service.use((mcp) => mcp.servers()),
           )
-          return { data: servers.map((server) => ({ name: server.name, status: server.status.status })) }
+          const data = servers.map((server) => ({ name: server.name, status: server.status.status }))
+          const directory = yield* roomDirectory(joined.room)
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
         "room.guest.command.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            data: yield* atRoom(
-              joined.room,
-              Command.Service.use((commands) => commands.list()),
-            ),
-          }
+          const data = yield* atRoom(joined.room, Command.Service.use((commands) => commands.list()))
+          const directory = yield* roomDirectory(joined.room)
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
