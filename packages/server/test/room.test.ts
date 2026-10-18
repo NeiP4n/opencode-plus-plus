@@ -800,7 +800,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
 
     // A path-hiding toggle made while a command is waiting must sanitize that command's
     // eventual response, not only responses from requests that start after the toggle.
-    const pathCommand = `echo ${JSON.stringify(directory)}`
+    const pathCommand = `echo "${directory}"`
     const pathPending = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
       headers: otherGuest,
