@@ -154,14 +154,14 @@ export async function follow(root = checkout) {
 }
 
 async function installDependencies(root: string) {
-  // Validation uses the server's workspace compiler. Installing only the CLI filter can
-  // leave @typescript/native-preview (tsgo) or other workspace dev dependencies absent,
-  // making a perfectly valid update fail with a bare `tsgo -b` exit code.
   await $`${process.execPath} install --frozen-lockfile`.cwd(root).quiet()
 }
 
 async function validateServer(root: string) {
-  const result = await $`${process.execPath} run --cwd packages/server typecheck`.cwd(root).quiet().nothrow()
+  // Bun's --cwd is a global option and must precede `run`. Passing it after `run` can
+  // fail before the server's typecheck script is even started, which previously surfaced
+  // in /upgrade as the unhelpful bare `$ tsgo -b` message.
+  const result = await $`${process.execPath} --cwd packages/server run typecheck`.cwd(root).nothrow()
   if (result.exitCode !== 0) {
     const detail = result.stderr.toString().trim() || result.stdout.toString().trim() || `Server typecheck exited with code ${result.exitCode}`
     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
