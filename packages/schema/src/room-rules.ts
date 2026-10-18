@@ -130,9 +130,20 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
   const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
+  // POSIX paths are case-sensitive; Windows drive and UNC paths are not.
+  const flags = /^(?:[a-z]:[\\/]|\\\\)/i.test(directory) ? "gi" : "g"
+  return variants.reduce((out, variant) => {
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\export function redactPath(text: string, directory: string) {
+  const forward = directory.replaceAll("\\", "/")
+  const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
   return variants.reduce((out, variant) => {
     const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     return out.replace(new RegExp(escaped, "gi"), "<project>")
+  }, text)
+}")
+    // Do not redact a path merely because it is a prefix of a different directory.
+    const expression = new RegExp("(?<![A-Za-z0-9._-])" + escaped + "(?=$|[\\\\/])", flags)
+    return out.replace(expression, "<project>")
   }, text)
 }
 
