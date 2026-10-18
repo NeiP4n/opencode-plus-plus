@@ -13,15 +13,16 @@ describe("workspace forge input", () => {
     ])
   })
 
-  test("accepts explicit sandbox modes for workspace creation", () => {
+  test("accepts sandbox modes and an individual AI role for workspace creation", () => {
     for (const sandbox of ["none", "environment", "strict"] as const) {
       expect(
         decode({
           action: "create_session",
           directory: "/work/project",
           sandbox,
+          role: "backend",
         }),
-      ).toMatchObject({ action: "create_session", directory: "/work/project", sandbox })
+      ).toMatchObject({ action: "create_session", directory: "/work/project", sandbox, role: "backend" })
     }
   })
 
@@ -33,7 +34,7 @@ describe("workspace forge input", () => {
         members: [
           { projectID: "prj_existing" },
           { name: "Android app", directory: "/work/android", team: "mobile-app", sandbox: "strict" },
-          { name: "API", directory: "/work/api", team: "backend", sandbox: "none" },
+          { name: "API", directory: "/work/api", role: "backend", sandbox: "none" },
         ],
         link: false,
       }),
@@ -43,7 +44,7 @@ describe("workspace forge input", () => {
       members: [
         { projectID: "prj_existing" },
         { name: "Android app", directory: "/work/android", team: "mobile-app", sandbox: "strict" },
-        { name: "API", directory: "/work/api", team: "backend", sandbox: "none" },
+        { name: "API", directory: "/work/api", role: "backend", sandbox: "none" },
       ],
       link: false,
     })

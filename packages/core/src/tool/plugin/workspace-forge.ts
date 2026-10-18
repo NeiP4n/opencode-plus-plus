@@ -24,7 +24,10 @@ const GroupMember = Schema.Struct({
     description: "Path to an existing directory for a new project. Sandboxed modes require a git repository.",
   }),
   team: Schema.optionalKey(Schema.String).annotate({
-    description: "Exact AI team template ID from list.",
+    description: "Exact AI team template ID from list; mutually exclusive with role.",
+  }),
+  role: Schema.optionalKey(Schema.String).annotate({
+    description: "Exact individual AI role ID from list; creates one worker session alongside this project's Orchestrator. Mutually exclusive with team.",
   }),
   sandbox: Schema.optionalKey(SandboxMode),
 })
@@ -36,7 +39,10 @@ export const Input = Schema.Struct({
     description: "Path to an existing directory. Used by create_session.",
   }),
   team: Schema.optionalKey(Schema.String).annotate({
-    description: "Exact AI team template ID from list. Omit for an Orchestrator-only project.",
+    description: "Exact AI team template ID from list. Omit for an Orchestrator-only project. Mutually exclusive with role.",
+  }),
+  role: Schema.optionalKey(Schema.String).annotate({
+    description: "Exact individual AI role ID from list. Creates one worker session alongside the project Orchestrator. Mutually exclusive with team.",
   }),
   sandbox: Schema.optionalKey(SandboxMode).annotate({
     description: "none works directly in the selected directory; environment uses an isolated git worktree and separate OpenCode environment; strict adds bubblewrap confinement. Defaults to environment.",
@@ -52,7 +58,7 @@ export const Output = Schema.Struct({ output: Schema.String })
 
 type MemberSpec =
   | { kind: "existing"; project: Orchestra.Project }
-  | { kind: "create"; name: string; directory: string; team?: string; sandbox: SandboxMode }
+  | { kind: "create"; name: string; directory: string; team?: string; role?: Orchestra.Role; sandbox: SandboxMode }
 
 const sandboxChoice = (value: SandboxMode | undefined): SandboxMode => value ?? "environment"
 const sandboxArgs = (value: SandboxMode) => (value === "none" ? {} : { isolation: value })
@@ -81,7 +87,7 @@ export const Plugin = {
         description: [
           "Create OpenCode++ workspaces and federated groups. Available only to a project's main Orchestrator; workers should ask their Orchestrator to do this.",
           "Call action=list first for exact project IDs, team-template IDs and roles. An AI team is an Orchestra team template of role-based sessions. A federated group is a set of projects managed via a dedicated Group Orchestrator.",
-          "create_session creates a project/workspace and its main Orchestrator session, plus all role sessions in the optional team template. directory must already exist.",
+          "create_session creates a project/workspace and its main Orchestrator session. Choose one exact team-template ID to create every role session in that team, or one exact role ID to create a single worker session; team and role are mutually exclusive. Omit both for an Orchestrator-only project. directory must already exist.",
           "Sandbox modes: none uses the selected directory directly; environment (default) uses a separate git worktree and OpenCode data/config/state; strict adds bubblewrap confinement. Sandbox modes require a git repository; strict also requires bwrap. Never silently fall back to no sandbox.",
           "create_group accepts at least two ordered members, each an existing projectID or a new project (directory, optional name/team/sandbox). The first is coordinator. A dedicated Group Orchestrator is registered and receives an initial status-review task. Linking defaults on and requires operator approval.",
           "Never invent paths or IDs. A Group Orchestrator only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions.",
@@ -139,7 +145,7 @@ export const Plugin = {
                         )
                       : ["(none)"]),
                     "",
-                    "Individual AI roles (for the sessions tool):",
+                    "Individual AI role IDs (pass role to create one worker session; pass team for a whole template):",
                     ...roles.map((role) => `- ${role.id}: ${role.name} — ${role.description}`),
                     "",
                     "Federated groups:",
@@ -200,7 +206,7 @@ export const Plugin = {
                 for (let index = 0; index < inputMembers.length; index++) {
                   const member = inputMembers[index]!
                   if (member.projectID?.trim()) {
-                    if (member.name !== undefined || member.directory !== undefined || member.team !== undefined || member.sandbox !== undefined)
+                    if (member.name !== undefined || member.directory !== undefined || member.team !== undefined || member.role !== undefined || member.sandbox !== undefined)
                       return yield* new ToolFailure({ message: `Member ${index + 1}: when using projectID, provide no other fields.` })
                     const project = projects.find((item) => item.id === member.projectID)
                     if (!project) return yield* new ToolFailure({ message: `Member ${index + 1}: unknown project ID "${member.projectID}". Call list and use an exact ID.` })
