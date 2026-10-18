@@ -377,7 +377,7 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
       mime.startsWith("image/") ||
       mediaType.startsWith("image/") ||
       type.includes("screenshot") ||
-      type === "image" ||
+      type.includes("image") ||
       ((type === "file" || type === "attachment") && namedImage)
     ) {
       return undefined
