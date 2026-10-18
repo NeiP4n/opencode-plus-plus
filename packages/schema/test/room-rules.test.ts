@@ -85,7 +85,7 @@ test("outbound policy includes shell and MCP resource access", () => {
 test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toBeUndefined()
   expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
-  expect(RoomRules.describe({ hideExecution: true })).toContain("screenshots to guests")
+  expect(RoomRules.describe({ hideExecution: true })).toContain("screenshots to other guests")
   expect(RoomRules.describe({ denyGuestPrompts: true })).toContain("must not submit prompts")
   expect(RoomRules.describe({ denyGuestCommands: true })).toContain("must not execute shell commands")
 })
