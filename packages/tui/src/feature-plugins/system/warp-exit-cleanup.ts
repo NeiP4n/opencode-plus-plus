@@ -1,7 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { applyEdits, modify, parse } from "jsonc-parser"
 import * as Warp from "@opencode/core/warp"
 import { Plugin } from "@opencode/plugin/tui"
 
@@ -45,13 +44,142 @@ function currentSnapshot(entries: readonly unknown[]): Snapshot {
   }
 }
 
+function skipSpace(text: string, index: number) {
+  while (index < text.length && /\s/.test(text[index])) index++
+  return index
+}
+
+function scanValueEnd(text: string, start: number) {
+  let depth = 0
+  let quote = false
+  let lineComment = false
+  let blockComment = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (lineComment) {
+      if (ch === "\n") lineComment = false
+      continue
+    }
+    if (blockComment) {
+      if (ch === "*" && next === "/") {
+        blockComment = false
+        i++
+      }
+      continue
+    }
+    if (quote) {
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') quote = false
+      continue
+    }
+    if (ch === '"') {
+      quote = true
+      continue
+    }
+    if (ch === "/" && next === "/") {
+      lineComment = true
+      i++
+      continue
+    }
+    if (ch === "/" && next === "*") {
+      blockComment = true
+      i++
+      continue
+    }
+    if (ch === "{" || ch === "[") depth++
+    if (ch === "}" || ch === "]") {
+      depth--
+      if (depth === 0) return i + 1
+    }
+    if (depth === 0 && (ch === "," || ch === "\n")) return i
+  }
+  return text.length
+}
+
+function findProxyProperty(text: string) {
+  let quote = false
+  let lineComment = false
+  let blockComment = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (lineComment) {
+      if (ch === "\n") lineComment = false
+      continue
+    }
+    if (blockComment) {
+      if (ch === "*" && next === "/") {
+        blockComment = false
+        i++
+      }
+      continue
+    }
+    if (quote) {
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === '"') quote = false
+      continue
+    }
+    if (ch === '"') {
+      const end = (() => {
+        let j = i + 1
+        let escapedKey = false
+        for (; j < text.length; j++) {
+          if (escapedKey) escapedKey = false
+          else if (text[j] === "\\") escapedKey = true
+          else if (text[j] === '"') break
+        }
+        return j
+      })()
+      if (text.slice(i + 1, end) === "proxy" && text.slice(skipSpace(text, end + 1), skipSpace(text, end + 1) + 1) === ":") {
+        const colon = skipSpace(text, end + 1)
+        const valueStart = skipSpace(text, colon + 1)
+        return { keyStart: i, valueStart, valueEnd: scanValueEnd(text, valueStart) }
+      }
+      i = end
+      continue
+    }
+    if (ch === "/" && next === "/") {
+      lineComment = true
+      i++
+      continue
+    }
+    if (ch === "/" && next === "*") {
+      blockComment = true
+      i++
+    }
+  }
+  return undefined
+}
+
 function restoreSync(file: string, proxy: ProxyValue) {
   try {
     const text = readFileSync(file, "utf8")
-    const root = parse(text) as { proxy?: { http?: string; https?: string } | null }
-    if (!Warp.isWarpProxy(root.proxy)) return
-    const edits = modify(text, ["proxy"], proxy, { formattingOptions: { insertSpaces: true, tabSize: 2 } })
-    writeFileSync(file, applyEdits(text, edits), "utf8")
+    if (!text.includes(Warp.proxyUrl())) return
+    const property = findProxyProperty(text)
+    if (!property) return
+    if (proxy === null) {
+      const after = skipSpace(text, property.valueEnd)
+      if (text[after] === ",") {
+        writeFileSync(file, text.slice(0, property.keyStart) + text.slice(after + 1), "utf8")
+        return
+      }
+      const before = property.keyStart - 1
+      let comma = before
+      while (comma >= 0 && /\s/.test(text[comma])) comma--
+      if (text[comma] === ",") {
+        writeFileSync(file, text.slice(0, comma) + text.slice(property.valueEnd), "utf8")
+        return
+      }
+      writeFileSync(file, text.slice(0, property.keyStart) + text.slice(property.valueEnd), "utf8")
+      return
+    }
+    const serialized = JSON.stringify(proxy, null, 2)
+    writeFileSync(file, text.slice(0, property.valueStart) + serialized + text.slice(property.valueEnd), "utf8")
   } catch {}
 }
 
