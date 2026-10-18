@@ -674,8 +674,20 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Stream.orDie,
               // Durable history is broader than the live guest event union. Allowlist it too, so
               // system prompts, permission rules, raw message rewrites and other host-only events
-              // cannot leak through replay merely because they are durable.
+              // cannot leak through replay merely because they are durable. Rebuild the public
+              // envelope as the live path does, omitting host-only location and metadata fields.
               Stream.filter((event) => Option.isSome(decodeRoomLiveEvent(event))),
+              Stream.map((event) =>
+                Option.getOrUndefined(
+                  decodeRoomLiveEvent({
+                    id: event.id,
+                    created: event.created,
+                    type: event.type,
+                    data: event.data,
+                    ...("durable" in event && event.durable ? { durable: event.durable } : {}),
+                  }),
+                )!,
+              ),
             )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
