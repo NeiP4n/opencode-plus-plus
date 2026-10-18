@@ -130,7 +130,6 @@ const MEMBER_LIMIT = 100
 // Requests that run a command on the host for a guest. Only the host answers them, so a
 // cohost or helper cannot approve its own command.
 const HOST_ONLY = new Set(["room.run", "room.check"])
-const HIDDEN_EXECUTION_ACTIONS = new Set(["shell", "hub", "desktop", "playtest", "room.run", "room.check"])
 const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.shell.started",
   "session.shell.ended",
@@ -152,13 +151,8 @@ const HIDDEN_EXECUTION_EVENTS = new Set([
 
 function hiddenExecutionEvent(event: unknown) {
   if (!event || typeof event !== "object") return false
-  const value = event as { type?: unknown; data?: { action?: unknown } }
-  if (typeof value.type === "string" && HIDDEN_EXECUTION_EVENTS.has(value.type)) return true
-  return (
-    value.type === "permission.asked" &&
-    typeof value.data?.action === "string" &&
-    HIDDEN_EXECUTION_ACTIONS.has(value.data.action)
-  )
+  const value = event as { type?: unknown }
+  return typeof value.type === "string" && HIDDEN_EXECUTION_EVENTS.has(value.type)
 }
 
 function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
@@ -172,7 +166,7 @@ function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
     (typeof value.type === "string" && value.type.startsWith("session.compaction."))
   )
     return true
-  return hideExecution && hiddenExecutionEvent(event)
+  return hideExecution && (hiddenExecutionEvent(event) || value.type === "permission.asked")
 }
 
 // The live events a following guest log adds to the durable ones. Stream fragments (text,
@@ -831,9 +825,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             locationErrors,
             Effect.orDie,
           )
-          const visible = rules?.hideExecution
-            ? requests.filter((request) => !HIDDEN_EXECUTION_ACTIONS.has(request.action))
-            : requests
+          const visible = rules?.hideExecution ? [] : requests
           const data = rules?.hidePaths
             ? redactRoomValue(visible, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
             : visible
@@ -852,8 +844,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             if (!request || request.sessionID !== session.id) return yield* missingRequest(ctx.params.requestID)
             if (HOST_ONLY.has(request.action))
               return yield* new ForbiddenError({ message: "Only the host answers this request" })
-            if (rules?.hideExecution && HIDDEN_EXECUTION_ACTIONS.has(request.action))
-              return yield* new ForbiddenError({ message: "This room hides execution details; only the host may answer this request" })
+            if (rules?.hideExecution)
+              return yield* new ForbiddenError({ message: "This room hides tool execution details; only the host may answer permission requests" })
             yield* permission
               .reply({ requestID: ctx.params.requestID, reply: ctx.payload.decision, message: ctx.payload.message })
               .pipe(Effect.catchTag("Permission.NotFoundError", () => missingRequest(ctx.params.requestID)))
