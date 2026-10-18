@@ -225,14 +225,15 @@ export function protectedFile(rules: Rules | undefined, file: string) {
 // Also guard file paths passed as shell arguments (including quoted paths and --option=path).
 export function commandTouchesProtectedFile(rules: Rules | undefined, command: string) {
   const normal = command.replaceAll("\\", "/")
-  return (rules?.protectedFiles ?? []).some((raw) => {
+  const patterns = [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])]
+  return patterns.some((raw) => {
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
-    // Check path-like substrings too: a filename can be embedded inside a quoted script
-    // argument (for example python -c 'open(".env").read()').
+    // "**/name" must also match "name" when it is relative to the project root.
+    const candidates = [pattern, pattern.replace(/^\*\*\//, "")]
     // A path can begin after whitespace or a quote in a shell argument, not only after a slash.
     const prefix = "(^|[/\\s'\"=])"
-    return glob(pattern, prefix).test(normal)
+    return candidates.some((candidate) => glob(candidate, prefix).test(normal))
   })
 }
 
