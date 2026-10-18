@@ -137,6 +137,9 @@ const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.tool.progress",
   "session.tool.success",
   "session.tool.failed",
+  "session.execution.failed",
+  "session.step.failed",
+  "session.retry.scheduled",
   "session.compaction.started",
   "session.compaction.delta",
   "session.compaction.ended",
@@ -157,8 +160,13 @@ function hiddenExecutionEvent(event: unknown) {
 function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
   if (!event || typeof event !== "object") return false
   const value = event as { type?: unknown }
-  // Reasoning deltas are private model state and are never part of a guest transcript.
-  if (value.type === "session.reasoning.delta") return true
+  // These events contain private model context, not user-facing chat.
+  if (
+    value.type === "session.reasoning.delta" ||
+    value.type === "session.skill.activated" ||
+    (typeof value.type === "string" && value.type.startsWith("session.compaction."))
+  )
+    return true
   return hideExecution && hiddenExecutionEvent(event)
 }
 
