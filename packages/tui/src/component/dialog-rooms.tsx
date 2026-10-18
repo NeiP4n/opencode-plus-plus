@@ -1411,13 +1411,13 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Commands requiring approval")}
-          help={t("Comma-separated command/program patterns. A matching program asks the host before use; Always allow applies only to that room member. * matches any text.")}
+          help={t("Comma-separated command/program patterns. A matching program asks the host before use; Always allow approves that whole program for that room member only. * matches any text.")}
         >
           {field("blockCommands", "rm -rf, git push*, curl")}
         </Setting>
         <Setting
           label={t("Off-limits files")}
-          help={t("Comma-separated names or folders. .env files, SSH/cloud credentials, private keys, certificates and credential JSON are protected automatically too.")}
+          help={t("Comma-separated names or folders. .env, auth/token files, SSH/cloud credentials, private keys, certificates and credential JSON are protected automatically too.")}
         >
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
