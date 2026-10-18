@@ -152,7 +152,8 @@ function forGuest(dod: Room.Dod, member: Room.Member): Room.Dod {
 }
 
 function redactForGuest<A>(room: Room.Info, directory: string, value: A): A {
-  return room.rules?.hidePaths ? RoomRules.redactPaths(value, directory) : value
+  const filtered = RoomRules.hideExecutionFeed(room.rules, value)
+  return RoomRules.sanitizeForGuest(filtered as A, room.rules, directory)
 }
 
 // The handover note of a DoD item: L-003 keeps its notes in dod-l-003.
@@ -622,13 +623,22 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
             .pipe(Stream.orDie)
           const directory = joined.room.directory ?? session.location.directory
-          if (!ctx.query.follow) {
-            return joined.room.rules?.hidePaths
-              ? durable.pipe(Stream.map((event) => RoomRules.redactPaths(event, directory)))
-              : durable
-          }
+          const applyCurrentRoomPolicy = <A>(event: A) =>
+            Effect.gen(function* () {
+              const current = yield* rooms.get(joined.room.id).pipe(Effect.orElseSucceed(() => joined.room))
+              if (RoomRules.hideExecutionEvent(current.rules, event)) return undefined
+              const filtered = RoomRules.hideExecutionFeed(current.rules, event)
+              return RoomRules.sanitizeForGuest(filtered as A, current.rules, directory)
+            })
+          const protectStream = <A, E, R>(stream: Stream.Stream<A, E, R>) =>
+            stream.pipe(
+              Stream.mapEffect(applyCurrentRoomPolicy),
+              Stream.filter((event) => event !== undefined),
+              Stream.map((event) => event!),
+            )
+          if (!ctx.query.follow) return protectStream(durable)
           // Permission requests are not in the durable log; a following guest hears this session's
-          // live ones too, instead of polling for them.
+          // live ones too, instead of polling for them. The same dynamic policy covers replay and live events.
           const live = Stream.callback<typeof RoomLiveEvent.Type>((queue) =>
             Effect.acquireRelease(
               bus.listen((event) =>
@@ -663,9 +673,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ),
           )
           const combined = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
-          return joined.room.rules?.hidePaths
-            ? combined.pipe(Stream.map((event) => RoomRules.redactPaths(event, directory)))
-            : combined
+          return protectStream(combined)
         }),
       )
       .handle(
