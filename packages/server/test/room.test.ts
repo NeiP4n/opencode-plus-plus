@@ -682,8 +682,11 @@ it.live("a following guest log carries the session's permission requests as they
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
-    const room = (yield* call("/api/room", { method: "POST", headers: host, body: { sessionID: session.id, rules: { noOutbound: false } } })).body
-      .data
+    const room = (yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, rules: { noOutbound: false, blockCommands: ["echo*"] } },
+    })).body.data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
     const guest = { authorization: `Bearer ${joined.token}` }
@@ -1008,7 +1011,7 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     // the passport is for guests of this room only
     expect((yield* call(`/api/room/${room.id}/guest/passport`)).status).toBe(401)
 
-    const run = (command = "echo from-the-host; env") =>
+    const run = (command = "echo from-the-host") =>
       call(`/api/room/${room.id}/guest/run`, {
         method: "POST",
         headers: guest,
@@ -1021,16 +1024,28 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
       body: { role: "cohost" },
     })
 
-    // nothing runs until the host answers the request in its session
+    // A remote guest cannot dump the host's environment, even if outbound access is explicitly enabled.
+    expect((yield* run("env")).status).toBe(403)
+
+    // Nothing runs until the host approves use of the program. "Always" is saved to this guest only.
     const pending = yield* run().pipe(Effect.forkScoped)
     const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
-      Effect.map((response) => response.body.data as { id: string; action: string }[]),
-      Effect.filterOrFail((requests) => requests.length > 0),
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        resources: string[]
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Phone"),
+      ),
       Effect.retry(Schedule.spaced("20 millis")),
       Effect.timeout("5 seconds"),
-      Effect.map((requests) => requests[0]),
+      Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Phone")!),
     )
-    expect(request.action).toBe("room.run")
+    expect(request.action).toBe("room.program")
+    expect(request.resources).toEqual(["echo"])
+    expect(request.metadata?.guest).toBe("Phone")
     // the cohost sees its request but only the host answers it
     const self = yield* call(`/api/room/${room.id}/guest/permission/${request.id}/reply`, {
       method: "POST",
@@ -1041,14 +1056,50 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
       method: "POST",
       headers: host,
-      body: { decision: "once" },
+      body: { decision: "always" },
     })
     const result = yield* Fiber.join(pending)
     expect(result.status).toBe(200)
     expect(result.body.exitCode).toBe(0)
     expect(result.body.output).toContain("from-the-host")
-    // the output goes to the guest, so the host's keys are not in the command's environment
+    // No environment variables were printed, and "always" now lets this member use echo without another prompt.
     expect(result.body.output).not.toContain("ROOM_TEST_API_KEY")
+    const repeated = yield* run("echo member-specific")
+    expect(repeated.status).toBe(200)
+    expect(repeated.body.output).toContain("member-specific")
+
+    // Another cohost does not inherit Phone's grant and must receive a separate approval request.
+    const other = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Other Phone" } })).body
+    const otherGuest = { authorization: `Bearer ${other.token}` }
+    yield* call(`/api/room/${room.id}/member/${other.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    const otherPending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: otherGuest,
+      body: { command: "echo other-member" },
+    }).pipe(Effect.forkScoped)
+    const otherRequest = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.guest === "Other Phone"),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("5 seconds"),
+      Effect.map((requests) => requests.find((item) => item.action === "room.program" && item.metadata?.guest === "Other Phone")!),
+    )
+    yield* call(`/api/session/${session.id}/permission/${otherRequest.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+    expect((yield* Fiber.join(otherPending)).body.output).toContain("other-member")
 
     yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
       method: "PATCH",
