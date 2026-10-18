@@ -52,7 +52,7 @@ function segments(command: string) {
   // conservative: policy matching may reject a harmless command containing a
   // blocked invocation, but must not silently permit common shell wrappers.
   return command
-    .split(/[;&|()\n\r\t`<>$"'\\\\]+/)
+    .split(/[;&|()\n\r\t`<>$"'\\]+/)
     .map((part) => part.trim())
     .filter(Boolean)
 }
@@ -63,7 +63,7 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
     if (!pattern) return false
     const start = glob(pattern, "^")
     const candidates = segments(command).flatMap((part) => {
-      const words = part.split(/\\s+/).filter(Boolean)
+      const words = part.split(/\s+/).filter(Boolean)
       // A blocked executable can be prefixed with sudo, env, command, nohup,
       // assignments, or another wrapper. Try every word boundary, not only the
       // beginning of the shell segment.
