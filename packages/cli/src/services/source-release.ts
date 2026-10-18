@@ -31,6 +31,7 @@ export async function apply(release: string, root = checkout) {
   return keepingEdits(root, async () => {
     await $`git -C ${root} checkout --detach ${"refs/tags/" + PREFIX + release}`.quiet()
     await $`${process.execPath} install --frozen-lockfile --filter ./packages/cli`.cwd(root).quiet()
+    await validateServer(root)
   })
 }
 
@@ -118,11 +119,20 @@ export async function follow(root = checkout) {
   return keepingEdits(root, async () => {
     await $`git -C ${root} checkout --quiet --detach ${"origin/" + INSTALL_BRANCH}`.quiet()
     await $`${process.execPath} install --frozen-lockfile --filter ./packages/cli`.cwd(root).quiet()
+    await validateServer(root)
   })
 }
 
+async function validateServer(root: string) {
+  const result = await $`${process.execPath} run --cwd packages/server typecheck`.cwd(root).quiet().nothrow()
+  if (result.exitCode !== 0) {
+    const detail = result.stderr.toString().trim() || result.stdout.toString().trim() || `Server typecheck exited with code ${result.exitCode}`
+    throw new Error(`OpenCode++ update validation failed:\n${detail}`)
+  }
+}
+
 // A source update is transactional: never leave a checkout on new code whose dependencies
-// failed to install. This prevents /upgrade from starting a broken mixed-version server.
+// or server typecheck failed. This prevents /upgrade from starting a broken mixed-version server.
 export async function pull(root = checkout) {
   const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
   if (!previous) throw new Error("Cannot determine the current checkout revision")
@@ -144,6 +154,7 @@ export async function pull(root = checkout) {
       }
       moved = true
       await $`${process.execPath} install --frozen-lockfile --filter ./packages/cli`.cwd(root).quiet()
+      await validateServer(root)
     } catch (error) {
       if (moved) await $`git -C ${root} reset --hard --quiet ${previous}`.quiet().nothrow()
       throw error
