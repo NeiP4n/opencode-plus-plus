@@ -57,6 +57,13 @@ const ParentIDFilter = Schema.Union([
   description: "Filter by parent session. Use null to return only root sessions.",
 })
 
+export const BooleanFromString = Schema.Literals(["true", "false"]).pipe(
+  Schema.decodeTo(Schema.Boolean, {
+    decode: SchemaGetter.transform((value) => value === "true"),
+    encode: SchemaGetter.transform((value): "true" | "false" => (value ? "true" : "false")),
+  }),
+)
+
 const SessionsQueryFields = {
   limit: Schema.NumberFromString.pipe(Schema.decodeTo(PositiveInt), Schema.optional).annotate({
     description: "Maximum number of sessions to return. Defaults to the newest 50 sessions.",
@@ -153,13 +160,6 @@ const FormCreatePayload = Schema.Struct({
   metadata: Form.Info.fields.metadata,
   fields: Form.Info.fields.fields,
 }).annotate({ identifier: "Form.CreatePayload" })
-
-export const BooleanFromString = Schema.Literals(["true", "false"]).pipe(
-  Schema.decodeTo(Schema.Boolean, {
-    decode: SchemaGetter.transform((value) => value === "true"),
-    encode: SchemaGetter.transform((value): "true" | "false" => (value ? "true" : "false")),
-  }),
-)
 
 const SessionsQueryCursor = SessionsCursor.annotate({
   description: "Opaque pagination cursor returned as cursor.previous or cursor.next in the previous response.",
