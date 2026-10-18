@@ -46,9 +46,11 @@ function render(
     sidebar?: "auto" | "hide"
     createdRosterGate?: Promise<void>
     createdMainGate?: Promise<void>
+    groups?: { name: string; projects: string[]; mode?: "lead" | "council"; supervisor?: string }[]
   } = {},
 ) {
   let projectCreated = false
+  let groupData = options.groups ?? []
   return createAppFixture({
     width: options.width ?? 120,
     state,
@@ -61,6 +63,15 @@ function render(
       layout,
     },
     fetch: async (url, request) => {
+      if (url.pathname === "/api/orchestra/group") {
+        if (request.method === "GET") return json(groupData)
+        if (request.method === "PUT") {
+          const body = (await request.json()) as (typeof groupData)[number]
+          calls.push({ method: request.method, path: url.pathname, body })
+          groupData = [...groupData.filter((group) => group.name !== body.name), body]
+          return new Response(null, { status: 204 })
+        }
+      }
       if (url.pathname.startsWith("/api/orchestra"))
         calls.push({
           method: request.method,
@@ -234,6 +245,31 @@ test("opening project settings from the gear stays open after the mouse is relea
   await setup.waitForFrame((frame) => frame.includes("Edit project") && frame.includes("Path"))
   await setup.renderOnce()
   expect(setup.captureCharFrame()).toContain("Edit project")
+})
+
+test("the orchestrator council mode button saves the group mode when clicked", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project], worker, "full", {
+    width: 140,
+    groups: [{ name: "Games", projects: [project.id], mode: "lead", supervisor: "ses_group_previous" }],
+  })
+  await setup.ready
+
+  const tree = await setup.waitForFrame((frame) => frame.includes("+ Group") && frame.includes("Projects"))
+  const addGroup = cell(tree, "+ Group")
+  await setup.mockMouse.click(addGroup.x + 2, addGroup.y)
+
+  const dialog = await setup.waitForFrame((frame) => frame.includes("Project groups") && frame.includes("Orchestrator council"))
+  const council = cell(dialog, "Orchestrator council")
+  await setup.mockMouse.click(council.x + 2, council.y)
+
+  await setup.waitFor(() =>
+    calls.some(
+      (call) => call.method === "PUT" && call.path === "/api/orchestra/group" && (call.body as { mode?: string })?.mode === "council",
+    ),
+  )
+  await setup.waitForFrame((frame) => frame.includes("★ Общество · Открыть"))
 })
 
 test("deleting a session takes two clicks on its ×", async () => {
