@@ -97,8 +97,8 @@ export function createHomeProjectsController(home: HomeController) {
             paths={selected}
             candidates={unique}
             onConfirm={(chosen, createNew) => {
-              const paths = [...chosen, ...(createNew ? selected : [])]
-              if (paths.length) home.project.add(conn, [...new Set(paths)])
+              chosen.forEach((directory) => home.project.select(conn, directory))
+              if (createNew) home.project.add(conn, selected)
               dialog.close()
             }}
           />
