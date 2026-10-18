@@ -571,6 +571,16 @@ it.live("hideScreenshots changes apply to an already-open room history", () =>
     expect(joined.status).toBe(200)
     const guestHeaders = { authorization: `Bearer ${joined.body.token}` }
     const imageData = "data:image/png;base64,YWJj"
+    const submitted = yield* call(`/api/room/${room.id}/guest/prompt`, {
+      method: "POST",
+      headers: guestHeaders,
+      body: { text: `screenshot reference: ${imageData}` },
+    })
+    expect(submitted.status).toBe(200)
+    const chatBefore = yield* call(`/api/room/${room.id}/guest/message`, { headers: guestHeaders })
+    expect(chatBefore.status).toBe(200)
+    expect(JSON.stringify(chatBefore.body.data)).toContain(imageData)
+
     const executed = yield* call(`/api/session/${session.id}/shell`, {
       method: "POST",
       headers: host,
@@ -593,6 +603,10 @@ it.live("hideScreenshots changes apply to an already-open room history", () =>
     expect(after.status).toBe(200)
     expect(JSON.stringify(after.body.data)).not.toContain(imageData)
     expect(JSON.stringify(after.body.data)).toContain("[image hidden by room rules]")
+    const chatAfter = yield* call(`/api/room/${room.id}/guest/message`, { headers: guestHeaders })
+    expect(chatAfter.status).toBe(200)
+    expect(JSON.stringify(chatAfter.body.data)).not.toContain(imageData)
+    expect(JSON.stringify(chatAfter.body.data)).toContain("[image hidden by room rules]")
   }).pipe(Effect.scoped),
 )
 
