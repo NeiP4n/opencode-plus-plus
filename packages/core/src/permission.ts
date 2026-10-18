@@ -173,7 +173,7 @@ const layer = Layer.effect(
     const roomRulesForSession = Effect.fnUntraced(function* (sessionID: SessionSchema.ID) {
       const visited = new Set<string>()
       let currentID = sessionID
-      let session: Awaited<ReturnType<typeof sessions.get>> | undefined
+      let session: SessionSchema.Info | undefined
       while (!visited.has(currentID)) {
         visited.add(currentID)
         session = yield* sessions.get(currentID)
@@ -205,6 +205,13 @@ const layer = Layer.effect(
       const rules = yield* configured(input.sessionID, input.agent)
       if (denied(input, rules)) return { effect: "deny" as const, rules }
       const all = [...rules, ...(yield* savedRules())]
+      // Preserve policy inputs before extension hooks run; a plugin may adjust the ordinary
+      // permission result, but must not mutate the data used by the final room-policy check.
+      const policyInput = {
+        action: input.action,
+        resources: [...input.resources],
+        metadata: input.metadata ? { ...input.metadata } : undefined,
+      }
       const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
       const effect: Permission.Effect = effects.includes("ask") ? "ask" : "allow"
       const event = yield* hooks.trigger("permission", "evaluate", {
@@ -218,7 +225,7 @@ const layer = Layer.effect(
       })
       // Room restrictions are a hard policy boundary, not an overridable permission hook.
       // Apply them after every plugin hook so an extension cannot turn a deny into an allow.
-      const roomViolation = RoomRules.violation(yield* roomRulesForSession(input.sessionID), input)
+      const roomViolation = RoomRules.violation(yield* roomRulesForSession(input.sessionID), policyInput)
       if (roomViolation) {
         return {
           effect: "deny" as const,
