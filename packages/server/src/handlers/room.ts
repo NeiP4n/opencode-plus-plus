@@ -1060,7 +1060,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const data = yield* atRoom(joined.room, Model.Service.use((models) => models.available()))
           return { data: rules?.hidePaths ? redactRoomValue(data, [directory]) : data }
         }),
-      ).handle(
+      )
+      .handle(
         "room.guest.agent.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
@@ -1069,7 +1070,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const data = yield* atRoom(joined.room, Agent.Service.use((agents) => agents.list()))
           return { data: rules?.hidePaths ? redactRoomValue(data, [directory]) : data }
         }),
-      ).handle(
+      )
+      .handle(
         "room.guest.mcp.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
@@ -1089,7 +1091,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const data = yield* atRoom(joined.room, Command.Service.use((commands) => commands.list()))
           return { data: rules?.hidePaths ? redactRoomValue(data, [directory]) : data }
         }),
-      ).handle(
+      )
+      .handle(
         "room.guest.session.model",
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "cohost")
