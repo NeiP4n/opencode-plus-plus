@@ -184,6 +184,13 @@ describe("Plot", () => {
         ),
       ).toContain("must stay inside the project directory")
       expect(yield* plots.list(directory)).toEqual([])
+
+      // An in-project symlink must not bypass a claim by using a different lexical path.
+      yield* Effect.promise(() => mkdir(path.join(directory, "src"), { recursive: true }))
+      yield* Effect.promise(() => symlink(path.join(directory, "src"), path.join(directory, "alias")))
+      const other = yield* sessions.create({ location: { directory: AbsolutePath.make(directory) } })
+      yield* plots.claim({ sessionID: session.id, directory, paths: ["src"], purpose: "parser work" })
+      expect(yield* refusal(plots.guard({ sessionID: other.id, files: ["alias/parser.ts"] }))).toContain("parser work")
     }).pipe(Effect.scoped),
   )
 
