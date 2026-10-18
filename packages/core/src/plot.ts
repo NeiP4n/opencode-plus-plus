@@ -240,7 +240,8 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         if (!contained)
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         for (const { plot, folder } of yield* live(files)) {
-          const touched = input.files.some((file) => plot.paths.some((held) => covers(held, file)))
+          // Compare canonical absolute paths; callers may supply project-relative paths.
+          const touched = files.some((file) => plot.paths.some((held) => covers(held, file)))
           if (!touched) continue
           if (!(yield* holds(plot, input.sessionID))) return yield* taken(plot)
           // Working inside its own plot keeps it alive.
