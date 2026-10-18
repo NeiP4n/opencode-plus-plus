@@ -129,3 +129,9 @@ test("execution privacy removes tool calls but keeps the assistant's ordinary te
 test("project path redaction also masks an ancestor project root", () => {
   expect(RoomRules.redactPath("project at /work/repo/src/sub", "/work/repo/src/sub")).toBe("project at <project>")
 })
+
+test("outbound access is blocked by default in a room and must be explicitly enabled", () => {
+  expect(RoomRules.merge([{}])?.noOutbound).toBe(true)
+  expect(RoomRules.merge([{ noOutbound: false }])?.noOutbound).toBe(false)
+  expect(RoomRules.merge([{ noOutbound: false }, {}])?.noOutbound).toBe(true)
+})
