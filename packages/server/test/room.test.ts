@@ -1082,6 +1082,14 @@ it.live("guests share the host project's DoD: one takes an item with a plot, the
     const passport = (yield* call(`/api/room/${room.id}/guest/passport`, { headers: alex })).body
     expect(passport.plots).toMatchObject([{ purpose: "DoD L-001 for Alex", paths: ["src"] }])
 
+    // Hiding execution must also hide the active-work plot metadata from the passport.
+    yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hideExecution: true } },
+    })
+    expect((yield* call(`/api/room/${room.id}/guest/passport`, { headers: alex })).body.plots).toEqual([])
+
     yield* call(`/api/room/${room.id}/member/${bo.guest.id}`, {
       method: "PATCH",
       headers: host,
