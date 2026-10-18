@@ -552,6 +552,47 @@ it.live("hideExecution changes apply to a room that is already open", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("hideScreenshots changes apply to an already-open room history", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hideExecution: false, hideScreenshots: false, noOutbound: false } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const guestHeaders = { authorization: `Bearer ${joined.body.token}` }
+    const imageData = "data:image/png;base64,YWJj"
+    const executed = yield* call(`/api/session/${session.id}/shell`, {
+      method: "POST",
+      headers: host,
+      body: { command: `echo "${imageData}"` },
+    })
+    expect(executed.status).toBe(204)
+
+    const before = yield* call(`/api/room/${room.id}/guest/session/message`, { headers: guestHeaders })
+    expect(before.status).toBe(200)
+    expect(JSON.stringify(before.body.data)).toContain(imageData)
+
+    // The guest remains connected while the host changes screenshot visibility.
+    const changed = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hideExecution: false, hideScreenshots: true, noOutbound: false } },
+    })
+    expect(changed.status).toBe(200)
+    const after = yield* call(`/api/room/${room.id}/guest/session/message`, { headers: guestHeaders })
+    expect(after.status).toBe(200)
+    expect(JSON.stringify(after.body.data)).not.toContain(imageData)
+    expect(JSON.stringify(after.body.data)).toContain("[image hidden by room rules]")
+  }).pipe(Effect.scoped),
+)
+
 it.live("protected files cannot be read through guest shell commands", () =>
   Effect.gen(function* () {
     const { call, room, code } = yield* setup
