@@ -706,6 +706,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (joined.room.rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
+          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          if (protectedFile)
+            return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           // A host assigns Trusted per device when its commands should run unattended.
