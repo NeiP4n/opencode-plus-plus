@@ -149,45 +149,39 @@ function decodeSharedRateLimit(value: KV.Value | undefined): SharedRateLimit | u
 
 function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
   const prefix = providerPrefix(providerID)
-  const scan = (after?: string): Effect.Effect<readonly KV.Entry[]> =>
+  let retryAt: number | undefined
+  let lastSuccessAt = Number.NEGATIVE_INFINITY
+  const stale: string[] = []
+  const streaks: { updatedAt: number; consecutive: number }[] = []
+  const scan = (after?: string): Effect.Effect<void> =>
     Effect.gen(function* () {
       const page = yield* kv.scan({ prefix, after, limit: 1000 })
-      if (!page.next) return page.entries
-      return [...page.entries, ...(yield* scan(page.next))]
+      // Process each page before fetching the next. The previous implementation retained every
+      // raw KV entry and then allocated a second array of decoded states for the whole prefix.
+      for (const entry of page.entries) {
+        const state = decodeSharedRateLimit(entry.value)
+        if (!state || state.providerID !== providerID || now - state.updatedAt >= RATE_LIMIT_STREAK_WINDOW) {
+          stale.push(entry.key)
+          continue
+        }
+        if (state.outcome === "success") lastSuccessAt = Math.max(lastSuccessAt, state.updatedAt)
+        if (state.outcome === "rate-limit") {
+          if (state.retryAt > now) retryAt = Math.max(retryAt ?? 0, state.retryAt)
+          streaks.push({ updatedAt: state.updatedAt, consecutive: state.consecutive })
+        }
+      }
+      if (page.next) yield* scan(page.next)
     })
   return Effect.gen(function* () {
-    const entries = yield* scan()
-    let retryAt: number | undefined
-    let consecutive = 0
-    let lastSuccessAt = Number.NEGATIVE_INFINITY
-    const stale: string[] = []
-    const states = entries.map((entry) => ({ key: entry.key, state: decodeSharedRateLimit(entry.value) }))
-    for (const entry of states) {
-      if (
-        !entry.state ||
-        entry.state.providerID !== providerID ||
-        now - entry.state.updatedAt >= RATE_LIMIT_STREAK_WINDOW
-      ) {
-        stale.push(entry.key)
-        continue
-      }
-      if (entry.state.outcome === "success") lastSuccessAt = Math.max(lastSuccessAt, entry.state.updatedAt)
-      if (entry.state.outcome === "rate-limit" && entry.state.retryAt > now)
-        retryAt = Math.max(retryAt ?? 0, entry.state.retryAt)
-    }
-    for (const entry of states) {
-      const state = entry.state
-      if (
-        state?.outcome === "rate-limit" &&
-        state.providerID === providerID &&
-        state.updatedAt > lastSuccessAt &&
-        now - state.updatedAt < RATE_LIMIT_STREAK_WINDOW
-      )
-        consecutive = Math.max(consecutive, state.consecutive)
-    }
+    yield* scan()
+    const consecutive = streaks.reduce(
+      (max, state) => (state.updatedAt > lastSuccessAt ? Math.max(max, state.consecutive) : max),
+      0,
+    )
     // Each observation is independent and safe to remove after the streak window. New rate limits
     // write unique keys, so cleaning an old entry cannot erase a concurrent provider cooldown.
-    yield* Effect.forEach(stale, (key) => kv.remove(key), { concurrency: "unbounded" })
+    // Bound cleanup concurrency to avoid creating an unbounded number of effects after a long outage.
+    yield* Effect.forEach(stale, (key) => kv.remove(key), { concurrency: 32 })
     return { retryAt, consecutive }
   })
 }
