@@ -890,13 +890,19 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
         const pending = yield* send(headers, body).pipe(Effect.forkScoped)
         if (decision === undefined) return yield* Fiber.join(pending)
         const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
-          Effect.map((response) => response.body.data as { id: string; action: string }[]),
+          Effect.map((response) => response.body.data as {
+            id: string
+            action: string
+            resources: string[]
+            metadata?: Record<string, unknown>
+          }[]),
           Effect.filterOrFail((requests) => requests.length > 0),
           Effect.retry(Schedule.spaced("20 millis")),
           Effect.timeout("5 seconds"),
           Effect.map((requests) => requests[0]),
         )
-        expect(request.action).toBe("room.check")
+        expect(request.action).toBe("room.program")
+        expect(request.resources).toEqual(["test"])
         yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
           method: "POST",
           headers: host,
@@ -935,8 +941,8 @@ it.live("a guest takes the next ready item, hands it over, and the host's check 
     expect(handed.body.note.text).toContain("Parser stub is in, the file is not yet.")
 
     yield* Effect.promise(() => Bun.write(path.join(directory, "parser.txt"), "done"))
-    // "always" remembered this exact check, so it runs without asking again
-    const passed = yield* submit(boHeaders, { id: "L-001" })
+    // Program grants belong to the member who received them. Bo must get their own approval.
+    const passed = yield* submit(boHeaders, { id: "L-001" }, "once")
     expect(passed.body.check.exitCode).toBe(0)
     expect(passed.body.items[0].state).toBe("DONE")
     expect(passed.body.items[1].waits).toBeUndefined()
