@@ -87,6 +87,18 @@ const MEMBER_LIMIT = 100
 // Requests that run a command on the host for a guest. Only the host answers them, so a
 // cohost or helper cannot approve its own command.
 const HOST_ONLY = new Set(["room.run", "room.check"])
+const HIDDEN_EXECUTION_ACTIONS = new Set(["shell", "hub", "desktop"])
+const HIDDEN_EXECUTION_EVENTS = new Set([
+  "session.shell.started",
+  "session.shell.ended",
+  "session.tool.input.started",
+  "session.tool.input.delta",
+  "session.tool.input.ended",
+  "session.tool.called",
+  "session.tool.progress",
+  "session.tool.success",
+  "session.tool.failed",
+])
 
 // The live events a following guest log adds to the durable ones. Stream fragments (text,
 // reasoning, tool input, compaction) and tool progress are ephemeral, so they never appear in
@@ -566,10 +578,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
             .pipe(Stream.orDie)
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
-          if (!ctx.query.follow)
-            return rules?.hidePaths
-              ? durable.pipe(Stream.map((event) => redactRoomValue(event, directories)))
+          if (!ctx.query.follow) {
+            const visible = rules?.hideExecution
+              ? durable.pipe(Stream.filter((event) => !HIDDEN_EXECUTION_EVENTS.has(event.type)))
               : durable
+            return rules?.hidePaths
+              ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
+              : visible
+          }
           // Permission requests are not in the durable log; a following guest hears this session's
           // live ones too, instead of polling for them.
           const live = Stream.callback<typeof RoomLiveEvent.Type>((queue) =>
@@ -606,9 +622,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ),
           )
           const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
-          return rules?.hidePaths
-            ? stream.pipe(Stream.map((event) => redactRoomValue(event, directories)))
+          const visible = rules?.hideExecution
+            ? stream.pipe(Stream.filter((event) => !HIDDEN_EXECUTION_EVENTS.has(event.type)))
             : stream
+          return rules?.hidePaths
+            ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
+            : visible
         }),
       )
       .handle(
@@ -694,9 +713,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             locationErrors,
             Effect.orDie,
           )
-          const data = rules?.hidePaths
-            ? redactRoomValue(requests, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
+          const visible = rules?.hideExecution
+            ? requests.filter((request) => !HIDDEN_EXECUTION_ACTIONS.has(request.action))
             : requests
+          const data = rules?.hidePaths
+            ? redactRoomValue(visible, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
+            : visible
           return { data }
         }),
       )
@@ -705,12 +727,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "helper")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
+          const rules = yield* effectiveRules(joined.room, session.location.directory)
           yield* Effect.gen(function* () {
             const permission = yield* Permission.Service
             const request = yield* permission.get(ctx.params.requestID)
             if (!request || request.sessionID !== session.id) return yield* missingRequest(ctx.params.requestID)
             if (HOST_ONLY.has(request.action))
               return yield* new ForbiddenError({ message: "Only the host answers this request" })
+            if (rules?.hideExecution && HIDDEN_EXECUTION_ACTIONS.has(request.action))
+              return yield* new ForbiddenError({ message: "This room hides execution details; only the host may answer this request" })
             yield* permission
               .reply({ requestID: ctx.params.requestID, reply: ctx.payload.decision, message: ctx.payload.message })
               .pipe(Effect.catchTag("Permission.NotFoundError", () => missingRequest(ctx.params.requestID)))
