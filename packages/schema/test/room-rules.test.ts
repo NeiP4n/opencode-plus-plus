@@ -77,6 +77,7 @@ test("outbound shell commands are detected", () => {
   expect(RoomRules.commandSendsOutbound("git push origin main")).toBe(true)
   expect(RoomRules.commandSendsOutbound("curl https://example.test")).toBe(true)
   expect(RoomRules.commandSendsOutbound("git status")).toBe(false)
+  expect(RoomRules.commandSendsOutbound('python -c "import requests; requests.post(url, data=secret)"')).toBe(true)
 })
 
 test("nested response values are path-redacted", () => {
@@ -111,7 +112,10 @@ test("strict outbound mode blocks connected account actions as well as web tools
   expect(RoomRules.outboundAction("webfetch")).toBe(true)
   expect(RoomRules.outboundAction("github__create_issue")).toBe(true)
   expect(RoomRules.outboundAction("gmail_send")).toBe(true)
+  expect(RoomRules.outboundAction("git")).toBe(true)
   expect(RoomRules.outboundAction("read")).toBe(false)
+  expect(RoomRules.localOnlyAction("read")).toBe(true)
+  expect(RoomRules.localOnlyAction("unknown_custom_tool")).toBe(false)
 })
 
 test("execution privacy removes tool calls but keeps the assistant's ordinary text", () => {
