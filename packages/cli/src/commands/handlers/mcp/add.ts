@@ -1,6 +1,6 @@
 import { EOL } from "node:os"
 import path from "node:path"
-import { mkdir, readFile, rename, stat, writeFile, unlink } from "node:fs/promises"
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { Effect, Option } from "effect"
 import { applyEdits, modify } from "jsonc-parser"
 import { Global } from "@opencode/util/global"
