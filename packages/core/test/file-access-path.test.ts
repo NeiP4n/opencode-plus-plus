@@ -120,11 +120,11 @@ describe("FileAccess.resolve", () => {
         const target = yield* access.resolve({ path: path.join("escape", "new.txt") })
         expect(target).toMatchObject({
           absolute: path.join(outside.path, "new.txt"),
-          resource: path.join(outside.path, "new.txt").replaceAll("\\\\", "/"),
+          resource: path.join(outside.path, "new.txt").replaceAll("\\", "/"),
         })
         expect(target.externalDirectory).toMatchObject({
           directory: outside.path,
-          resource: path.join(outside.path, "*").replaceAll("\\\\", "/"),
+          resource: path.join(outside.path, "*").replaceAll("\\", "/"),
         })
       }).pipe(provide(directory)),
     ),
