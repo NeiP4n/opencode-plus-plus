@@ -180,7 +180,7 @@ export function programsRequiringApproval(rules: Rules | undefined, command: str
     if (!matched) continue
     const first = pattern.split(/\s+/)[0] ?? ""
     const prefix = /^[A-Za-z0-9_.-]+/.exec(first)?.[0]
-    const source = /[*?]/.test(first) ? prefix ?? matched : matched
+    const source = /[*?]/.test(first) ? prefix ?? matched : pattern
     const program = programName(source)
     if (program) output.add(program)
   }
