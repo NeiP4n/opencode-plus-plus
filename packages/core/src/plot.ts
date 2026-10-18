@@ -1,6 +1,6 @@
 export * as Plot from "./plot.js"
 
-import { mkdir, readdir, rm } from "node:fs/promises"
+import { mkdir, readdir, realpath, rm } from "node:fs/promises"
 import { hostname } from "node:os"
 import path from "node:path"
 import { randomBytes } from "node:crypto"
@@ -174,6 +174,14 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         })
         if (outside)
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
+        // Lexical containment is not enough: a symlink inside the project can point outside it.
+        // Resolve each target, or its nearest existing ancestor, before live() scans plot folders.
+        const contained = yield* Effect.tryPromise({
+          try: () => pathsInside(directory, paths),
+          catch: () => false,
+        })
+        if (!contained)
+          return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         const others = yield* live(paths)
         for (const { plot } of others) {
           if (yield* holds(plot, input.sessionID)) continue
@@ -229,6 +237,29 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
     })
   }),
 )
+
+async function pathsInside(directory: string, targets: readonly string[]) {
+  const root = await realpath(directory)
+  for (const target of targets) {
+    let current = target
+    let resolved: string | undefined
+    while (resolved === undefined) {
+      try {
+        resolved = await realpath(current)
+      } catch (cause) {
+        const code =
+          typeof cause === "object" && cause !== null && "code" in cause ? String(cause.code) : ""
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw cause
+        const parent = path.dirname(current)
+        if (parent === current) throw cause
+        current = parent
+      }
+    }
+    const relative = path.relative(root, resolved)
+    if (relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return false
+  }
+  return true
+}
 
 function ancestors(target: string): string[] {
   const resolved = path.resolve(target)
