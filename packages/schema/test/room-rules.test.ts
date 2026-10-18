@@ -37,9 +37,11 @@ test("protected files cannot be accessed through shell command arguments", () =>
   expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
 })
 
-test("redacting a path covers both slash styles", () => {
+test("redacting a path covers both slash styles and Windows case variants", () => {
   expect(RoomRules.redactPath("C:\\Users\\me\\app", "C:\\Users\\me\\app")).toBe("<project>")
   expect(RoomRules.redactPath("opened C:/Users/me/app/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
+  expect(RoomRules.redactPath("opened c:\\USERS\\ME\\APP\\src", "C:\\Users\\me\\app")).toBe("opened <project>\\src")
+  expect(RoomRules.redactPath("opened /Users/me/app/src", "/Users/me/app")).toBe("opened <project>/src")
 })
 
 test("a session in several rooms gets the strictest rules", () => {
