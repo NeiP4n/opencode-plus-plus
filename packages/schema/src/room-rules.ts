@@ -375,9 +375,7 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
     if (mime.startsWith("image/") || mediaType.startsWith("image/") || type.includes("screenshot") || type === "image") {
       return undefined
     }
-    if (namedImage && (type === "file" || type === "image" || type === "attachment" || "data" in record || "source" in record)) {
-      return undefined
-    }
+    if (namedImage) return undefined
     const output: Record<string, unknown> = {}
     for (const [childKey, child] of Object.entries(record)) {
       const result = visit(child, childKey)
