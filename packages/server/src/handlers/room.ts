@@ -784,8 +784,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.dod.get",
         Effect.fn(function* (ctx) {
           const room = yield* rooms.get(ctx.params.roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
-          const dod = yield* Dod.read(yield* roomDirectory(room), yield* live()).pipe(Effect.mapError(invalidDod))
-          return room.rules?.hidePaths && room.directory ? redactRoomValue(dod, [room.directory]) : dod
+          return yield* Dod.read(yield* roomDirectory(room), yield* live()).pipe(Effect.mapError(invalidDod))
         }),
       )
       .handle(
@@ -806,7 +805,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const dod = yield* Dod.read(yield* roomDirectory(joined.room), yield* live()).pipe(
             Effect.mapError(invalidDod),
           )
-          return forGuest(dod, joined.member)
+          const visible = joined.room.rules?.hidePaths && joined.room.directory
+            ? redactRoomValue(dod, [joined.room.directory])
+            : dod
+          return forGuest(visible, joined.member)
         }),
       )
       .handle(
