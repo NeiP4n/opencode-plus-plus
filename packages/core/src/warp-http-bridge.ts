@@ -1,7 +1,6 @@
 import { createConnection, createServer, type Socket } from "node:net"
 
 type ParsedTarget = { host: string; port: number; path: string; requestLine: string }
-
 type SocksStage = "greeting" | "connect" | "stream"
 
 function parseRequest(header: string): ParsedTarget | { connect: true; host: string; port: number } | undefined {
@@ -10,11 +9,7 @@ function parseRequest(header: string): ParsedTarget | { connect: true; host: str
   const connect = /^CONNECT\s+([^\s]+)\s+HTTP\/1\.[01]$/i.exec(first)
   if (connect) {
     let url: URL
-    try {
-      url = new URL("http://" + connect[1])
-    } catch {
-      return
-    }
+    try { url = new URL("http://" + connect[1]) } catch { return }
     const port = Number(url.port || 443)
     if (!url.hostname || !Number.isInteger(port) || port < 1 || port > 65535) return
     return { connect: true, host: url.hostname, port }
@@ -22,11 +17,7 @@ function parseRequest(header: string): ParsedTarget | { connect: true; host: str
   const request = /^(\S+)\s+(\S+)\s+(HTTP\/1\.[01])$/i.exec(first)
   if (!request) return
   let url: URL
-  try {
-    url = new URL(request[2])
-  } catch {
-    return
-  }
+  try { url = new URL(request[2]) } catch { return }
   if (url.protocol !== "http:" || !url.hostname) return
   const port = Number(url.port || 80)
   if (!Number.isInteger(port) || port < 1 || port > 65535) return
@@ -43,18 +34,27 @@ function socksAddress(host: string, port: number) {
 }
 
 function tunnel(client: Socket, socksPort: number, host: string, port: number, firstPayload?: Buffer, connectMode = false) {
-  const upstream = createConnection({ host: "127.0.0.1", port: socksPort })
+  let upstream: Socket | undefined
   let stage: SocksStage = "greeting"
   let buffer = Buffer.alloc(0)
   let timer: ReturnType<typeof setTimeout> | undefined
   let finished = false
+  let retries = 0
 
-  const fail = () => {
+  const fail = (retryable = true) => {
     if (finished) return
+    if (retryable && stage !== "stream" && retries < 2) {
+      retries += 1
+      upstream?.destroy()
+      upstream = undefined
+      buffer = Buffer.alloc(0)
+      timer = setTimeout(() => open(), 250 * retries)
+      return
+    }
     finished = true
     if (timer) clearTimeout(timer)
     if (!client.destroyed) client.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
-    upstream.destroy()
+    upstream?.destroy()
   }
 
   const succeed = () => {
@@ -63,10 +63,7 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
     if (timer) clearTimeout(timer)
   }
 
-  timer = setTimeout(fail, 8_000)
-  upstream.on("error", fail)
-  upstream.once("connect", () => upstream.write(Buffer.from([5, 1, 0])))
-  upstream.on("data", (data) => {
+  const handleData = (data: Buffer) => {
     if (finished) return
     buffer = Buffer.concat([buffer, data])
 
@@ -75,36 +72,48 @@ function tunnel(client: Socket, socksPort: number, host: string, port: number, f
       const version = buffer[0]
       const method = buffer[1]
       buffer = buffer.subarray(2)
-      if (version !== 5 || method !== 0) return fail()
+      if (version !== 5 || method !== 0) return fail(false)
       stage = "connect"
-      upstream.write(socksAddress(host, port))
+      upstream?.write(socksAddress(host, port))
     }
 
     if (stage === "connect") {
-      // SOCKS5 success replies are at least 10 bytes for IPv4 and longer for domain/IPv6.
       if (buffer.length < 2) return
       const version = buffer[0]
       const reply = buffer[1]
-      if (version !== 5 || reply !== 0) return fail()
+      if (version !== 5 || reply !== 0) return fail(false)
 
       const addressType = buffer[3]
       const addressLength = addressType === 1 ? 4 : addressType === 4 ? 16 : addressType === 3 ? (buffer[4] ?? 255) + 1 : 0
-      if (!addressLength) return fail()
+      if (!addressLength) return fail(false)
       const required = 6 + addressLength
       if (buffer.length < required) return
       buffer = buffer.subarray(required)
       stage = "stream"
       succeed()
       if (connectMode) client.write("HTTP/1.1 200 Connection Established\r\n\r\n")
-      if (firstPayload?.length) upstream.write(firstPayload)
-      if (buffer.length) upstream.write(buffer)
-      upstream.removeAllListeners("data")
-      upstream.pipe(client)
-      client.pipe(upstream)
+      if (firstPayload?.length) upstream?.write(firstPayload)
+      if (buffer.length) upstream?.write(buffer)
+      upstream?.removeListener("data", handleData)
+      upstream?.pipe(client)
+      client.pipe(upstream!)
     }
-  })
-  client.once("error", () => upstream.destroy())
-  client.once("close", () => upstream.destroy())
+  }
+
+  function open() {
+    if (finished || client.destroyed) return
+    stage = "greeting"
+    buffer = Buffer.alloc(0)
+    upstream = createConnection({ host: "127.0.0.1", port: socksPort })
+    timer = setTimeout(() => fail(true), 8_000)
+    upstream.on("error", () => fail(true))
+    upstream.once("connect", () => upstream?.write(Buffer.from([5, 1, 0])))
+    upstream.on("data", handleData)
+  }
+
+  client.once("error", () => upstream?.destroy())
+  client.once("close", () => upstream?.destroy())
+  open()
 }
 
 /** HTTP CONNECT/absolute-URI proxy bound to loopback and backed by WARP's SOCKS5 endpoint. */
