@@ -494,6 +494,7 @@ export type ConfigCompatibilitySkipped = { source: string; reason: string }
 
 export type RoomRules = {
   hidePaths?: boolean | undefined
+  hideExecution?: boolean | undefined
   blockCommands?: Array<string> | undefined
   protectedFiles?: Array<string> | undefined
   noOutbound?: boolean | undefined
@@ -531,6 +532,7 @@ export type RoomGuest = { id: string; name: string }
 
 export type RoomRules1 = {
   hidePaths?: boolean | null
+  hideExecution?: boolean | null
   blockCommands?: Array<string> | null
   protectedFiles?: Array<string> | null
   noOutbound?: boolean | null
