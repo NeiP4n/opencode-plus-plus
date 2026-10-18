@@ -555,13 +555,13 @@ install_opencode() {
   mkdir -p "$BIN"
   cat >"$BIN/opencode-pp" <<WRAPPER
 #!/bin/sh
-# Opencode++ $VERSION, installed by opencode-pp-install.sh.
+# Opencode++ $VERSION, installed by install.sh.
 ${TERMUX_ENV:-}
 OPENCODE_COMMAND=opencode-pp exec "$BUN_BIN" --preload="$DIR/packages/cli/node_modules/@opentui/solid/scripts/preload.js" "$DIR/packages/cli/src/index.ts" "\$@"
 WRAPPER
   chmod +x "$BIN/opencode-pp"
 
-  if [ -f "$BIN/opencode" ] && grep -q 'installed by opencode-pp-install.sh' "$BIN/opencode"; then rm -f "$BIN/opencode"; fi
+  if [ -f "$BIN/opencode" ] && grep -q 'installed by install.sh' "$BIN/opencode"; then rm -f "$BIN/opencode"; fi
   add_path() {
     file="$1"; line="$2"
     [ -f "$file" ] && grep -qF "$BIN" "$file" && return 0
