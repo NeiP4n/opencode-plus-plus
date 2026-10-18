@@ -539,7 +539,11 @@ const layer = Layer.effect(
             // program approval is open. Re-check before allowing the tool invocation to proceed.
             if (result.roomPrograms?.length) {
               const currentRules = yield* roomRulesForSession(input.sessionID)
-              const currentPolicy = RoomRules.policy(currentRules, policyInput)
+              const currentPolicy = RoomRules.policy(currentRules, {
+                action: input.action,
+                resources: [...input.resources],
+                metadata: input.metadata ? { ...input.metadata } : undefined,
+              })
               if (currentPolicy?.effect === "deny") {
                 return yield* new BlockedError({
                   rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
@@ -584,9 +588,11 @@ const layer = Layer.effect(
                 RoomRules.programsRequiringApproval(currentRules, command),
               ))]
               const currentApproved = new Set(currentMemberContext?.member.approvedPrograms ?? [])
-              const newlyRequired = currentPrograms.filter(
-                (program) => !result.roomPrograms?.includes(program) && !currentApproved.has(program),
-              )
+              const newlyRequired = currentMemberContext?.member.role === "trusted"
+                ? []
+                : currentPrograms.filter(
+                    (program) => !result.roomPrograms?.includes(program) && !currentApproved.has(program),
+                  )
               if (newlyRequired.length) {
                 return yield* new BlockedError({
                   rules: [...result.rules, { action: input.action, resource: "*", effect: "deny" as const }],
