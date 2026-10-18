@@ -523,19 +523,19 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
-          return yield* messagePage(sessions, session.id, ctx.query)
+          const result = yield* messagePage(sessions, session.id, ctx.query)
+          const directory = joined.room.directory ?? session.location.directory
+          return joined.room.rules?.hidePaths ? redactGuestData(result, directory) : result
         }),
       )
       .handle(
         "room.guest.get",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            room: joined.room,
-            guest: joined.guest,
-            role: joined.member.role,
-            session: yield* inRoom(joined.room, ctx.query.sessionID),
-          }
+          const session = yield* inRoom(joined.room, ctx.query.sessionID)
+          const data = { room: joined.room, guest: joined.guest, role: joined.member.role, session }
+          const directory = joined.room.directory ?? session.location.directory
+          return joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data
         }),
       )
       .handle(
@@ -543,10 +543,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
+          const directory = joined.room.directory ?? session.location.directory
+          const redact = <A>(value: A) =>
+            joined.room.rules?.hidePaths ? redactGuestData(value, directory) : value
           const durable = sessions
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
             .pipe(Stream.orDie)
-          if (!ctx.query.follow) return durable
+          if (!ctx.query.follow) return durable.pipe(Stream.map(redact))
           // Permission requests are not in the durable log; a following guest hears this session's
           // live ones too, instead of polling for them.
           const live = Stream.callback<typeof RoomLiveEvent.Type>((queue) =>
@@ -582,7 +585,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               (unsubscribe) => unsubscribe,
             ),
           )
-          return durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
+          return durable.pipe(Stream.merge(live, { haltStrategy: "left" }), Stream.map(redact))
         }),
       )
       .handle(
@@ -613,7 +616,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
-          return { data: (yield* boundNote(session.id)) ?? null }
+          const note = (yield* boundNote(session.id)) ?? null
+          const directory = joined.room.directory ?? session.location.directory
+          return { data: joined.room.rules?.hidePaths ? redactGuestData(note, directory) : note }
         }),
       )
       .handle(
@@ -785,7 +790,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const dod = yield* Dod.read(yield* roomDirectory(joined.room), yield* live()).pipe(
             Effect.mapError(invalidDod),
           )
-          return forGuest(dod, joined.member)
+          const data = forGuest(dod, joined.member)
+          const directory = yield* roomDirectory(joined.room)
+          return joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data
         }),
       )
       .handle(
@@ -952,12 +959,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = joined.room.directory
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
-          if (directory === undefined)
-            return { data: Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option)) }
+          if (directory === undefined) {
+            const data = { data: Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option)) }
+            const root = (yield* sessions.get(joined.room.sessionID).pipe(Effect.option)).map((session) => session.location.directory)
+            return joined.room.rules?.hidePaths && root._tag === "Some" ? redactGuestData(data, root.value) : data
+          }
           const page = yield* sessions.list({ parentID: null, limit: SESSION_LIMIT })
           const data = page.data.filter((session) => Orchestra.contains(directory, session.location.directory))
           // The host's grouping, so a guest's tree shows the same categories as the host's.
-          return { data, category: yield* orchestra.categories(data.map((session) => session.id)) }
+          const result = { data, category: yield* orchestra.categories(data.map((session) => session.id)) }
+          return joined.room.rules?.hidePaths ? redactGuestData(result, directory) : result
         }),
       )
       .handle(
