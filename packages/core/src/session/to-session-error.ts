@@ -18,7 +18,7 @@ const tokenSharingMessages = {
   subscription_sharing_route_not_supported:
     "ChatGPT token sharing doesn't support this API route. Check the configured endpoint and HTTP method.",
   subscription_sharing_invalid_user: "This ChatGPT connection is no longer valid. Reconnect to ChatGPT.",
-  subscription_sharing_user_unavailable: "Your ChatGPT account is temporarily unavailable. Try again later.",
+  subscription_sharing_user_unavailable: "This ChatGPT account is temporarily unavailable. Try again later.",
   chatpass_v2_scope_not_authorized:
     "This ChatGPT connection isn't authorized for this request. Reconnect to ChatGPT or choose another connection.",
   chatpass_v2_invalid_authorization_context:
@@ -62,8 +62,6 @@ export function toSessionError(cause: unknown): SessionError.Error {
   if (cause instanceof Permission.CorrectedError) return { type: "permission.rejected", message: cause.feedback }
   if (cause instanceof ToolFailure || cause instanceof Tool.Error) {
     if (cause.error === undefined) return { type: "tool.execution", message: cause.message }
-    // The canonical error is the sole model-visible representation, so a cause
-    // with no message must not erase the tool's curated failure message.
     const unwrapped = toSessionError(cause.error)
     return unwrapped.message === "" ? { ...unwrapped, type: "tool.execution", message: cause.message } : unwrapped
   }
@@ -96,14 +94,11 @@ export function contentFilterError(summary: string, reason: FinishReasonDetails)
 
 const OPENCODE_FREE_TIER_ERROR = "OpenCode's free tier can only be used from within OpenCode"
 
-const OPENCODE_FREE_TIER_GUIDANCE =
-  "OpenCode Zen rejected this free-tier request. First connect or refresh your account with `opencode auth login opencode` or `/connect` in the TUI. This same 403 can also be caused by dev/branch build metadata or agent/project permissions that remove built-in tools such as `read` or `bash/shell`. Update and rebuild OpenCode++ from the latest branch; if it persists while Zen is connected, inspect those permission rules."
-
 function providerError(type: string, reason: AIError["reason"]): SessionError.Error {
   const status = reason.http?.status
-  const raw = [reason.message, reason.body].filter(Boolean).join("\\n")
+  const raw = [reason.message, reason.body].filter(Boolean).join("\n")
   const message = raw.includes(OPENCODE_FREE_TIER_ERROR)
-    ? OPENCODE_FREE_TIER_GUIDANCE
+    ? "The provider rejected this free-tier request. Check the selected model's availability and provider access, then retry or choose another available model."
     : (Object.entries(tokenSharingMessages).find(([code]) => reason.body?.includes(code))?.[1] ?? reason.message)
   return {
     type,
