@@ -46,7 +46,10 @@ export const Plugin = define({
           event.effect = "deny"
           event.message = message
         }
-        if (rules.noOutbound && RoomRules.outbound.includes(event.action))
+        if (
+          rules.noOutbound &&
+          (RoomRules.outbound.includes(event.action) || event.metadata?.transport === "mcp")
+        )
           return deny("This room does not let the AI send anything out")
         if (event.action === "shell") {
           const blocked = event.resources.flatMap((command) => RoomRules.blockedCommand(rules, command) ?? [])[0]
