@@ -1394,6 +1394,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         )}
       </Show>
       <Show when={room()}>
+        <Section title={t("Privacy & visibility")} />
         <Setting
           label={t("Project path")}
           help={t("Guests see <project> instead of the folder on your computer.")}
@@ -1410,7 +1411,6 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
             {rules().hideExecution ? t("Hidden") : t("Visible")}
           </Button>
         </Setting>
-        <Section title={t("Privacy & network")} />
         <Setting
           label={t("Sending out")}
           help={t("The room's AI cannot make web requests or message other computers and projects.")}
