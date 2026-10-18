@@ -11,6 +11,7 @@ import { useGroupT } from "../util/i18n-groups"
 import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
+import { HoverAction } from "./hover-action"
 
 export function DialogGroups(props: { onClose?: () => void }) {
   const client = useClient()
@@ -216,12 +217,32 @@ export function DialogGroups(props: { onClose?: () => void }) {
 
               <box flexDirection="row" gap={1}>
                 <text fg={theme.text.muted}>{t("Mode") + ":"}</text>
-                <Button variant={(group.mode ?? "lead") === "lead" ? "primary" : undefined} onClick={() => changeMode(group, "lead")}>
-                  {t("Single coordinator")}
-                </Button>
-                <Button variant={group.mode === "council" ? "primary" : undefined} onClick={() => changeMode(group, "council")}>
-                  {t("Orchestrator council")}
-                </Button>
+                <HoverAction
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onClick={() => changeMode(group, "lead")}
+                  disabled={(group.mode ?? "lead") === "lead"}
+                >
+                  <text
+                    fg={(group.mode ?? "lead") === "lead" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+                    attributes={(group.mode ?? "lead") === "lead" ? TextAttributes.BOLD : undefined}
+                  >
+                    {t("Single coordinator")}
+                  </text>
+                </HoverAction>
+                <HoverAction
+                  paddingLeft={1}
+                  paddingRight={1}
+                  onClick={() => changeMode(group, "council")}
+                  disabled={group.mode === "council"}
+                >
+                  <text
+                    fg={group.mode === "council" ? theme.text.action.primary.selected : theme.text.action.primary.base}
+                    attributes={group.mode === "council" ? TextAttributes.BOLD : undefined}
+                  >
+                    {t("Orchestrator council")}
+                  </text>
+                </HoverAction>
               </box>
 
               <box flexDirection="row" gap={1}>
