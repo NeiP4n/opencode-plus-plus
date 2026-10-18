@@ -72,6 +72,8 @@ export const Member = Schema.Struct({
   role: Role,
   // A random key the guest's client keeps across joins.
   device: Schema.String.pipe(Schema.optional),
+  // Programs explicitly approved by the host for this member in this room only.
+  approvedPrograms: Schema.Array(Schema.String).pipe(Schema.optional),
   // The network address it joined from; absent for loopback, which tunnels such as Porthole share.
   address: Schema.String.pipe(Schema.optional),
   joined: Schema.Number,
