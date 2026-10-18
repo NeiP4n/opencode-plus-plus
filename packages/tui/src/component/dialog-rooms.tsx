@@ -1402,7 +1402,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Sending out")}
-          help={t("Blocks web/network requests, connected-account integrations and messages to other computers or projects.")}
+          help={t("Blocks known network commands and connected-account tools. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.")}
         >
           <Button onClick={() => save({ noOutbound: !rules().noOutbound })}>
             {rules().noOutbound ? t("Forbidden") : t("Allowed")}
@@ -1416,7 +1416,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Setting
           label={t("Off-limits files")}
-          help={t("Comma-separated names or folders the AI may not read or edit, for example .env*, secrets/*.")}
+          help={t("Comma-separated names or folders. .env files, SSH/cloud credentials, private keys, certificates and credential JSON are protected automatically too.")}
         >
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
