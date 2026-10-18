@@ -41,7 +41,7 @@ export const outbound: readonly string[] = ["webfetch", "websearch", "peers", "f
 
 export function outboundAction(action: string) {
   const value = action.toLowerCase()
-  return outbound.includes(value) || /(?:web|http|fetch|browser|peer|federation|mcp|integration|connector|api|github|gitlab|slack|discord|telegram|whatsapp|email|gmail|outlook|mail|message|send|publish|upload|request|network|remote|external|dropbox|drive|notion|linear|jira|salesforce|shopify|calendar|cloud|account)/.test(value)
+  return outbound.includes(value) || /(?:web|http|fetch|browser|peer|federation|mcp|integration|connector|api|github|gitlab|git|slack|discord|telegram|whatsapp|email|gmail|outlook|mail|message|send|publish|upload|request|network|remote|external|dropbox|drive|notion|linear|jira|salesforce|shopify|calendar|cloud|account|oauth|token|webhook)/.test(value)
 }
 
 // Credential files are protected in every shared room by default, even when the host has not
@@ -164,6 +164,7 @@ export function commandSendsOutbound(command: string) {
     /\b(npm|pnpm|yarn|bun)\s+(install|add|publish|update|upgrade|i)\b/.test(value) ||
     /\bpip\s+install\b/.test(value) ||
     /\bdocker\s+(pull|push|login)\b/.test(value) ||
+    /\b(?:python|python3|node|bun|deno|ruby|perl|php|pwsh|powershell)\b.*(?:requests?\.(?:get|post|put|patch|delete)|urllib\.request|http\.client|fetch\s*\(|axios|\.post\s*\(|\.put\s*\(|net::http|new\s+webclient|invoke-restmethod|invoke-webrequest|socket\.)/s.test(value) ||
     /\bhttps?:\/\//.test(value)
   )
 }
