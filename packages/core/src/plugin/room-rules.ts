@@ -82,14 +82,21 @@ export const Plugin = define({
           if (protectedFile) return deny("This room keeps that file off limits to the AI")
 
           const programs = [...new Set(event.resources.flatMap((item) => RoomRules.programsRequiringApproval(rules, item)))]
-          if (programs.length === 0) return
           const identity = yield* guestContext(event.sessionID, event.source?.messageID)
           if (identity?.member.role === "trusted") return
-          if (identity && programs.every((program) => identity.member.approvedPrograms?.includes(program))) return
+          const commandPrograms = [...new Set(event.resources.map((item) => RoomRules.programName(item)).filter((item): item is string => !!item))]
+          if (
+            identity &&
+            programs.length === 0 &&
+            commandPrograms.length > 0 &&
+            commandPrograms.every((program) => identity.member.approvedPrograms?.includes(program))
+          ) return
+          if (programs.length === 0) return
 
           // The regular permission UI still asks before running the shell tool. "Always allow"
           // is redirected to this device's room-member record and is never a project-wide grant.
           event.effect = "ask"
+          event.scoped = true
           event.message = identity
             ? `Allow ${identity.member.name} to use ${programs.join(", ")}? This approval is private to this room member.`
             : `This room requires approval to use ${programs.join(", ")}. Only a one-time approval is available without a room member identity.`
