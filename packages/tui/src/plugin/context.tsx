@@ -31,6 +31,7 @@ import { createPluginContext, usePluginHost, type Dispose, type RegisteredSlot, 
 import { createSourceWatcher } from "./watch"
 import { discoverPluginTargets, localSource, mergePluginTargets } from "./discovery"
 import { createPluginSources } from "./source"
+import { pluginDirective } from "./directive"
 import { isMissingPath } from "../util/config-directories"
 import { createMarkdownRenderer } from "./markdown"
 import { useLog, type LogTags } from "../context/log"
@@ -48,6 +49,7 @@ type RegisteredPlugin = {
   readonly id: string
   readonly source: "builtin" | "external"
   readonly active: boolean
+  readonly target?: string
 }
 
 type Value = {
@@ -319,7 +321,11 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       const entry = source.entry
       const target = typeof entry === "string" ? entry : entry.package
       if (target.startsWith("-")) {
-        for (const item of desired.values()) if (matches(target.slice(1), item.plugin.id)) item.enabled = false
+        const excluded = target.slice(1)
+        for (const item of desired.values()) {
+          if (matches(excluded, item.plugin.id) || (item.target !== undefined && matches(excluded, item.target)))
+            item.enabled = false
+        }
         continue
       }
 
@@ -604,14 +610,43 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
             id,
             source: plugin.source,
             active: plugin.active,
+            target: plugin.target,
           })),
         route: (id, name) => store.registrations[id]?.routes[name]?.render,
         slots: { register: registerSlot, resolved },
         markdown,
-        // Manual dialog toggles join the same chain as reconciles so a
-        // toggle mid-reload cannot mix registrations across generations.
-        activate: (id) => enqueue(() => activate(id)),
-        deactivate: (id) => enqueue(() => deactivate(id)),
+        // Persist exact directives so disabled lazy built-ins stay disabled after restart.
+        // Toggle and reconcile operations share one queue to prevent generation races.
+        activate: (id) =>
+          enqueue(async () => {
+            const changed = await activate(id)
+            if (!changed) return false
+            try {
+              await config.update((draft) => {
+                const target = store.registrations[id]?.target ?? id
+                draft.plugins = pluginDirective(draft.plugins, target, true)
+              })
+              return true
+            } catch (error) {
+              await deactivate(id).catch(() => undefined)
+              throw error
+            }
+          }),
+        deactivate: (id) =>
+          enqueue(async () => {
+            const changed = await deactivate(id)
+            if (!changed) return false
+            try {
+              await config.update((draft) => {
+                const target = store.registrations[id]?.target ?? id
+                draft.plugins = pluginDirective(draft.plugins, target, false)
+              })
+              return true
+            } catch (error) {
+              await activate(id).catch(() => undefined)
+              throw error
+            }
+          }),
       }}
     >
       {props.children}
