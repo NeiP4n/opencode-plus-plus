@@ -149,9 +149,8 @@ function decodeSharedRateLimit(value: KV.Value | undefined): SharedRateLimit | u
 
 function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
   const prefix = providerPrefix(providerID)
-  let retryAt: number | undefined
   let lastSuccessAt = Number.NEGATIVE_INFINITY
-  const streaks: { updatedAt: number; consecutive: number }[] = []
+  const streaks: { updatedAt: number; consecutive: number; retryAt: number }[] = []
   const scan = Effect.gen(function* () {
     let after: string | undefined
     while (true) {
@@ -171,8 +170,7 @@ function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
         }
         if (state.outcome === "success") lastSuccessAt = Math.max(lastSuccessAt, state.updatedAt)
         if (state.outcome === "rate-limit") {
-          if (state.retryAt > now) retryAt = Math.max(retryAt ?? 0, state.retryAt)
-          streaks.push({ updatedAt: state.updatedAt, consecutive: state.consecutive })
+          streaks.push({ updatedAt: state.updatedAt, consecutive: state.consecutive, retryAt: state.retryAt })
         }
       }
       yield* Effect.forEach(stale, (key) => kv.remove(key), { concurrency: 32 })
@@ -182,10 +180,15 @@ function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
   })
   return Effect.gen(function* () {
     yield* scan
-    const consecutive = streaks.reduce(
-      (max, state) => (state.updatedAt > lastSuccessAt ? Math.max(max, state.consecutive) : max),
-      0,
-    )
+    let retryAt: number | undefined
+    let consecutive = 0
+    for (const state of streaks) {
+      // A successful provider request supersedes earlier 429s, including their still-future
+      // Retry-After deadlines. Only rate limits observed after the latest success remain active.
+      if (state.updatedAt <= lastSuccessAt) continue
+      consecutive = Math.max(consecutive, state.consecutive)
+      if (state.retryAt > now) retryAt = Math.max(retryAt ?? 0, state.retryAt)
+    }
     // Each observation is independent and safe to remove after the streak window. New rate limits
     // write unique keys, so cleaning an old entry cannot erase a concurrent provider cooldown.
     return { retryAt, consecutive }
