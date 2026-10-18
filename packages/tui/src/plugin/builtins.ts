@@ -36,6 +36,7 @@ export const builtins = [
   lazy("opencode.sidebar.footer", () => import("../feature-plugins/sidebar/footer")),
   lazy("opencode.notifications", () => import("../feature-plugins/system/notifications")),
   lazy("opencode.plugins", () => import("../feature-plugins/system/plugins")),
+  lazy("opencode.warp.exit-cleanup", () => import("../feature-plugins/system/warp-exit-cleanup")),
   lazy("opencode.warp", () => import("../feature-plugins/system/warp")),
   lazy("opencode.stats", () => import("../feature-plugins/system/stats")),
   lazy("opencode.merman", () => import("@opencode/merman/plugin")),
