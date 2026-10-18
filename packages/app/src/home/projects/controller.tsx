@@ -235,6 +235,7 @@ function ProjectPathChoiceDialog(props: {
   const [createNew, setCreateNew] = createSignal(false)
 
   const toggle = (directory: string) => {
+    setCreateNew(false)
     setSelected((current) =>
       current.includes(directory) ? current.filter((item) => item !== directory) : [...current, directory],
     )
@@ -246,7 +247,7 @@ function ProjectPathChoiceDialog(props: {
         <DialogTitleGroup title="Projects found at this path" />
       </DialogHeader>
       <div class="flex max-h-[50vh] flex-col gap-2 overflow-y-auto px-1 py-2">
-        <p class="text-sm text-text-weak">Choose one or more existing project directories, or add the selected path as a new project.</p>
+        <p class="text-sm text-v2-text-text-muted">Choose one or more existing project directories, or add the selected path as a new project.</p>
         <For each={props.candidates}>
           {(item) => (
             <Button
