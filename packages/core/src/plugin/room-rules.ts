@@ -58,7 +58,12 @@ export const Plugin = define({
             return deny("This room does not let the AI send anything out")
           // MCP actions are dynamically named after the configured server and tool, so a fixed
           // action list would leave arbitrary connected services as an outbound escape hatch.
-          if ((yield* mcp.tools()).some((tool) => McpTool.name(tool.server, tool.name) === event.action))
+          // Namespaced MCP actions always contain the separator; avoid querying the MCP registry
+          // for ordinary local file permissions on every tool call.
+          if (
+            event.action.includes("_") &&
+            (yield* mcp.tools()).some((tool) => McpTool.name(tool.server, tool.name) === event.action)
+          )
             return deny("This room does not let the AI send anything out")
         }
         if (event.action === "shell") {
