@@ -1237,6 +1237,134 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
   }).pipe(Effect.scoped),
 )
 
+it.live("demotion during program approval prevents a guest command from starting", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code, directory } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false, blockCommands: ["echo*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = (yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Approval race" },
+    })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
+    const command = "echo must-not-run > role-revoked.txt"
+
+    const pending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guest,
+      body: { sessionID: session.id, command },
+    }).pipe(Effect.forkScoped)
+    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.command === command),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("5 seconds"),
+      Effect.map((requests) => requests.find(
+        (item) => item.action === "room.program" && item.metadata?.command === command,
+      )!),
+    )
+
+    // Revoke command execution while the per-program approval is still awaiting the host.
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "member" },
+    })
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(yield* Effect.promise(() => Bun.file(path.join(directory, "role-revoked.txt")).exists())).toBe(false)
+  }).pipe(Effect.scoped),
+)
+
+it.live("revoking a guest while a command runs withholds its output", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false, blockCommands: ["node*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = (yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Long runner" },
+    })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
+    const command = 'node -e "setTimeout(() => console.log(\'private-output\'), 1200)"'
+    const pending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guest,
+      body: { sessionID: session.id, command },
+    }).pipe(Effect.forkScoped)
+
+    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.command === command),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("3 seconds"),
+      Effect.map((requests) => requests.find(
+        (item) => item.action === "room.program" && item.metadata?.command === command,
+      )!),
+    )
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+
+    // Wait until the server has recorded that execution started, then revoke access before it exits.
+    yield* call(`/api/room/${room.id}/guest/feed`, { headers: guest }).pipe(
+      Effect.map((response) => response.body.events as { kind: string; who: string }[]),
+      Effect.filterOrFail((events) => events.some((event) => event.kind === "run" && event.who === "Long runner")),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("2 seconds"),
+    )
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "member" },
+    })
+
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(JSON.stringify(result.body)).not.toContain("private-output")
+  }).pipe(Effect.scoped),
+)
+
 it.live("guests share the host project's DoD: one takes an item with a plot, the host frees it", () =>
   Effect.gen(function* () {
     const { call, room, code, directory } = yield* setup
