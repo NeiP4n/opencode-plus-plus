@@ -18,7 +18,7 @@ export const Rules = Schema.Struct({
   noOutbound: Schema.Boolean.pipe(Schema.optional),
   // Guests cannot submit prompts to the host's AI.
   denyGuestPrompts: Schema.Boolean.pipe(Schema.optional),
-  // Guests cannot execute shell commands or submit DoD command checks, regardless of role.
+  // Guests cannot invoke slash commands, execute shell commands or submit DoD checks, regardless of role.
   denyGuestCommands: Schema.Boolean.pipe(Schema.optional),
 }).annotate({ identifier: "Room.Rules" })
 export interface Rules extends Schema.Schema.Type<typeof Rules> {}
@@ -131,7 +131,7 @@ export function describe(rules: Rules | undefined) {
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
     rules.denyGuestPrompts ? "Guests must not submit prompts to the host's AI." : undefined,
-    rules.denyGuestCommands ? "Guests must not execute shell commands or submit command checks." : undefined,
+    rules.denyGuestCommands ? "Guests must not invoke slash commands, execute shell commands or submit command checks." : undefined,
   ].filter((line): line is string => line !== undefined)
   return lines.length > 0 ? lines.join("\n") : undefined
 }
