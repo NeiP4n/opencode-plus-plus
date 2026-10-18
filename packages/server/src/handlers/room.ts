@@ -670,7 +670,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const rules = yield* effectiveRules(joined.room, session.location.directory)
           const durable = sessions
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
-            .pipe(Stream.orDie)
+            .pipe(
+              Stream.orDie,
+              // Durable history is broader than the live guest event union. Allowlist it too, so
+              // system prompts, permission rules, raw message rewrites and other host-only events
+              // cannot leak through replay merely because they are durable.
+              Stream.filter((event) => Option.isSome(decodeRoomLiveEvent(event))),
+            )
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
             const visible = durable.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution)))
