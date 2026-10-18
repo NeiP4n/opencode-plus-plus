@@ -451,7 +451,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             joined: Date.now(),
           })
           codes.record(room.id, { kind: "join", who: name })
-          return { ...issued, role: member.role, room }
+          // The join payload itself is guest-visible; do not leak a project directory before
+          // the guest even requests the room view.
+          const visibleRoom =
+            room.rules?.hidePaths && room.directory ? redactGuestData(room, room.directory) : room
+          return { ...issued, role: member.role, room: visibleRoom }
         }),
       )
       .handle(
