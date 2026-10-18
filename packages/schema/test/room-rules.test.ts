@@ -49,3 +49,13 @@ test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toBeUndefined()
   expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
 })
+
+test("wildcard command blocks cannot be bypassed through common shell wrappers", () => {
+  const wildcardRules: RoomRules.Rules = { blockCommands: ["git push*"] }
+  expect(RoomRules.blockedCommand(wildcardRules, "git push origin main")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "echo safe && git push origin main")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "bash -c 'git push origin main'")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "echo $(git push origin main)")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "(git push origin main)")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "git status")).toBeUndefined()
+})
