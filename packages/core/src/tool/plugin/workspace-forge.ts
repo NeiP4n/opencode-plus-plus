@@ -89,7 +89,7 @@ export const Plugin = {
           "Call action=list first for exact project IDs, team-template IDs and roles. An AI team is an Orchestra team template of role-based sessions. A federated group is a set of projects managed via a dedicated Group Orchestrator.",
           "create_session creates a project/workspace and its main Orchestrator session. Choose one exact team-template ID to create every role session in that team, or one exact role ID to create a single worker session; team and role are mutually exclusive. Omit both for an Orchestrator-only project. directory must already exist.",
           "Sandbox modes: none uses the selected directory directly; environment (default) uses a separate git worktree and OpenCode data/config/state; strict adds bubblewrap confinement. Sandbox modes require a git repository; strict also requires bwrap. Never silently fall back to no sandbox.",
-          "create_group accepts at least two ordered members, each an existing projectID or a new project (directory, optional name/team/sandbox). The first is coordinator. A dedicated Group Orchestrator is registered and receives an initial status-review task. Linking defaults on and requires operator approval.",
+          "create_group accepts at least two ordered members, each an existing projectID or a new project (directory, optional name, one role or team, and sandbox). The first is coordinator. A dedicated Group Orchestrator is registered and receives an initial status-review task. Linking defaults on and requires operator approval.",
           "Never invent paths or IDs. A Group Orchestrator only uses sanitized federation status and permission-checked tickets; it must not access other projects' files or sessions.",
         ].join("\n"),
         input: Input,
@@ -302,14 +302,15 @@ export const Plugin = {
                   )
                   resolved.push(project)
                   if (spec.role) {
+                    const role = spec.role
                     yield* orchestra.createMember({
                       project,
-                      agent: spec.role.agent,
-                      title: spec.role.name,
-                      category: spec.role.category,
+                      agent: role.agent,
+                      title: role.name,
+                      category: role.category,
                     }).pipe(
                       Effect.mapError((error) => new ToolFailure({
-                        message: "Group member workspace " + project.name + " (" + project.id + ") was created, but AI role " + spec.role!.name + " could not be started: " + error.message + ". No group was registered. Existing member projects:\n" + resolved.map(projectLine).join("\n"),
+                        message: "Group member workspace " + project.name + " (" + project.id + ") was created, but AI role " + role.name + " could not be started: " + error.message + ". No group was registered. Existing member projects:\n" + resolved.map(projectLine).join("\n"),
                         error,
                       })),
                     )
