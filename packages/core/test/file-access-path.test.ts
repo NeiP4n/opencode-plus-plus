@@ -130,6 +130,26 @@ describe("FileAccess.resolve", () => {
     ),
   )
 
+  it.live("keeps location-relative resources correct when the location itself is a symlink", () =>
+    withTempDir(({ path: directory }) =>
+      Effect.gen(function* () {
+        if (process.platform === "win32") return
+        const actual = path.join(directory, "actual")
+        const alias = path.join(directory, "alias")
+        yield* Effect.promise(async () => {
+          await fs.mkdir(actual)
+          await fs.symlink(actual, alias)
+          await fs.writeFile(path.join(actual, "hello.txt"), "hello")
+        })
+        const access = yield* FileAccess.Service
+        expect(yield* access.resolve({ path: "hello.txt" })).toMatchObject({
+          absolute: path.join(actual, "hello.txt"),
+          resource: "hello.txt",
+        })
+      }).pipe(provide(path.join(directory, "alias"))),
+    ),
+  )
+
   it.live("canonicalizes an in-location symlink to its actual internal target", () =>
     withTempDir(({ path: directory }) =>
       Effect.gen(function* () {
