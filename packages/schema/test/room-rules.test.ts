@@ -183,11 +183,13 @@ test("screenshot privacy removes nested image payloads while retaining text", ()
       { type: "text", text: "capture complete" },
     ],
     screenshot: { uri: "/tmp/capture.png" },
+    caption: "before data:image/png;base64,YWJj after",
     text: "ordinary text",
   }
   expect(RoomRules.sanitizeScreenshots(payload, true)).toEqual({
     files: [{ mime: "text/plain", data: "visible notes" }],
     content: [{ type: "text", text: "capture complete" }],
+    caption: "before [image hidden by room rules] after",
     text: "ordinary text",
   })
   expect(RoomRules.sanitizeScreenshots(payload, false)).toEqual(payload)
