@@ -216,6 +216,21 @@ export function programsRequiringApproval(rules: Rules | undefined, command: str
   }))]
 }
 
+// Executables in a command chain. A non-Trusted participant grants each executable to
+// their own room-member record; chained commands must not inherit approval from only the first one.
+export function programsInCommand(command: string): string[] {
+  return [...new Set(segments(command).flatMap((part) => {
+    const program = programName(part)
+    return program ? [program] : []
+  }))]
+}
+
+// The commands explicitly called out by room rules are included even when wrapped or quoted,
+// alongside all independently parsed executables in the command line.
+export function programsForCommand(rules: Rules | undefined, command: string): string[] {
+  return [...new Set([...programsInCommand(command), ...programsRequiringApproval(rules, command)])]
+}
+
 // Compatibility helper for callers that still need to inspect a matching rule. A match now
 // means "ask permission to use this program", not "refuse to execute the command".
 export function blockedCommand(rules: Rules | undefined, command: string) {
