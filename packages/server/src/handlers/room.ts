@@ -1058,10 +1058,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 message: `Could not run the command: ${rules?.hidePaths ? redactRoomValue(String(error), directories) : String(error)}`,
               }),
           })
-          // Command output is sent to a remote guest; redact the project path just like room metadata.
-          if (rules?.hidePaths)
-            return { ...result, output: redactRoomValue(result.output, directories) }
-          return result
+          // Re-read privacy rules after execution too: the host may change visibility while
+          // a long-running command is still in progress.
+          rules = yield* effectiveRules(joined.room, session.location.directory)
+          const visibleResult = rules?.hidePaths
+            ? { ...result, output: redactRoomValue(result.output, directories) }
+            : result
+          return RoomRules.sanitizeScreenshots(visibleResult, !!rules?.hideScreenshots)
         }),
       )
       .handle(
@@ -1230,6 +1233,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 message: `Could not run the check: ${rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
               }),
           })
+          // Apply the current room rules to the output and DoD response, including settings
+          // changed while the verification command was running.
+          rules = yield* effectiveRules(joined.room, directory)
           const output = rules?.hidePaths
             ? RoomRules.redactPath(result.output, directory)
             : result.output
@@ -1250,9 +1256,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ...(passed ? {} : { detail: outputSummary(output, result.exitCode).slice(0, 120) }),
           })
           const safeDod = rules?.hideExecution ? hideDodExecution(dod) : dod
-          return rules?.hideExecution
+          const response = rules?.hideExecution
             ? forGuest(safeDod, joined.member)
             : { ...forGuest(safeDod, joined.member), check: { exitCode: result.exitCode, output } }
+          return RoomRules.sanitizeScreenshots(response, !!rules?.hideScreenshots)
         }),
       )
       .handle(
