@@ -5,6 +5,7 @@ import { FSUtil } from "@opencode/util/fs-util"
 import { Global } from "@opencode/util/global"
 import { Array, Context, Effect, Layer, Schema } from "effect"
 import path from "path"
+import { lstat, readlink, realpath } from "node:fs/promises"
 import { Location } from "./location.js"
 import { Permission } from "./permission.js"
 import { Project } from "./project.js"
@@ -77,6 +78,39 @@ export const resolvePath = (directory: string, input: string, home = Global.Path
 }
 
 const slash = (value: string) => value.replaceAll("\\", "/")
+
+// Resolve existing symlinks before deciding whether a path is inside the active
+// Location or worktree. For prospective files, resolve the nearest existing
+// ancestor and append the missing suffix so a symlinked directory cannot make
+// an external target look like an internal lexical path.
+async function canonicalPath(input: string) {
+  const original = path.resolve(input)
+  let current = original
+  const suffix: string[] = []
+  for (let depth = 0; depth < 40; depth++) {
+    try {
+      return path.resolve(await realpath(current), ...suffix.toReversed())
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error
+      try {
+        const info = await lstat(current)
+        if (info.isSymbolicLink()) {
+          current = path.resolve(path.dirname(current), await readlink(current))
+          continue
+        }
+      } catch (linkError) {
+        const linkCode = (linkError as NodeJS.ErrnoException).code
+        if (linkCode !== "ENOENT" && linkCode !== "ENOTDIR") throw linkError
+      }
+      const parent = path.dirname(current)
+      if (parent === current) return original
+      suffix.push(path.basename(current))
+      current = parent
+    }
+  }
+  throw new Error("Too many filesystem symlinks while resolving path")
+}
 const invocation = (context: Invocation) => ({
   sessionID: context.sessionID,
   agent: context.agent,
@@ -91,10 +125,21 @@ const layer = Layer.effect(
     const permission = yield* Permission.Service
 
     const resolve = Effect.fn("FileAccess.resolve")(function* (input: ResolveInput) {
-      const absolute = AbsolutePath.make(resolvePath(location.directory, input.path))
-      const worktree = path.resolve(location.project.directory)
+      const lexical = resolvePath(location.directory, input.path)
+      const absolute = yield* Effect.tryPromise({
+        try: () => canonicalPath(lexical),
+        catch: (cause) => new FSUtil.FileSystemError({ method: "realPath", cause }),
+      }).pipe(Effect.map(AbsolutePath.make))
+      const activeDirectory = yield* Effect.tryPromise({
+        try: () => canonicalPath(location.directory),
+        catch: (cause) => new FSUtil.FileSystemError({ method: "realPath", cause }),
+      })
+      const worktree = yield* Effect.tryPromise({
+        try: () => canonicalPath(location.project.directory),
+        catch: (cause) => new FSUtil.FileSystemError({ method: "realPath", cause }),
+      })
       const internal =
-        FSUtil.contains(location.directory, absolute) ||
+        FSUtil.contains(activeDirectory, absolute) ||
         (worktree !== path.parse(worktree).root && FSUtil.contains(worktree, absolute))
       if (internal) {
         return {
