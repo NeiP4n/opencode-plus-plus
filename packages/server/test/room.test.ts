@@ -683,7 +683,7 @@ it.live("a following guest log carries the session's permission requests as they
     const room = (yield* call("/api/room", {
       method: "POST",
       headers: host,
-      body: { sessionID: session.id, rules: { noOutbound: false, blockCommands: ["echo*"] } },
+      body: { sessionID: session.id, rules: { noOutbound: false } },
     })).body.data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Phone" } })).body
