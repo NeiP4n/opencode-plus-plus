@@ -75,6 +75,7 @@ test("configured commands require approval for the executable, not the exact inv
 
 test("protected files are also detected in shell arguments", () => {
   expect(RoomRules.commandTouchesProtectedFile(rules, "cat .env.local")).toBe(true)
+  expect(RoomRules.commandTouchesProtectedFile(rules, "cat secrets/key.pem")).toBe(true)
   expect(RoomRules.commandTouchesProtectedFile(rules, "python -c 'open(\".env\").read()'")).toBe(true)
   expect(RoomRules.commandTouchesProtectedFile(rules, "cat src/index.ts")).toBe(false)
 })
