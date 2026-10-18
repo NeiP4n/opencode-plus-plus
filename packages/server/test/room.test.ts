@@ -302,6 +302,41 @@ it.live("guest commands inherit stricter rules from another room sharing the ses
   }).pipe(Effect.scoped),
 )
 
+it.live("hideExecution removes command details from guest-visible room feed", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { hideExecution: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const trusted = yield* call(`/api/room/${room.id}/member/${joined.body.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "trusted" },
+    })
+    expect(trusted.status).toBe(200)
+    const guestHeaders = { authorization: `Bearer ${joined.body.token}` }
+    const run = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guestHeaders,
+      body: { command: "echo command-hidden-from-feed" },
+    })
+    expect(run.status).toBe(200)
+    expect(run.body.output).toContain("command-hidden-from-feed")
+    const feed = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
+    const event = feed.body.events.find((item: { kind: string }) => item.kind === "run")
+    expect(event).toBeDefined()
+    expect(event.detail).toBeUndefined()
+  }).pipe(Effect.scoped),
+)
+
 it.live("protected files cannot be read through guest shell commands", () =>
   Effect.gen(function* () {
     const { call, room, code } = yield* setup
