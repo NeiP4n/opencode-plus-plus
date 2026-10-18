@@ -293,7 +293,7 @@ const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: AssertInput) {
       if (closed) return { id: input.id ?? ID.create(), effect: "deny" as const }
       const result = yield* evaluateInput(input)
-      const value = request({ ...input, save: result.save ?? input.save }, result.message)
+      const value = request({ ...input, save: result.save === undefined ? input.save : [...result.save] }, result.message)
       if (result.effect === "ask") yield* create(value, input.agent)
       return { id: value.id, effect: result.effect }
     })
