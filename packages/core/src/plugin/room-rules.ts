@@ -67,6 +67,21 @@ export const Plugin = define({
       return { room, member }
     })
 
+    const toolNameOf = Effect.fnUntraced(function* (
+      sessionID: SessionID,
+      messageID: string,
+      toolCallID: string,
+    ) {
+      const messages = yield* sessions.messages({ sessionID, limit: 100, order: "desc" }).pipe(
+        Effect.orElseSucceed(() => []),
+      )
+      const message = messages.find((item) => item.id === messageID)
+      if (!message || message.type !== "assistant") return undefined
+      const call = message.content.find((item) => item.type === "tool" && item.id === toolCallID)
+      if (!call || call.type !== "tool") return undefined
+      return call.name
+    })
+
     yield* ctx.permission.hook("evaluate", (event) =>
       Effect.gen(function* () {
         const rules = yield* rulesOf(event.sessionID)
@@ -75,7 +90,16 @@ export const Plugin = define({
           event.effect = "deny"
           event.message = message
         }
-        if (rules.noOutbound && (RoomRules.outboundAction(event.action) || !RoomRules.localOnlyAction(event.action)))
+        const toolName =
+          event.source?.type === "tool"
+            ? yield* toolNameOf(event.sessionID, event.source.messageID, event.source.id)
+            : undefined
+        const unrecognizedTool =
+          event.source?.type === "tool" && (!toolName || !RoomRules.localOnlyAction(toolName))
+        if (
+          rules.noOutbound &&
+          (RoomRules.outboundAction(event.action) || !RoomRules.localOnlyAction(event.action) || unrecognizedTool)
+        )
           return deny("This room blocks external, connected-account and unrecognized tools")
         if (event.action === "shell") {
           const command = event.resources.join("\\n")
