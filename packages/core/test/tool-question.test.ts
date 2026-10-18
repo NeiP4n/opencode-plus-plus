@@ -6,7 +6,7 @@ import { Form } from "@opencode/core/form"
 import { Permission } from "@opencode/core/permission"
 import { Session } from "@opencode/core/session"
 import { Tool } from "@opencode/core/tool"
-import { QuestionTool } from "@opencode/core/tool/plugin/question"
+import { QuestionTool, toField } from "@opencode/core/tool/plugin/question"
 import { Image } from "@opencode/core/image"
 import { testEffect } from "./lib/effect"
 import { imagePassthrough } from "./lib/image"
@@ -260,4 +260,38 @@ describe("QuestionTool", () => {
       }
     }),
   )
+
+  it("supports presets for varied interactive answer styles", () => {
+    const base = { question: "Choose", header: "Choice", options: [] }
+    expect(toField({ ...base, kind: "yes-no" }, 0)).toMatchObject({
+      type: "string",
+      options: [
+        { value: "Yes", label: "Yes" },
+        { value: "No", label: "No" },
+      ],
+      custom: true,
+    })
+    expect(toField({ ...base, kind: "priority" }, 1).options?.map((option) => option.value)).toEqual([
+      "Low",
+      "Normal",
+      "High",
+      "Critical",
+    ])
+    expect(toField({ ...base, kind: "rating" }, 2).options?.map((option) => option.value)).toEqual([
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+    ])
+    expect(toField({ ...base, kind: "text" }, 3)).toMatchObject({
+      type: "string",
+      options: [],
+      custom: true,
+    })
+    expect(toField({ ...base, kind: "multi-select" }, 4)).toMatchObject({
+      type: "multiselect",
+      options: [],
+    })
+  })
 })
