@@ -229,13 +229,11 @@ export default Plugin.define({
     const onTerm = onSignal(143)
     const onHup = onSignal(129)
     const onQuit = onSignal(131)
-    const onBreak = onSignal(0x80000000)
     process.once("exit", onExit)
     process.once("SIGINT", onInt)
     process.once("SIGTERM", onTerm)
     process.once("SIGHUP", onHup)
     process.once("SIGQUIT", onQuit)
-    process.once("SIGBREAK", onBreak)
 
     void refresh()
     const timer = setInterval(() => void refresh(), 250)
@@ -247,7 +245,6 @@ export default Plugin.define({
       process.off("SIGTERM", onTerm)
       process.off("SIGHUP", onHup)
       process.off("SIGQUIT", onQuit)
-      process.off("SIGBREAK", onBreak)
     }
   },
 })
