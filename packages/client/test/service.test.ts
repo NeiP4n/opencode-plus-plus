@@ -178,16 +178,26 @@ test("replaces a crashed service whose registration names a dead process", async
   expect(starts).toEqual(["missing"])
 })
 
-test("reports a failed registered service without spawning", async () => {
+test("restarts a registered service that reports a startup failure", async () => {
   await using fixture = await serviceFixture()
   const registration = fixture.registration
-  const process = fixture.spawn("failed-owner")
+  const failed = fixture.spawn("failed-owner")
   await fixture.waitForFile()
 
-  await expect(run(ensure({ file: registration, version: "test", command: [] }))).rejects.toThrow(
-    "Background service failed to start",
+  const endpoint = await run(
+    ensure({
+      file: registration,
+      version: "test",
+      command: fixture.command("delayed", "10"),
+    }),
   )
-  expect(process.exitCode).toBe(null)
+  const replacement = await Bun.file(registration).json()
+  fixture.track(replacement.pid)
+
+  expect(await failed.exited).toBe(0)
+  expect(replacement.pid).not.toBe(failed.pid)
+  expect(endpoint.url).toBe(replacement.url)
+  expect(await status(endpoint.url)).toMatchObject({ version: "test", pid: replacement.pid })
 })
 
 test("evicts an unresponsive registered service before starting its replacement", async () => {
