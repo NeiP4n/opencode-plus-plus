@@ -11,6 +11,10 @@ import { SessionInstructions } from "../../session/instructions.js"
 import { AbsolutePath } from "../../schema.js"
 import { ReadToolFileSystem } from "../read-filesystem.js"
 import { Environment } from "../../environment/index.js"
+import { Room } from "../../room.js"
+import { Session } from "../../session.js"
+import { RoomRules } from "@opencode/schema/room-rules"
+import { Orchestra } from "../../orchestra.js"
 
 export const name = "read"
 const FILENAME = "AGENTS.md"
@@ -102,8 +106,6 @@ export const Plugin = {
                     }),
                 ),
               )
-              // Directory listings are reads too: omit protected credential filenames even when
-              // the requested path is an allowed parent directory.
               if (result.content.type === "list-page") {
                 const entries = result.content.entries.filter((entry) => {
                   const file = relative(location.directory, resolve(result.target.absolute, entry.path)).replaceAll("\\", "/")
@@ -114,17 +116,10 @@ export const Plugin = {
                   entries,
                 })
               }
-              // After a successful read, discover nearby AGENTS.md walking up to the Location
-              // root exclusive and inject them as durable synthetic instructions. For a
-              // directory listing the walk starts at the directory itself (so its own AGENTS.md
-              // is discovered); for a file it starts at the file's dirname. External reads are
-              // skipped, and discovery failures never fail the read.
               yield* Effect.gen(function* () {
                 if (result.target.externalDirectory !== undefined) return
                 const resolved = yield* fs.resolve(result.target.absolute)
                 const root = yield* fs.resolve(location.directory)
-                // The Location and its ancestors are already supplied by initial instructions,
-                // even when an upward walk from elsewhere in the project cannot reach root.
                 const discovered = yield* fs.up({
                   targets: [FILENAME],
                   start: result.content.type === "list-page" ? resolved : dirname(resolved),
@@ -238,7 +233,6 @@ export const toModelContent = (path: string, offset: number | undefined, output:
   }
 
   const start = output.type === "text-page" ? output.offset : 1
-  // Pages already join selected lines; a trailing newline represents a selected blank line.
   const text = output.type === "file" ? output.content.replace(/\n$/, "") : output.content
   const lines = output.content === "" ? [] : text.split("\n")
   const content = [
