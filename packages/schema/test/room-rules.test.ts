@@ -148,6 +148,17 @@ test("strict outbound mode blocks connected account actions as well as web tools
   expect(RoomRules.localOnlyAction("unknown_custom_tool")).toBe(false)
 })
 
+test("credential dumps remain forbidden even if external network access is allowed", () => {
+  expect(RoomRules.commandDisclosesSecrets("env")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("printenv OPENAI_API_KEY")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("echo $ANTHROPIC_API_KEY")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("cat /proc/self/environ")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("python -c 'import os; print(os.environ)'")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("git config --list")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("gh auth token")).toBe(true)
+  expect(RoomRules.commandDisclosesSecrets("echo ordinary output")).toBe(false)
+})
+
 test("execution privacy removes tool calls but keeps the assistant's ordinary text", () => {
   expect(RoomRules.sanitizeForGuest({
     content: [{ type: "text", text: "Finished" }, { type: "tool", name: "shell", state: { input: { command: "git status" } } }],
