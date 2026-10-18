@@ -75,8 +75,12 @@ export const Plugin = define({
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
         const text = RoomRules.describe(yield* rulesOf(event.sessionID))
-        if (text) event.system.push({ type: "text", text: `# Room rules\nThe host set these rules for this room; they cannot be lifted from inside it.\n${text}` })
+        if (text)
+          event.system.push({
+            type: "text",
+            text: `# Room rules\nThe host set these rules for this room; they cannot be lifted from inside it.\n${text}`,
+          })
       }),
     )
-  }).pipe(Effect.orDie),
+  }),
 })
