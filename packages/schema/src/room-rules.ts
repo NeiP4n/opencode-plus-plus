@@ -65,8 +65,10 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
     const pattern = raw.trim()
     if (!pattern) return false
     const start = glob(pattern, "^")
-    if (segments(command).some((part) => start.test(part))) return true
-    return !pattern.includes("*") && command.toLowerCase().includes(pattern.toLowerCase())
+    // Also inspect the full command so wrappers such as bash -c cannot hide a wildcard rule.
+    // This is intentionally conservative: a match anywhere in the command is denied.
+    if (glob(pattern, "").test(command)) return true
+    return segments(command).some((part) => start.test(part))
   })
 }
 
