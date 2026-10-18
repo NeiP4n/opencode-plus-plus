@@ -7,6 +7,8 @@ import { parseReleaseVersion } from "./updater-action"
 const PREFIX = "release/"
 const INSTALL_BRANCH = process.env.OPENCODE_PP_BRANCH || "lan-rooms"
 const checkout = path.resolve(import.meta.dir, "../../../..")
+const DEPENDENCY_TIMEOUT_MS = 5 * 60 * 1000
+const VALIDATION_TIMEOUT_MS = 2 * 60 * 1000
 
 export async function current(root = checkout) {
   const branch = await $`git -C ${root} symbolic-ref -q HEAD`.quiet().nothrow()
@@ -31,7 +33,11 @@ export async function apply(release: string, root = checkout) {
   return keepingEdits(root, async () => {
     const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
     try {
-      await $`git -C ${root} checkout --detach ${"refs/tags/" + PREFIX + release}`.quiet()
+      if (parseReleaseVersion(release)) {
+        await $`git -C ${root} checkout --detach ${"refs/tags/" + PREFIX + release}`.quiet()
+      } else {
+        await checkoutDevelopmentBranch(root)
+      }
       await installDependencies(root)
       await validateServer(root)
     } catch (error) {
@@ -97,6 +103,12 @@ async function refreshTracking(root: string, target: string) {
   await $`git -C ${root} fetch --quiet ${remote} ${refspec}`.quiet()
 }
 
+async function checkoutDevelopmentBranch(root: string) {
+  const target = `origin/${INSTALL_BRANCH}`
+  await refreshTracking(root, target)
+  await $`git -C ${root} checkout --quiet --detach ${target}`.quiet()
+}
+
 export type Branch =
   | { readonly type: "behind"; readonly name: string; readonly behind: number }
   | { readonly type: "current" }
@@ -143,7 +155,7 @@ export async function follow(root = checkout) {
   return keepingEdits(root, async () => {
     const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
     try {
-      await $`git -C ${root} checkout --quiet --detach ${"origin/" + INSTALL_BRANCH}`.quiet()
+      await checkoutDevelopmentBranch(root)
       await installDependencies(root)
       await validateServer(root)
     } catch (error) {
@@ -154,14 +166,15 @@ export async function follow(root = checkout) {
 }
 
 async function installDependencies(root: string) {
-  await $`${process.execPath} install --frozen-lockfile`.cwd(root).quiet()
+  const result = await $`${process.execPath} install --frozen-lockfile`.cwd(root).nothrow().quiet().timeout(DEPENDENCY_TIMEOUT_MS)
+  if (result.exitCode !== 0) {
+    const detail = result.stderr.toString().trim() || result.stdout.toString().trim()
+    throw new Error(detail || `Dependency installation failed with exit code ${result.exitCode}`)
+  }
 }
 
 async function validateServer(root: string) {
-  // Bun's --cwd is a global option and must precede `run`. Passing it after `run` can
-  // fail before the server's typecheck script is even started, which previously surfaced
-  // in /upgrade as the unhelpful bare `$ tsgo -b` message.
-  const result = await $`${process.execPath} --cwd packages/server run typecheck`.cwd(root).nothrow()
+  const result = await $`${process.execPath} --cwd packages/server run typecheck`.cwd(root).nothrow().timeout(VALIDATION_TIMEOUT_MS)
   if (result.exitCode !== 0) {
     const detail = result.stderr.toString().trim() || result.stdout.toString().trim() || `Server typecheck exited with code ${result.exitCode}`
     throw new Error(`OpenCode++ update validation failed:\n${detail}`)
