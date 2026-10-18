@@ -49,6 +49,7 @@ export const outbound: readonly string[] = [
   "federation",
   "shell",
   "hub",
+  "desktop",
   "opencode_list_mcp_resources",
   "opencode_read_mcp_resource",
 ]
