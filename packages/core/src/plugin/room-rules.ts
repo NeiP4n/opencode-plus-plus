@@ -59,6 +59,8 @@ export const Plugin = define({
           return deny("This room blocks outbound, connected-account and unrecognized tools by default")
         if (RoomRules.commandActions.includes(event.action)) {
           const commands = event.resources
+          if (commands.some((command) => RoomRules.commandLeaksCredentials(command)))
+            return deny("Commands that print the host's environment or credentials are not allowed")
           const protectedFile = commands.flatMap((command) => RoomRules.protectedFileInCommand(rules, command) ?? [])[0]
           if (protectedFile) return deny("This room keeps that file off limits to the AI")
           const programs = [...new Set(commands.flatMap((command) => RoomRules.programsRequiringApproval(rules, command)))]
