@@ -127,6 +127,15 @@ test("outbound access is denied by default across overlapping rooms", () => {
   expect(RoomRules.merge([{ noOutbound: false }, {}])?.noOutbound).toBe(true)
 })
 
+test("credential and environment dumps stay blocked even when outbound access is allowed", () => {
+  expect(RoomRules.commandLeaksCredentials("env")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("printenv")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("echo $OPENAI_API_KEY")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("Get-ChildItem Env:")).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("echo hello")).toBe(false)
+})
+
+
 test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toBeUndefined()
   expect(RoomRules.describe({ noOutbound: true })).toContain("desktop control, playtest app execution")
