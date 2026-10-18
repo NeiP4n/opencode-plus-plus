@@ -81,6 +81,21 @@ export function protectedFile(rules: Rules | undefined, file: string) {
 }
 
 // Replaces the project's directory in text a guest will read.
+/**
+ * Conservatively detects protected paths mentioned in a shell command.
+ * Shell syntax cannot be fully analyzed here; sandboxing is still required for indirect access.
+ */
+export function protectedFileInCommand(rules: Rules | undefined, command: string) {
+  return (rules?.protectedFiles ?? []).find((raw) => {
+    const pattern = raw.trim().replaceAll("\\\\", "/")
+    if (!pattern) return false
+    const body = pattern
+      .replaceAll(/[.+^${}()|[\\]\\\\]/g, "\\\\export function redactPath(text: string, directory: string) {")
+      .replaceAll("*", ".*")
+      .replaceAll("?", ".")
+    return new RegExp("(?:^|[\\\\s\\\"'=:/])" + body + "(?=$|[\\\\s\\\"/:])", "i").test(command.replaceAll("\\\\", "/"))
+  })
+}
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
   const variants = [...new Set([directory, forward, forward.replaceAll("/", "\\")])].filter(Boolean)
