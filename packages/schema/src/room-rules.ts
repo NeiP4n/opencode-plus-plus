@@ -11,8 +11,8 @@ export const Rules = Schema.Struct({
   // Commands nobody runs in the room, by the host's AI, guests' commands or checks. A pattern
   // matches the start of a command or of any part of a chained one; `*` stands for any text.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
-  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`), so
-  // their contents cannot be sent anywhere.
+  // Files nobody in the room may access (patterns such as `.env*` or `secrets/*`),
+  // including through shell commands, so their contents cannot be sent anywhere.
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
   // Fail closed on shell execution too: command names cannot reliably distinguish local work from network egress.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
