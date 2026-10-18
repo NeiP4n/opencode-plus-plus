@@ -495,6 +495,7 @@ export type ConfigCompatibilitySkipped = { source: string; reason: string }
 export type RoomRules = {
   hidePaths?: boolean | undefined
   hideExecution?: boolean | undefined
+  hideScreenshots?: boolean | undefined
   blockCommands?: Array<string> | undefined
   protectedFiles?: Array<string> | undefined
   noOutbound?: boolean | undefined
