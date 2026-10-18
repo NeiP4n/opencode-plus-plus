@@ -20,10 +20,10 @@ export function createScopedCache<T>(createValue: (key: string) => T, options: S
     options.dispose?.(entry.value, key)
   }
 
-  const expired = (entry: Entry<T>, time = timestamp()) => {
+  const expired = (entry: Entry<T>, time?: number) => {
     if (options.ttlMs === undefined) return false
 
-    return time - entry.touchedAt >= options.ttlMs
+    return (time ?? timestamp()) - entry.touchedAt >= options.ttlMs
   }
 
   const sweep = () => {
