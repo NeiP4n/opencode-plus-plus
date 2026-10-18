@@ -49,3 +49,28 @@ test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toBeUndefined()
   expect(RoomRules.describe({ noOutbound: true })).toContain("Send nothing out")
 })
+
+
+test("configured commands require approval for the executable, not the exact invocation", () => {
+  expect(RoomRules.programsRequiringApproval(rules, "git push origin main")).toEqual(["git"])
+  expect(RoomRules.programsRequiringApproval(rules, "ls && git push origin main")).toEqual(["git"])
+  expect(RoomRules.programsRequiringApproval(rules, "echo hi | curl https://example.test")).toEqual(["curl"])
+  expect(RoomRules.programsRequiringApproval(rules, "git status")).toEqual([])
+})
+
+test("protected files are also detected in shell arguments", () => {
+  expect(RoomRules.commandTouchesProtectedFile(rules, "cat .env.local")).toBe(true)
+  expect(RoomRules.commandTouchesProtectedFile(rules, "python -c 'open(\".env\").read()'")).toBe(true)
+  expect(RoomRules.commandTouchesProtectedFile(rules, "cat src/index.ts")).toBe(false)
+})
+
+test("outbound shell commands are detected", () => {
+  expect(RoomRules.commandSendsOutbound("git push origin main")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("curl https://example.test")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("git status")).toBe(false)
+})
+
+test("nested response values are path-redacted", () => {
+  expect(RoomRules.redactPaths({ session: { directory: "C:\\Users\\me\\app", text: "in C:/Users/me/app/src" } }, "C:\\Users\\me\\app"))
+    .toEqual({ session: { directory: "<project>", text: "in <project>/src" } })
+})
