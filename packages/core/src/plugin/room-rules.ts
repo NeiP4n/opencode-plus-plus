@@ -57,6 +57,10 @@ export const Plugin = define({
       )
     })
 
+    // Cache tool namespaces by effective name. MCP tools may arrive after plugin startup, so
+    // resolve each new name once rather than enumerating the registry on every tool call.
+    const namespacedTools = new Map<string, boolean>()
+
     // Enforce outbound restrictions at tool execution time. Context instructions alone are not
     // a security boundary: a model can ignore them, and compaction can remove them.
     yield* ctx.tool.hook("execute.before", (event) =>
@@ -67,11 +71,15 @@ export const Plugin = define({
         const input =
           event.input && typeof event.input === "object" ? (event.input as Record<string, unknown>) : undefined
         const action = typeof input?.action === "string" ? input.action.toLowerCase() : undefined
-        const registered = yield* ctx.tool.list()
-        const registeredTool = registered.find((item) => item.name.toLowerCase() === tool)
+        let namespaced = namespacedTools.get(tool)
+        if (namespaced === undefined) {
+          const registered = yield* ctx.tool.list()
+          namespaced = !!registered.find((item) => item.name.toLowerCase() === tool)?.options?.namespace
+          namespacedTools.set(tool, namespaced)
+        }
         // MCP tool names are server-defined, so a name-only allowlist is insufficient.
         // Registered namespaced tools are treated as MCP transports for this rule.
-        if (blocksOutboundTool(tool, action, !!registeredTool?.options?.namespace))
+        if (blocksOutboundTool(tool, action, namespaced))
           return yield* new Tool.Error({
             message: "This room does not allow tools that can send data out.",
             metadata: { rule: "noOutbound", tool: event.tool, action },
