@@ -110,7 +110,7 @@ export interface Interface {
   // Asks the operator whatever the agent's rules say, for requests that come from outside
   // the model, such as a room guest's command; an earlier "always" still counts. A decline
   // is an ordinary failure here, not the defect assert raises to stop a model's tool.
-  readonly confirm: (input: AssertInput) => Effect.Effect<void, DeclinedError | CorrectedError>
+  readonly confirm: (input: AssertInput & { readonly onAlways?: () => Effect.Effect<void> }) => Effect.Effect<void, DeclinedError | CorrectedError>
   readonly reply: (input: ReplyInput) => Effect.Effect<void, NotFoundError>
   readonly get: (id: ID) => Effect.Effect<Request | undefined>
   readonly forSession: (sessionID: SessionSchema.ID) => Effect.Effect<ReadonlyArray<Request>>
@@ -123,6 +123,9 @@ interface Pending {
   readonly request: Request
   readonly agent?: Agent.ID
   readonly deferred: Deferred.Deferred<void, DeclinedError | CorrectedError>
+  // Member-scoped approvals must never be written to the project-wide saved permission store.
+  readonly saveGlobally: boolean
+  readonly onAlways?: () => Effect.Effect<void>
 }
 
 const layer = Layer.effect(
@@ -191,8 +194,15 @@ const layer = Layer.effect(
         metadata: input.metadata,
         source: input.source,
         effect,
+        save: input.save,
       })
-      return { effect: event.effect, message: event.message, rules: all }
+      return {
+        effect: event.effect,
+        message: event.message,
+        rules: all,
+        save: event.save,
+        onAlways: event.onAlways,
+      }
     })
 
     function request(input: AssertInput, message?: string): Request {
@@ -208,11 +218,21 @@ const layer = Layer.effect(
       }
     }
 
-    const create = (request: Request, agent?: Agent.ID) =>
+    const create = (
+      request: Request,
+      agent?: Agent.ID,
+      options?: { readonly saveGlobally?: boolean; readonly onAlways?: () => Effect.Effect<void> },
+    ) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
           const deferred = yield* Deferred.make<void, DeclinedError | CorrectedError>()
-          const item = { request, agent, deferred }
+          const item: Pending = {
+            request,
+            agent,
+            deferred,
+            saveGlobally: options?.saveGlobally ?? true,
+            onAlways: options?.onAlways,
+          }
           if (closed) {
             yield* Deferred.fail(deferred, new DeclinedError())
             return item
@@ -250,7 +270,11 @@ const layer = Layer.effect(
               })
             }
             if (result.effect === "allow") return
-            const item = yield* create(request(input, result.message), input.agent)
+            const item = yield* create(
+              request({ ...input, save: result.save ?? input.save }, result.message),
+              input.agent,
+              { saveGlobally: result.onAlways === undefined, onAlways: result.onAlways },
+            )
             return yield* restore(Deferred.await(item.deferred)).pipe(
               // Deliberate defect tunnel: leaves wrap execution in blanket `mapError`, which
               // must not convert a user's decline into model-facing tool output. The decline
@@ -304,15 +328,20 @@ const layer = Layer.effect(
           }
 
           if (input.reply === "always" && existing.request.save?.length) {
-            yield* saved.add({
-              projectID: location.project.id,
-              action: existing.request.action,
-              resources: existing.request.save,
-            })
+            if (existing.saveGlobally) {
+              yield* saved.add({
+                projectID: location.project.id,
+                action: existing.request.action,
+                resources: existing.request.save,
+              })
+            }
+            if (existing.onAlways) yield* existing.onAlways()
           }
           yield* Deferred.succeed(existing.deferred, undefined)
           pending.delete(input.requestID)
-          if (input.reply !== "always" || !existing.request.save?.length) return
+          // Only a normal project-wide grant may satisfy other pending requests. A member grant
+          // is deliberately private to its member and cannot approve anyone else's request.
+          if (input.reply !== "always" || !existing.request.save?.length || !existing.saveGlobally) return
 
           for (const [id, item] of pending) {
             const result = yield* evaluateInput({ ...item.request, agent: item.agent }).pipe(
@@ -343,13 +372,18 @@ const layer = Layer.effect(
       return Array.from(pending.values(), (item) => item.request).filter((request) => request.sessionID === sessionID)
     })
 
-    const confirm = Effect.fn("Permission.confirm")(function* (input: AssertInput) {
+    const confirm = Effect.fn("Permission.confirm")(
+      function* (input: AssertInput & { readonly onAlways?: () => Effect.Effect<void> }) {
       if (closed) return yield* new DeclinedError()
       const saved = yield* savedRules()
       if (!input.force && input.resources.every((resource) => evaluate(input.action, resource, saved).effect === "allow")) return
-      const item = yield* create(request(input), input.agent)
+      const item = yield* create(request(input), input.agent, {
+        saveGlobally: !input.force,
+        onAlways: input.onAlways,
+      })
       return yield* Deferred.await(item.deferred)
-    })
+      },
+    )
 
     return Service.of({ ask, assert, confirm, reply, get, forSession, list, close })
   }),
