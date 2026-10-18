@@ -567,7 +567,10 @@ export type Rotation = { before?: ExitIp; after?: ExitIp; changed: boolean; used
  */
 export async function rotate(port = DEFAULT_PORT): Promise<Rotation> {
   await requireProxyMode()
-  const effectivePort = (await mode()).port ?? port
+  const localPort = (await mode()).port ?? port
+  // Older WARP clients expose SOCKS5 on the native port; OpenCode reaches them through our
+  // HTTP bridge. Probe the same endpoint OpenCode actually uses or IP changes look unconfirmed.
+  const effectivePort = (await isSocksOnly(localPort)) ? HTTP_BRIDGE_PORT : localPort
   const before = await exitIp(effectivePort, 5_000)
 
   let state = await reconnect()
