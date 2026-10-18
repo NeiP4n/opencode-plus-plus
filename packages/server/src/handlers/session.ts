@@ -270,6 +270,11 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         "session.update",
         Effect.fn(function* (ctx) {
           yield* session.get(ctx.params.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
+          if (ctx.payload.archived !== undefined) {
+            yield* session
+              .setArchived({ sessionID: ctx.params.sessionID, archived: ctx.payload.archived })
+              .pipe(Effect.catchTag("Session.NotFoundError", missingSession))
+          }
           if (ctx.payload.title !== undefined) {
             if (ctx.payload.title) {
               yield* session
