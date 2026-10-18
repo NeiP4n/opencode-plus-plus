@@ -178,7 +178,7 @@ test("credential and environment dumps stay blocked even when outbound access is
   expect(RoomRules.commandLeaksCredentials('Write-Output $env:GITHUB_TOKEN')).toBe(true)
   expect(RoomRules.commandLeaksCredentials('cmd /c echo %GITHUB_TOKEN%')).toBe(true)
   expect(RoomRules.commandLeaksCredentials('cmd /c echo %AWS_SECRET_ACCESS_KEY%')).toBe(true)
-  expect(RoomRules.commandLeaksCredentials('powershell -Command "[Environment]::GetEnvironmentVariable(''OPENAI_API_KEY'')"')).toBe(true)
+  expect(RoomRules.commandLeaksCredentials("powershell -Command \"[Environment]::GetEnvironmentVariable('OPENAI_API_KEY')\"")).toBe(true)
   expect(RoomRules.commandLeaksCredentials('powershell -Command "[Environment]::GetEnvironmentVariables()"')).toBe(true)
   expect(RoomRules.commandLeaksCredentials("Get-ChildItem Env:")).toBe(true)
   expect(RoomRules.commandLeaksCredentials('python -c "import os; print(os.environ)"')).toBe(true)
