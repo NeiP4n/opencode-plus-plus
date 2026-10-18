@@ -321,7 +321,7 @@ function RoomView(props: {
                 const response = await remote.room.guest.session.messages({
                   roomID: props.room.roomID,
                   sessionID: item.id,
-                  limit: 1
+                  limit: 1,
                   order: "desc",
                 })
                 const chronological = response.data.toReversed()
@@ -370,7 +370,7 @@ function RoomView(props: {
               const response = await remote.room.guest.session.messages({
                 roomID: props.room.roomID,
                 sessionID: target.id,
-                limit: 1
+                limit: 1,
                 order: "desc",
               })
               const chronological = response.data.toReversed()
