@@ -4,7 +4,7 @@ import * as Warp from "@opencode/core/warp"
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal } from "solid-js"
 import { hoverBackground } from "../../ui/hover"
-import { warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
+import { isRateLimitFailure, warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
 
 type WarpAction = "refresh" | "connect" | "disconnect" | "reconnect" | "reset" | "install" | "proxy" | "disableProxy" | "changeIp"
 type SharedBusy = { action: WarpAction | null }
@@ -310,7 +310,7 @@ function ActionButton(props: { context: Plugin.Context; id: string; label: strin
   )
 }
 
-function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; exitIp: string; directIp: string; open: () => void; refresh: () => void }) {
+function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; exitIp: string; directIp: string; open: () => void; toggleAutoRotate: () => void }) {
   const theme = () => props.context.theme
   const ru = () => language(props.context) === "ru"
   return (
@@ -324,7 +324,7 @@ function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy:
       {props.proxyEnabled && <text fg={theme().text.feedback.success.base} wrapMode="none">{"OpenCode: " + (props.exitIp || "…")}</text>}
       <box flexDirection="row" gap={1}>
         <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? "[ Управление ↗ ]" : "[ Manage ↗ ]"} run={props.open} emphasized />
-        <ActionButton context={props.context} id="warp.sidebar.refresh" label={ru() ? "[ Обновить ]" : "[ Refresh ]"} run={props.refresh} disabled={props.busy.action !== null} />
+        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? `[ ⚑ Авто IP: ${props.autoRotateEnabled ? "ВКЛ" : "ВЫКЛ"} ]` : `[ ⚑ Auto IP: ${props.autoRotateEnabled ? "ON" : "OFF"} ]`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} />
       </box>
     </box>
   )
@@ -400,6 +400,7 @@ export default Plugin.define({
     const [status, updateStatus] = context.storage.memory<WarpStatus>("status", { initial: { state: "checking", details: "Checking Cloudflare WARP…" } })
     const [busy, updateBusy] = context.storage.memory<SharedBusy>("busy", { initial: { action: null } })
     const [proxy, updateProxy] = context.storage.memory<{ enabled: boolean }>("proxy", { initial: { enabled: false } })
+    const [autoRotate, updateAutoRotate] = context.storage.store<{ enabled: boolean }>("autoRotate", { initial: { enabled: false } })
     const [exit, updateExit] = context.storage.memory<{ ip: string; direct: string }>("exit", { initial: { ip: "", direct: "" } })
 
     const describeIp = (seen: Warp.ExitIp | undefined) => seen ? seen.ip + (seen.warp ? " · WARP" : "") + (seen.loc ? " · " + seen.loc : "") : ""
@@ -442,6 +443,65 @@ export default Plugin.define({
       await refreshExitIp()
     }
 
+    // Repeated failures from parallel agents should trigger one rotation, not a reconnect loop.
+    const AUTO_ROTATION_COOLDOWN_MS = 30_000
+    let rateLimitRotationRequested = false
+    let rateLimitRotationRunning = false
+    let lastRateLimitRotationAt = 0
+
+    async function runQueuedRateLimitRotation() {
+      if (!rateLimitRotationRequested || rateLimitRotationRunning || busy.action !== null) return
+      if (!autoRotate.enabled) {
+        rateLimitRotationRequested = false
+        return
+      }
+      if (Date.now() - lastRateLimitRotationAt < AUTO_ROTATION_COOLDOWN_MS) {
+        rateLimitRotationRequested = false
+        return
+      }
+
+      rateLimitRotationRunning = true
+      rateLimitRotationRequested = false
+      setSharedBusy(updateBusy, "changeIp")
+      try {
+        // Verify the actual config, rather than relying only on the panel's cached state.
+        if ((await readOpenCodeProxyEnabled(context)) !== true || !autoRotate.enabled) return
+        lastRateLimitRotationAt = Date.now()
+        context.ui.toast.show({
+          title: text(context, "Rate limit detected", "Обнаружен RateLimit"),
+          message: text(context, "Changing the OpenCode WARP exit IP…", "Меняю внешний IP WARP для OpenCode…"),
+          variant: "info",
+        })
+        const rotation = await Warp.rotate()
+        setSharedStatus(updateStatus, rotation.status)
+        await refreshProxy()
+        await refreshExitIp()
+        context.ui.toast.show({
+          title: text(context, "Automatic IP change finished", "Автоматическая смена IP завершена"),
+          message: rotation.changed
+            ? text(context, "OpenCode now uses a different WARP exit IP.", "OpenCode теперь использует другой внешний IP WARP.")
+            : text(context, "WARP reconnected, but a new IP could not be confirmed. The provider may still apply the same limit.", "WARP переподключён, но новый IP подтвердить не удалось. Провайдер может продолжить применять тот же лимит."),
+          variant: rotation.changed ? "success" : "info",
+        })
+      } catch (cause) {
+        context.ui.toast.show({
+          title: text(context, "Automatic IP change failed", "Не удалось автоматически сменить IP"),
+          message: describe(context, cause),
+          variant: "error",
+        })
+      } finally {
+        rateLimitRotationRunning = false
+        setSharedBusy(updateBusy, null)
+        if (rateLimitRotationRequested) void runQueuedRateLimitRotation()
+      }
+    }
+
+    const disposeRateLimit = context.data.on("session.execution.failed", (event) => {
+      if (!isRateLimitFailure(event.data.error) || !autoRotate.enabled) return
+      rateLimitRotationRequested = true
+      void runQueuedRateLimitRotation()
+    })
+
     const perform = async (action: WarpAction) => {
       if (busy.action !== null) return
       setSharedBusy(updateBusy, action)
@@ -465,6 +525,15 @@ export default Plugin.define({
           Warp.releaseSync({ disconnect: false })
           next = await readWarpStatus()
           actionMessage = text(context, "OpenCode proxy disabled; WARP stays disconnected until you explicitly connect it.", "Прокси OpenCode отключён; WARP останется отключённым, пока ты явно не подключишь его.")
+        } else if (action === "changeIp") {
+          const rotation = await Warp.rotate()
+          lastRateLimitRotationAt = Date.now()
+          next = rotation.status
+          actionMessage = rotation.changed
+            ? text(context, "OpenCode now uses a different WARP exit IP.", "OpenCode теперь использует другой внешний IP WARP.")
+            : text(context, "WARP reconnected, but a new IP could not be confirmed.", "WARP переподключён, но новый IP подтвердить не удалось.")
+          await refreshProxy()
+          await refreshExitIp()
         } else {
           next = await performWarpAction(action, context)
         }
@@ -478,6 +547,26 @@ export default Plugin.define({
         context.ui.toast.show({ title: text(context, "WARP action failed", "Ошибка WARP"), message, variant: "error" })
       } finally {
         setSharedBusy(updateBusy, null)
+        if (rateLimitRotationRequested) void runQueuedRateLimitRotation()
+      }
+    }
+
+    const toggleAutoRotate = async () => {
+      if (busy.action !== null) return
+      const enabled = !autoRotate.enabled
+      try {
+        await updateAutoRotate((draft) => { draft.enabled = enabled })
+        context.ui.toast.show({
+          title: enabled ? text(context, "Auto IP enabled", "Авто-смена IP включена") : text(context, "Auto IP disabled", "Авто-смена IP выключена"),
+          message: enabled
+            ? proxy.enabled
+              ? text(context, "The WARP IP will change when OpenCode receives a RateLimit error.", "IP WARP будет меняться при появлении RateLimit у OpenCode.")
+              : text(context, "Enable the OpenCode-only WARP proxy for automatic IP changes to work.", "Чтобы авто-смена работала, включи прокси WARP только для OpenCode.")
+            : text(context, "WARP will keep its current IP until you change it manually.", "WARP сохранит текущий IP, пока ты не сменишь его вручную."),
+          variant: "info",
+        })
+      } catch (cause) {
+        context.ui.toast.show({ title: text(context, "Could not save Auto IP setting", "Не удалось сохранить настройку авто-IP"), message: messageOf(cause), variant: "error" })
       }
     }
 
@@ -491,7 +580,7 @@ export default Plugin.define({
       context.keymap.layer(() => ({ mode: "global", commands: [{ id: "opencode.warp.open", title: text(context, "Cloudflare WARP controls", "Управление Cloudflare WARP"), description: text(context, "View status, connect, reconnect, or reset registration", "Статус, подключение, переподключение и сброс регистрации"), group: "System", slash: { name: "warp", arguments: true }, palette: true, run: open }] }))
       return null
     }})
-    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} exitIp={exit.ip} directIp={exit.direct} open={open} refresh={() => void perform("refresh")} /> })
+    context.ui.slot({ append: "sidebar.content", render: () => <WarpSidebar context={context} status={status} busy={busy} proxyEnabled={proxy.enabled} autoRotateEnabled={autoRotate.enabled} exitIp={exit.ip} directIp={exit.direct} open={open} toggleAutoRotate={() => void toggleAutoRotate()} /> })
 
     void Warp.hideGui()
     void refresh()
@@ -500,6 +589,7 @@ export default Plugin.define({
 
     return () => {
       clearInterval(timer)
+      disposeRateLimit()
       process.off("exit", leave)
       process.off("SIGHUP", onHup)
       process.off("SIGTERM", onTerm)

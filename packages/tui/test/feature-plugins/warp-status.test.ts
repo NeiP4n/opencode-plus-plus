@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { parseWarpStatus, warpCliUnavailable, warpStatusError } from "../../src/feature-plugins/system/warp-status"
+import { isRateLimitFailure, parseWarpStatus, warpCliUnavailable, warpStatusError } from "../../src/feature-plugins/system/warp-status"
 
 describe("WARP status parsing", () => {
   test("recognizes a connected tunnel", () => {
@@ -27,5 +27,22 @@ describe("WARP status parsing", () => {
   test("distinguishes a missing CLI from an unavailable status", () => {
     expect(warpCliUnavailable("spawn warp-cli ENOENT").state).toBe("unavailable")
     expect(warpStatusError("permission denied").state).toBe("unknown")
+  })
+})
+
+
+describe("WARP automatic IP rotation trigger", () => {
+  test("recognizes the structured provider RateLimit error", () => {
+    expect(isRateLimitFailure({ type: "provider.rate-limit", message: "Request failed" })).toBe(true)
+  })
+
+  test("recognizes HTTP 429 and rate-limit messages", () => {
+    expect(isRateLimitFailure({ type: "provider.internal", status: 429, message: "Request failed" })).toBe(true)
+    expect(isRateLimitFailure("Too many requests: rate limit exceeded")).toBe(true)
+  })
+
+  test("does not rotate for unrelated quota or transport errors", () => {
+    expect(isRateLimitFailure({ type: "provider.quota", message: "Quota exhausted" })).toBe(false)
+    expect(isRateLimitFailure({ type: "provider.transport", message: "Connection reset" })).toBe(false)
   })
 })
