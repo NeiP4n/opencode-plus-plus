@@ -209,12 +209,19 @@ export function hideExecutionFeed(rules: Rules | undefined, value: unknown) {
   if (!rules?.hideCommandExecution || value === null || typeof value !== "object") return value
   const record = value as Record<string, unknown>
   if (Array.isArray(record.events)) {
-    return { ...record, events: record.events.filter((item) =>
-      !(item && typeof item === "object" && "kind" in item && (item as { kind?: unknown }).kind === "run"),
-    ) }
+    return {
+      ...record,
+      events: record.events.filter((item) =>
+        !(item && typeof item === "object" && "kind" in item &&
+          ["run", "pass", "fail"].includes(String((item as { kind?: unknown }).kind))),
+      ),
+    }
   }
   if (Array.isArray(value)) {
-    return value.filter((item) => !(item && typeof item === "object" && "kind" in item && (item as { kind?: unknown }).kind === "run"))
+    return value.filter((item) =>
+      !(item && typeof item === "object" && "kind" in item &&
+        ["run", "pass", "fail"].includes(String((item as { kind?: unknown }).kind))),
+    )
   }
   return value
 }
