@@ -51,8 +51,8 @@ export const Policy = Schema.Struct({
 export interface Policy extends Schema.Schema.Type<typeof Policy> {}
 
 // A named set of projects the operator keeps together, such as "Shop" for its web, API and
-// mobile projects. The first project is the group's coordinator. A dedicated supervisor session
-// may monitor the group; it is stored here so notifications can wake the same session.
+// mobile projects. The first project is the group's coordinator. An optional group-bound chat
+// is stored here so the UI and federation tool can identify its group and coordination mode.
 export const CoordinationMode = Schema.Literals(["lead", "council"]).annotate({
   identifier: "Federation.CoordinationMode",
 })
