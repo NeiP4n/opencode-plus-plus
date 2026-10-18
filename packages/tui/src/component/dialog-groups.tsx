@@ -61,7 +61,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
       )
       if (nameField) nameField.value = ""
       setPicked([])
-      toast.show({ message: t("Group saved and shared chat is ready."), variant: "success" })
+      toast.show({ message: "Group saved and shared chat is ready.", variant: "success" })
     })
   }
 
