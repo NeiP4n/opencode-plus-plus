@@ -21,7 +21,17 @@ test("plugin directives preserve package options when toggling an external plugi
     "-other.plugin",
     "-example-plugin",
   ])
-  expect(pluginDirective([packagePlugin, "-example-plugin"], "example-plugin", true)).toEqual([packagePlugin])
+  expect(pluginDirective([packagePlugin, "-example-plugin"], "example-plugin", true)).toEqual([
+    packagePlugin,
+    "example-plugin",
+  ])
+})
+
+test("an explicit enable overrides a wildcard exclusion that appears later", () => {
+  expect(pluginDirective(["example.plugin", "-example.*"], "example.plugin", true)).toEqual([
+    "-example.*",
+    "example.plugin",
+  ])
 })
 
 test("plugin directives preserve unrelated declarations", () => {
