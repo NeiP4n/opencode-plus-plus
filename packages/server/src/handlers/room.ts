@@ -701,6 +701,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
+          // noOutbound is fail-closed: arbitrary shell commands can exfiltrate data even when
+          // they do not match a configured blockCommands pattern.
+          if (joined.room.rules?.noOutbound)
+            return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
@@ -827,6 +831,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
+          if (joined.room.rules?.noOutbound)
+            return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
