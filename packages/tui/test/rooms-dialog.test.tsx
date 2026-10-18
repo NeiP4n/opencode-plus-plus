@@ -416,7 +416,7 @@ test("room management separates participants from safety rules and exposes guest
   const line = overview.split("\n").findIndex((item) => item.includes("Safety rules"))
   await setup.mockMouse.click(overview.split("\n")[line].indexOf("Open") + 1, line)
   const rules = await setup.waitForFrame((frame) => frame.includes("Guest prompts") && frame.includes("Guest commands"))
-  expect(rules).toContain("Privacy & network")
+  expect(rules).toContain("Privacy & visibility")
   expect(rules).toContain("Command & file restrictions")
   expect(rules).toContain("Off-limits files")
   const promptsLine = rules.split("\n").findIndex((item) => item.includes("Guest prompts"))
