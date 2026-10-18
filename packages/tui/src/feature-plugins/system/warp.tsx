@@ -656,7 +656,7 @@ export default Plugin.define({
     const refreshExitIp = async () => {
       const [direct, viaWarp] = await Promise.all([
         Warp.exitIp(),
-        proxy.enabled ? Warp.mode().then((current) => Warp.exitIp(current.port ?? Warp.DEFAULT_PORT)) : Promise.resolve(undefined),
+        proxy.enabled ? Warp.exitIp(Warp.HTTP_BRIDGE_PORT) : Promise.resolve(undefined),
       ])
       // A failed probe keeps the last known address instead of blanking it.
       updateExit((draft) => {
