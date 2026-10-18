@@ -69,6 +69,7 @@ export const layer = Layer.effect(
         providerID: resolved.ref.providerID,
         stateless: true,
       })
+      const sessionID = SessionID.create()
       const response = yield* llm
         .generate(
           LLM.request({
@@ -80,8 +81,8 @@ export const layer = Layer.effect(
             // free tier also checks the client identity that Session requests send.
             http: {
               headers: {
-                "x-opencode-session": SessionID.create(),
-                "x-opencode-session-id": SessionID.create(),
+                "x-opencode-session": sessionID,
+                "x-opencode-session-id": sessionID,
                 "User-Agent": App.useragent(app),
                 "x-opencode-client": app.name,
               },
