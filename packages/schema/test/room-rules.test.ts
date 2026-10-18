@@ -6,6 +6,13 @@ const rules: RoomRules.Rules = {
   protectedFiles: [".env*", "secrets/*"],
 }
 
+test("every executable in a command chain gets its own member-scoped approval", () => {
+  expect(RoomRules.programsInCommand("git status && mkdir output")).toEqual(["git", "mkdir"])
+  expect(RoomRules.programsForCommand(rules, "git status && mkdir output")).toEqual(["git", "mkdir"])
+  expect(RoomRules.programsForCommand(rules, "echo hi | curl https://example.test")).toEqual(["echo", "curl"])
+  expect(RoomRules.programsForCommand(rules, "sudo -u root git push origin main")).toEqual(["git"])
+})
+
 test("a blocked command matches at the start of the line or of any chained part", () => {
   expect(RoomRules.blockedCommand(rules, "rm -rf /tmp/x")).toBe("rm -rf")
   expect(RoomRules.blockedCommand(rules, "git push origin main")).toBe("git push*")
