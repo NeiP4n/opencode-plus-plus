@@ -81,6 +81,10 @@ test("redacting a path covers slash styles and Windows casing", () => {
   expect(RoomRules.redactPath("opened C:/Users/me/app/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
   expect(RoomRules.redactPath("opened c:/USERS/ME/APP/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
 })
+test("redacting a nested session path also hides the shorter project root", () => {
+  expect(RoomRules.redactPath("project /work/repo", "/work/repo/src/session")).toBe("project <project>")
+  expect(RoomRules.redactPath("project C:/Users/alice/repo", "C:/Users/alice/repo/src/session")).toBe("project <project>")
+})
 
 test("a session in several rooms gets the strictest rules", () => {
   const merged = RoomRules.merge([
