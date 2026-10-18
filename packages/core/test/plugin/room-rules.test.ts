@@ -23,6 +23,7 @@ describe("blocksOutboundTool", () => {
   test("does not block unrelated local tools", () => {
     expect(blocksOutboundTool("read")).toBe(false)
     expect(blocksOutboundTool("grep")).toBe(false)
-    expect(blocksOutboundTool("other-tool", "list")).toBe(false)
+    expect(blocksOutboundTool("sessions", "list")).toBe(true)
+    expect(blocksOutboundTool("other-tool", "list")).toBe(true)
   })
 })
