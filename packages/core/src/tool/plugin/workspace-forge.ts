@@ -1,6 +1,7 @@
 export * as WorkspaceForgeTool from "./workspace-forge.js"
 
 import { ToolFailure } from "@opencode/ai"
+import path from "node:path"
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { Effect, Schema } from "effect"
 import { AbsolutePath } from "../../schema.js"
@@ -82,9 +83,33 @@ export const Plugin = {
         output: Output,
         execute: (input, context) =>
           Effect.gen(function* () {
-            if (!(yield* orchestra.mainOf(context.sessionID)))
+            const mainSession = yield* orchestra.mainOf(context.sessionID)
+            if (!mainSession)
               return yield* new ToolFailure({
                 message: "workspace_forge is available only to a project's main Orchestrator. Ask the current Orchestrator to perform this action.",
+              })
+
+            const assertExternalDirectories = (directories: readonly string[]) =>
+              Effect.gen(function* () {
+                const external = [
+                  ...new Set(
+                    directories
+                      .map((directory) =>
+                        path.resolve(directory.trim().replace(/^~(?=$|[\\/])/, process.env.HOME ?? "~")),
+                      )
+                      .filter((directory) => !Orchestra.contains(mainSession.directory, directory)),
+                  ),
+                ]
+                if (external.length === 0) return
+                yield* permission.assert({
+                  action: "external_directory",
+                  resources: external,
+                  save: [],
+                  metadata: input,
+                  sessionID: context.sessionID,
+                  agent: context.agent,
+                  source: { type: "tool", messageID: context.messageID, id: context.id },
+                })
               })
 
             switch (input.action) {
@@ -124,6 +149,7 @@ export const Plugin = {
                 const team = input.team?.trim()
                 if (team && !(yield* orchestra.templates()).some((template) => template.id === team))
                   return yield* new ToolFailure({ message: `Unknown team template ID "${team}". Call list and use an exact ID.` })
+                yield* assertExternalDirectories([directory])
                 const sandbox = sandboxChoice(input.sandbox)
                 const created = yield* orchestra.create({
                   name: input.name?.trim() ?? "",
@@ -188,6 +214,9 @@ export const Plugin = {
                   })
                 }
 
+                yield* assertExternalDirectories(
+                  specs.flatMap((spec) => (spec.kind === "create" ? [spec.directory] : [])),
+                )
                 const shouldLink = input.link ?? true
                 if (shouldLink)
                   yield* permission.assert({
