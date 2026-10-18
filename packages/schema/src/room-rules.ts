@@ -350,9 +350,9 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
   if (!enabled) return value
   const imageExtension = /\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|avif)(?:[?#].*)?$/i
   const visit = (item: unknown, key?: string): unknown => {
+    if (key && /(image|screenshot|base64)/i.test(key)) return undefined
     if (typeof item === "string") {
       if (/^data:image\//i.test(item)) return undefined
-      if (key && /(image|screenshot|base64)/i.test(key)) return undefined
       if (key && /^(?:url|uri|path|filename|name)$/i.test(key) && imageExtension.test(item)) return undefined
       return item
     }
@@ -372,10 +372,15 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
     const namedImage = [record.name, record.filename, record.path, record.uri, record.url].some(
       (part) => typeof part === "string" && (imageExtension.test(part) || /screenshot/i.test(part)),
     )
-    if (mime.startsWith("image/") || mediaType.startsWith("image/") || type.includes("screenshot") || type === "image") {
+    if (
+      mime.startsWith("image/") ||
+      mediaType.startsWith("image/") ||
+      type.includes("screenshot") ||
+      type === "image" ||
+      ((type === "file" || type === "attachment") && namedImage)
+    ) {
       return undefined
     }
-    if (namedImage) return undefined
     const output: Record<string, unknown> = {}
     for (const [childKey, child] of Object.entries(record)) {
       const result = visit(child, childKey)
