@@ -718,16 +718,21 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
   }).pipe(Effect.scoped),
 )
 
-it.live("room protected-file rules block trusted guest shell commands", () =>
+it.live("merged protected-file rules block trusted guest shell commands across rooms", () =>
   Effect.gen(function* () {
     const { call, session } = yield* setup
     const room = (
       yield* call("/api/room", {
         method: "POST",
         headers: host,
-        body: { sessionID: session.id, rules: { protectedFiles: [".env*", "secrets/*"] } },
+        body: { sessionID: session.id },
       })
     ).body.data
+    yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, rules: { protectedFiles: [".env*", "secrets/*"] } },
+    })
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
     const guest = { authorization: `Bearer ${joined.token}` }
@@ -749,16 +754,21 @@ it.live("room protected-file rules block trusted guest shell commands", () =>
   }).pipe(Effect.scoped),
 )
 
-it.live("noOutbound disables guest shell and verification commands, including for trusted members", () =>
+it.live("merged noOutbound disables trusted guest shell execution across rooms", () =>
   Effect.gen(function* () {
     const { call, session } = yield* setup
     const room = (
       yield* call("/api/room", {
         method: "POST",
         headers: host,
-        body: { sessionID: session.id, rules: { noOutbound: true } },
+        body: { sessionID: session.id },
       })
     ).body.data
+    yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, rules: { noOutbound: true } },
+    })
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
     const guest = { authorization: `Bearer ${joined.token}` }
@@ -785,9 +795,14 @@ it.live("hidePaths redacts the host directory from trusted guest command output"
       yield* call("/api/room", {
         method: "POST",
         headers: host,
-        body: { sessionID: session.id, directory, rules: { hidePaths: true } },
+        body: { sessionID: session.id, directory },
       })
     ).body.data
+    yield* call("/api/room", {
+      method: "POST",
+      headers: host,
+      body: { sessionID: session.id, directory, rules: { hidePaths: true } },
+    })
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
     expect(joined.room.directory).toBe("<project>")
