@@ -80,6 +80,29 @@ environmentConformance("local environment", () =>
 )
 
 environmentConformance(
+  "portable exec environment",
+  () =>
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const tmp = yield* Effect.promise(() => tmpdir("opencode-portable-environment-"))
+      return {
+        files: execDefaults(spawner),
+        root: tmp.path,
+        ...(process.platform === "win32"
+          ? {}
+          : {
+              symlink: (target: string, link: string) =>
+                Effect.tryPromise({
+                  try: () => fs.symlink(target, link),
+                  catch: (cause) => new Failed({ path: link, cause }),
+                }),
+            }),
+        dispose: Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      }
+    }).pipe(Effect.provide(LayerNode.compile(CrossSpawnSpawner.node))),
+)
+
+environmentConformance(
   "GNU exec environment",
   () =>
     Effect.gen(function* () {
