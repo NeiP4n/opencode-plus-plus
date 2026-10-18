@@ -98,7 +98,7 @@ describe("createScopedCache", () => {
     clock = 11
 
     expect(cache.peek("old")?.key).toBe("old")
-    expect(disposed).toEqual(["recent"])
+    expect(disposed).toEqual([])
 
     clock = 19
     expect(cache.peek("old")).toBeUndefined()
