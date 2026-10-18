@@ -151,39 +151,23 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       )
       const server = yield* launch().pipe(
         Effect.catch((error) => {
-          if (findIncumbent === undefined || !addressInUse(error)) return Effect.fail(error)
+          if (serviceOptions === undefined || !addressInUse(error)) return Effect.fail(error)
+          // A configured port can be occupied by another OpenCode install or a stale process
+          // whose registration lives elsewhere. Do not wait/retry the same port: bind to an
+          // OS-selected free port immediately and publish that actual address in registration.
           return Effect.gen(function* () {
-            const deadline = Date.now() + 15_000
-            while (Date.now() < deadline) {
-              const found = yield* findIncumbent.pipe(Effect.timeoutOption(deadline - Date.now()))
-              if (Option.isSome(found) && found.value !== undefined) return
-              yield* Effect.sleep("100 millis")
-              if (Date.now() >= deadline) break
-              // Failed binds close their scope; a successful bind may take longer than this window to boot.
-              const server = yield* launch().pipe(Effect.catchIf(addressInUse, () => Effect.void))
-              if (server !== undefined) return server
-            }
-            if (options.mode === "service") {
-              yield* Effect.logWarning(
-                `Managed service port ${port} on ${hostname} is occupied; retrying on an OS-assigned port`,
-              )
-              listenPort = 0
-              return yield* launch().pipe(
-                Effect.catch((fallbackError) =>
-                  Effect.fail(
-                    new Error(
-                      `Managed service could not bind its configured port ${port} or an OS-assigned port.`,
-                      { cause: fallbackError },
-                    ),
+            yield* Effect.logWarning(
+              `Managed service port ${port} on ${hostname} is occupied; retrying on an OS-assigned port`,
+            )
+            listenPort = 0
+            return yield* launch().pipe(
+              Effect.catch((fallbackError) =>
+                Effect.fail(
+                  new Error(
+                    `Managed service failed to start on configured port ${port} and on an OS-assigned port.`,
+                    { cause: fallbackError },
                   ),
                 ),
-              )
-            }
-            return yield* Effect.fail(
-              new Error(
-                `Managed service port ${port} on ${hostname} is already in use by another process. ` +
-                  "Configure another port with `opencode service set port <port>` and start the service again.",
-                { cause: error },
               ),
             )
           })
