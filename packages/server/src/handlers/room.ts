@@ -1369,6 +1369,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestWho(ctx.params.roomID, "cohost")
           const session = yield* inRoom(joined.room, ctx.params.sessionID)
           const rules = yield* effectiveRules(joined.room, session.location.directory)
+          if (rules?.denyGuestPrompts)
+            return yield* new ForbiddenError({ message: "This room does not allow guests to prompt the host's AI" })
+          if (rules?.denyGuestCommands)
+            return yield* new ForbiddenError({ message: "This room does not allow guest commands" })
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           yield* sessions.command({ sessionID: session.id, command: ctx.payload.name, text: ctx.payload.text }).pipe(
             Effect.catchTag("Session.NotFoundError", missingSession),
