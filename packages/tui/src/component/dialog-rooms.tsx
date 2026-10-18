@@ -1342,6 +1342,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
   const [rooms, { refetch }] = createResource(() => client.api.room.list())
   const room = () => (rooms.error ? undefined : rooms.latest)?.find((item) => item.id === props.roomID)
   const rules = () => room()?.rules ?? {}
+  const noOutbound = () => rules().noOutbound !== false
   const list = (value: string) =>
     value
       .split(",")
@@ -1404,8 +1405,8 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
           label={t("Sending out")}
           help={t("Blocks connected-account and unknown tools plus common network commands. Arbitrary code can still open its own sockets; use an OS firewall or sandbox for a hard network boundary.")}
         >
-          <Button onClick={() => save({ noOutbound: !rules().noOutbound })}>
-            {rules().noOutbound ? t("Forbidden") : t("Allowed")}
+          <Button onClick={() => save({ noOutbound: !noOutbound() })}>
+            {noOutbound() ? t("Forbidden") : t("Allowed")}
           </Button>
         </Setting>
         <Setting
