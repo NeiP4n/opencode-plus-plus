@@ -1248,16 +1248,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const directory = yield* roomDirectory(joined.room)
           const rules = yield* effectiveRules(joined.room, directory)
           const feed = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          // Hiding execution means hiding the occurrence too, not merely the command text.
+          // Keep membership and task lifecycle events, but don't disclose that a command/check ran.
           const visible = rules?.hideExecution
-            ? {
-                ...feed,
-                events: feed.events.map((event) => {
-                  if (event.kind !== "run" && event.kind !== "fail") return event
-                  const safe = { ...event }
-                  delete safe.detail
-                  return safe
-                }),
-              }
+            ? { ...feed, events: feed.events.filter((event) => !["run", "pass", "fail"].includes(event.kind)) }
             : feed
           return rules?.hidePaths ? redactRoomValue(visible, [directory]) : visible
         }),
