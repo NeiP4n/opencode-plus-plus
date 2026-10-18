@@ -630,10 +630,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const note = yield* boundNote(session.id)
           const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
+          const visibleNote = note && { name: note.name, title: note.frontmatter.title || note.name }
           return {
             data: rules?.hidePaths ? redactRoomValue(data, directories) : data,
             running: (yield* sessions.active).has(session.id),
-            note: note && { name: note.name, title: note.frontmatter.title || note.name },
+            note: rules?.hidePaths ? redactRoomValue(visibleNote, directories) : visibleNote,
           }
         }),
       )
@@ -738,7 +739,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const rules = yield* effectiveRules(joined.room, directory)
           const held = yield* plots.list(directory)
           const passport = Passport.read(directory)
-          return {
+          const result = {
             ...passport,
             // A room that hides paths shows guests "<project>" where the host's directory would be.
             project: rules?.hidePaths
@@ -752,6 +753,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               expires: plot.expires,
             })),
           }
+          return rules?.hidePaths ? redactRoomValue(result, [directory]) : result
         }),
       )
       .handle(
@@ -1200,13 +1202,21 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "cohost")
           const session = yield* inRoom(joined.room, ctx.params.sessionID)
+          const rules = yield* effectiveRules(joined.room, session.location.directory)
           yield* sessions.command({ sessionID: session.id, command: ctx.payload.name, text: ctx.payload.text }).pipe(
             Effect.catchTag("Session.NotFoundError", missingSession),
             Effect.catchTag("Command.NotFoundError", (error) =>
               Effect.fail(new CommandNotFoundError({ command: error.command, message: error.message })),
             ),
             Effect.catchTag("Command.ExecutionError", (error) =>
-              Effect.fail(new CommandExecutionError({ command: error.command, message: error.message })),
+              Effect.fail(
+                new CommandExecutionError({
+                  command: error.command,
+                  message: rules?.hidePaths
+                    ? RoomRules.redactPath(error.message, session.location.directory)
+                    : error.message,
+                }),
+              ),
             ),
             locationErrors,
           )
