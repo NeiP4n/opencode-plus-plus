@@ -144,7 +144,7 @@ export function describe(rules: Rules | undefined) {
     rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles all tool approvals." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
-    rules.noOutbound ? "Send nothing out: no web requests, MCP calls, shell or hub commands, or messages to other computers or projects." : undefined,
+    rules.noOutbound ? "Send nothing out: no web requests, MCP calls, desktop control, playtest app execution, shell or hub commands, or messages to other computers or projects." : undefined,
     rules.denyGuestPrompts ? "Guests must not submit prompts to the host's AI." : undefined,
     rules.denyGuestCommands ? "Guests must not invoke slash commands, execute shell commands or submit command checks." : undefined,
   ].filter((line): line is string => line !== undefined)
