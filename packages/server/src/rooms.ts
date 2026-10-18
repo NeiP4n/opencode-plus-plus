@@ -56,15 +56,20 @@ const layer = Layer.effect(
     const issued = new Map<Room.ID, string>()
     const presence = new Map<string, number>()
     let presenceTouches = 0
+    let lastPresenceAt = Number.NEGATIVE_INFINITY
     const touch = (guestID: string) => {
-      const now = Date.now()
+      const now = (lastPresenceAt = Math.max(lastPresenceAt, Date.now()))
+      // Keep insertion order aligned with last-seen order so a sweep can stop at
+      // the first live guest instead of walking every active guest.
+      presence.delete(guestID)
       presence.set(guestID, now)
       // A missing timestamp and a timestamp older than LEASE_MS are both offline
       // for every lease decision, so pruning these entries does not change semantics.
       if (++presenceTouches % PRESENCE_SWEEP_INTERVAL !== 0) return
       const staleBefore = now - LEASE_MS
       for (const [id, seen] of presence) {
-        if (seen < staleBefore) presence.delete(id)
+        if (seen >= staleBefore) break
+        presence.delete(id)
       }
     }
     const feeds = new Map<Room.ID, Room.Event[]>()
