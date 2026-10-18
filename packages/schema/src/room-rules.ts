@@ -13,7 +13,7 @@ export const Rules = Schema.Struct({
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
   // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`).
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
-  // The room's AI cannot make network requests, use connected services, or message other computers/projects.
+  // External tools are blocked by default in shared rooms; the host must explicitly opt in.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
   // Other room members do not see shell/tool execution events, raw tool inputs or tool output.
   hideCommandExecution: Schema.Boolean.pipe(Schema.optional),
