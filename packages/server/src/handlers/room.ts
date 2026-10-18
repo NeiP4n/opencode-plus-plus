@@ -460,9 +460,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             joined: Date.now(),
           })
           codes.record(room.id, { kind: "join", who: name })
-          const directory = yield* roomDirectory(room)
-          const rules = yield* effectiveRules(room, directory)
-          const visibleRoom = rules?.hidePaths ? redactRoomValue(room, [directory]) : room
+          const directory = yield* roomDirectory(room).pipe(Effect.orElseSucceed(() => undefined))
+          const rules = directory ? yield* effectiveRules(room, directory) : room.rules
+          const visibleRoom = rules?.hidePaths && directory ? redactRoomValue(room, [directory]) : room
           return { ...issued, role: member.role, room: visibleRoom }
         }),
       )
