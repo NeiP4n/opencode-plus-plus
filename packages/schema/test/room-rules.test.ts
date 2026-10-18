@@ -52,6 +52,14 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
 })
 
+test("built-in credential globs protect root-level and nested credential files", () => {
+  expect(RoomRules.protectedFile(undefined, ".ssh/id_ed25519")).toBe("**/.ssh/**")
+  expect(RoomRules.protectedFile(undefined, "/home/user/.ssh/id_ed25519")).toBe("**/.ssh/**")
+  expect(RoomRules.protectedFile(undefined, "auth.json")).toBe("**/auth.json")
+  expect(RoomRules.protectedFile(undefined, "/project/.config/opencode/auth.json")).toBe("**/.config/opencode/**")
+  expect(RoomRules.protectedFile(undefined, "src/auth.json")).toBe("**/auth.json")
+})
+
 test("protected files are detected when directly referenced in shell commands", () => {
   expect(RoomRules.protectedFileInCommand(rules, "cat .env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, 'cat ".env.local"')).toBe(".env*")
