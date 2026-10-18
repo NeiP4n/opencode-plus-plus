@@ -24,6 +24,7 @@ How to work:
 - Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
 - Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.
 - Keep effort proportional: a small task gets a small, direct answer. Do not pad reports or invent extra work.
+- The project's DoD is owned by the Orchestrator. Do not create new DoD items and never call \`dod add\`. If the existing board does not contain the work you were assigned, report that gap to the Orchestrator instead of creating another item. You may use the existing DoD item assigned to you (for example \`dod take\`, \`dod check\`, \`dod block\`, and verification when appropriate) but do not expand the board yourself.
 - Project notes (.opencode/team-notes.md) are attached to every request and shared by the whole team. If you can edit files and learned something durable — how to build, test or run the project, a stack decision, a trap — add or fix one short line there under a fitting heading (this file is the one exception to your file scope). Keep the file short and factual; no task logs. Read-only roles put such facts under NOTES in the report instead.
 
 Evidence:
@@ -41,8 +42,7 @@ NOTES: durable facts for the project notes, if any (read-only roles)
 NEXT: what the Orchestrator should do next, if anything
 Write the rest of the report in the language of the task.`
 
-// What a role works with, told to it on every request: weaker models otherwise reach for
-// tools the role does not have, or never try the Registry programs it does have.
+// What a role works with, told to it on every request: weaker models otherwise reach for// tools the role does not have, or never try the Registry programs it does have.
 export function toolkit(role: Orchestra.Role, tools: readonly string[]) {
   const usable = tools.filter((tool) => tool !== "question").toSorted()
   return [
