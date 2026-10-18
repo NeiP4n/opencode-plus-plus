@@ -248,6 +248,30 @@ it.live("an open room admits guests by its ID without a code; a closed one does 
   }).pipe(Effect.scoped),
 )
 
+it.live("noOutbound refuses guest shell execution even for a cohost", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { noOutbound: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { command: "echo harmless-looking" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("does not allow commands")
+  }).pipe(Effect.scoped),
+)
+
 it.live("the discovery responder answers a broadcast query with name and port", () =>
   Effect.gen(function* () {
     yield* ServerRoomDiscovery.respond(4321)
