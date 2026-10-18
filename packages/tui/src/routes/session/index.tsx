@@ -2087,14 +2087,23 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   )
   const messages = createMemo(() => data.session.message.list(ctx.sessionID))
   const rateLimitPending = createMemo(() => isRateLimitedTurnPending(messages(), props.message.id))
-  const continueWork = () => {
+  const continueWork = async () => {
     if (continuing() || ctx.canResumeRateLimited === false || !rateLimitPending() || retry()) return
     setContinuing(true)
-    void data.session
-      .prompt({ sessionID: ctx.sessionID, text: RATE_LIMIT_CONTINUATION_PROMPT })
-      .then(() => toast.show({ message: t("Continue request sent"), variant: "success" }))
-      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
-      .finally(() => setContinuing(false))
+    try {
+      // The transcript can be stale while another participant or session tab posts a message.
+      // Refresh before sending so a second continuation cannot duplicate newer work.
+      await data.session.message.invalidate(ctx.sessionID)
+      await data.session.message.sync(ctx.sessionID)
+      const current = data.session.message.list(ctx.sessionID) ?? []
+      if (!isRateLimitedTurnPending(current, props.message.id)) return
+      await data.session.prompt({ sessionID: ctx.sessionID, text: RATE_LIMIT_CONTINUATION_PROMPT })
+      toast.show({ message: t("Continue request sent"), variant: "success" })
+    } catch (error: unknown) {
+      toast.show({ message: errorMessage(error), variant: "error" })
+    } finally {
+      setContinuing(false)
+    }
   }
   const duration = createMemo(() =>
     turnDuration(props.message, messages(), ctx.messageIndex(props.message.id), ctx.legacyTurns()),
