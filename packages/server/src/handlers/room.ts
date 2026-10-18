@@ -841,7 +841,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             try: (signal) => Passport.run(command, session.location.directory, signal),
             catch: (error) => new InvalidRequestError({ message: `Could not run the command: ${String(error)}` }),
           })
-          return redactForGuest(joined.room, joined.room.directory ?? session.location.directory, result)
+          // Re-read the member and room after the process finishes too. Privacy rules may have
+          // changed while it ran, or the host may have removed/demoted the guest meanwhile.
+          const current = yield* guestWho(joined.room.id, "cohost")
+          yield* assertCurrentRoomCommand({
+            roomID: current.room.id,
+            memberID: current.member.id,
+            command,
+            minimumRole: "cohost",
+            initiallyRequiredPrograms,
+          })
+          return redactForGuest(current.room, current.room.directory ?? session.location.directory, result)
         }),
       )
       .handle(
@@ -963,6 +973,16 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             try: (signal) => Passport.run(command, directory, signal),
             catch: (error) => new InvalidRequestError({ message: `Could not run the check: ${String(error)}` }),
           })
+          // A rule or role change while the check runs still applies before its result is exposed
+          // or committed to the shared DoD board.
+          const current = yield* guestWho(joined.room.id, "member")
+          yield* assertCurrentRoomCommand({
+            roomID: current.room.id,
+            memberID: current.member.id,
+            command,
+            minimumRole: "member",
+            initiallyRequiredPrograms,
+          })
           const dod = yield* Dod.accept({
             directory,
             id,
@@ -979,8 +999,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             item: id,
             ...(passed ? {} : { detail: outputSummary(result.output, result.exitCode).slice(0, 120) }),
           })
-          return redactForGuest(joined.room, directory, {
-            ...forGuest(dod, joined.member),
+          const latest = yield* guestWho(joined.room.id, "member")
+          return redactForGuest(latest.room, latest.room.directory ?? directory, {
+            ...forGuest(dod, latest.member),
             check: { exitCode: result.exitCode, output: result.output },
           })
         }),
@@ -997,7 +1018,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               })),
             ),
           )
-          return redactForGuest(joined.room, directory, yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait))
+          const data = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          // The feed can wait for an event, so use the current policy after the wait finishes.
+          const current = yield* guestOf(joined.room.id)
+          return redactForGuest(current.room, current.room.directory ?? directory, data)
         }),
       )
       .handle(
