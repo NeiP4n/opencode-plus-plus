@@ -158,7 +158,16 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
 
     return Service.of({
       claim: Effect.fn("Plot.claim")(function* (input) {
-        const paths = input.paths.map((item) => path.resolve(input.directory, item))
+        const directory = path.resolve(input.directory)
+        const paths = input.paths.map((item) => path.resolve(directory, item))
+        // Guests may choose paths only inside this project. Without this check, a ../ path
+        // makes live() scan plot folders elsewhere on the host and can remove stale files there.
+        const outside = paths.some((item) => {
+          const relative = path.relative(directory, item)
+          return relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)
+        })
+        if (outside)
+          return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         const others = yield* live(paths)
         for (const { plot } of others) {
           if (yield* holds(plot, input.sessionID)) continue
