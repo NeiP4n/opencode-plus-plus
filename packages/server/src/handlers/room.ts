@@ -468,9 +468,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           codes.record(room.id, { kind: "join", who: name })
           // The join payload itself is guest-visible; do not leak a project directory before
           // the guest even requests the room view.
-          const rules = yield* rulesForRoom(room)
-          const directory = room.directory ?? (yield* sessions.get(room.sessionID).pipe(Effect.option)).pipe(Option.map((session) => session.location.directory), Option.getOrUndefined)
-          const visibleRoom = rules?.hidePaths && directory ? redactGuestData(room, directory) : room
+          const rules = room.directory ? yield* rulesForRoom(room, room.directory) : room.rules
+          const visibleRoom = rules?.hidePaths && room.directory ? redactGuestData(room, room.directory) : room
           return { ...issued, role: member.role, room: visibleRoom }
         }),
       )
