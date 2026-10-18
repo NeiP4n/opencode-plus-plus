@@ -57,5 +57,7 @@ test("wildcard command blocks cannot be bypassed through common shell wrappers",
   expect(RoomRules.blockedCommand(wildcardRules, "bash -c 'git push origin main'")).toBe("git push*")
   expect(RoomRules.blockedCommand(wildcardRules, "echo $(git push origin main)")).toBe("git push*")
   expect(RoomRules.blockedCommand(wildcardRules, "(git push origin main)")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "sudo git push origin main")).toBe("git push*")
+  expect(RoomRules.blockedCommand(wildcardRules, "env GIT_TRACE=1 git push origin main")).toBe("git push*")
   expect(RoomRules.blockedCommand(wildcardRules, "git status")).toBeUndefined()
 })
