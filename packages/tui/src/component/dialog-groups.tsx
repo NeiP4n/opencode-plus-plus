@@ -45,13 +45,15 @@ export function DialogGroups(props: { onClose?: () => void }) {
     const sameProjects =
       previous?.projects.length === members.length && previous.projects.every((id, index) => id === members[index])
     act(async () => {
-      const saved = await client.api.orchestra.group.save({ name, projects: members as never, mode })
-      // The server-side group record is the source of truth for the singleton supervisor.
-      // Reuse its session instead of starting another reactive creation path.
-      if (saved?.id) {
-        route.navigate({ type: "session", sessionID: saved.id })
-        props.onClose?.()
-      }
+      await client.api.orchestra.group.save({ name, projects: members as never, mode })
+      // Creation is idempotent: the deterministic session ID plus the group queue prevent
+      // Save/repair effects from spawning another President/Society chat.
+      await startSupervisor({
+        name,
+        projects: members,
+        mode,
+        supervisor: previous?.mode === mode && sameProjects ? previous.supervisor : undefined,
+      }, false)
       if (nameField) nameField.value = ""
       setPicked([])
     })
