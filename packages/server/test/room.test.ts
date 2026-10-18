@@ -509,13 +509,13 @@ it.live("hideExecution hides shell history from room guests", () =>
   }).pipe(Effect.scoped),
 )
 
-it.live("hideExecution removes command details from guest-visible room feed", () =>
+it.live("hideExecution changes apply to a room that is already open", () =>
   Effect.gen(function* () {
     const { call, room, code } = yield* setup
     const configured = yield* call(`/api/room/${room.id}`, {
       method: "PATCH",
       headers: host,
-      body: { defaultRole: "cohost", rules: { hideExecution: true, noOutbound: false } },
+      body: { defaultRole: "cohost", rules: { hideExecution: false, noOutbound: false } },
     })
     expect(configured.status).toBe(200)
     const joined = yield* call("/api/room/join", {
@@ -537,8 +537,18 @@ it.live("hideExecution removes command details from guest-visible room feed", ()
     })
     expect(run.status).toBe(200)
     expect(run.body.output).toContain("command-hidden-from-feed")
-    const feed = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
-    expect(feed.body.events.some((item: { kind: string }) => ["run", "pass", "fail"].includes(item.kind))).toBe(false)
+    const before = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
+    expect(before.body.events.some((item: { kind: string }) => item.kind === "run" && item.detail?.includes("command-hidden-from-feed"))).toBe(true)
+
+    // Toggle after the guest already joined and the command ran; no reconnect is needed.
+    const changed = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hideExecution: true, noOutbound: false } },
+    })
+    expect(changed.status).toBe(200)
+    const after = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
+    expect(after.body.events.some((item: { kind: string }) => ["run", "pass", "fail"].includes(item.kind))).toBe(false)
   }).pipe(Effect.scoped),
 )
 
@@ -572,7 +582,7 @@ it.live("hidePaths redacts project directories from guest room responses", () =>
     const created = yield* call("/api/room", {
       method: "POST",
       headers: host,
-      body: { sessionID: session.id, name: "Private project", directory, rules: { hidePaths: true } },
+      body: { sessionID: session.id, name: "Private project", directory, rules: { hidePaths: false } },
     })
     expect(created.status).toBe(200)
     const room = created.body.data
@@ -582,11 +592,19 @@ it.live("hidePaths redacts project directories from guest room responses", () =>
       body: { code, name: "Remote teammate" },
     })
     expect(joined.status).toBe(200)
-    expect(joined.body.room.directory).toBe("<project>")
+    expect(joined.body.room.directory).toBe(directory)
+    // The host toggles hiding after this guest has already joined.
+    const changed = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hidePaths: true } },
+    })
+    expect(changed.status).toBe(200)
     const view = yield* call(`/api/room/${room.id}/guest`, {
       headers: { authorization: `Bearer ${joined.body.token}` },
     })
     expect(view.status).toBe(200)
+    expect(view.body.room.directory).toBe("<project>")
     expect(JSON.stringify(view.body)).not.toContain(directory)
   }).pipe(Effect.scoped),
 )
