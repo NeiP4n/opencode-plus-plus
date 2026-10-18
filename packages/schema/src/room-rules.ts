@@ -347,7 +347,7 @@ export function redactPath(text: string, directory: string) {
   const windowsPath = /^(?:[a-z]:[\\/]|\\\\)/i.test(directory)
   return variants.reduce((out, variant) => {
     const escaped = variant.replace(/[.*+?^{}$()|[\]\\]/g, "\\$&")
-    return out.replace(new RegExp(escaped + "(?=$|[/\\\\\\s:'\"<>])", windowsPath ? "gi" : "g"), "<project>")
+    return out.replace(new RegExp("(?<![A-Za-z0-9._-])" + escaped + "(?=$|[/\\\\\\s:'\"<>])", windowsPath ? "gi" : "g"), "<project>")
   }, text)
 }
 // Remove embedded image/screenshot data from values shared with room guests.
