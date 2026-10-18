@@ -130,6 +130,11 @@ test("program rules request approval for the executable, including wrapped comma
   expect(RoomRules.programsRequiringApproval(rules, "git status")).toEqual([])
 })
 
+test("shell tokenization remains linear for long escaped quoted arguments", () => {
+  const quotedAssignment = `"FOO=${"\\\\\\".repeat(256)}!"`
+  expect(RoomRules.programName(`env ${quotedAssignment} git status`)).toBe("git")
+})
+
 test("outbound access is denied by default across overlapping rooms", () => {
   expect(RoomRules.merge([{}])?.noOutbound).toBe(true)
   expect(RoomRules.merge([{ noOutbound: false }])?.noOutbound).toBe(false)
