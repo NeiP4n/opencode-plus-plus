@@ -11,6 +11,13 @@ import { Session } from "../../session.js"
 
 export const name = "federation"
 
+// A group-linked session may inspect status, but may never create peer tickets.
+// Only Society can start a parallel consultation, and only for an explicit user task.
+export function groupActionAllowed(mode: "lead" | "council", action: string) {
+  const common = ["peers", "policy", "inbox", "outbox", "linked", "groups", "group_status"]
+  return mode === "council" ? [...common, "consult_all"].includes(action) : common.includes(action)
+}
+
 const description = [
   "Federation connects project Orchestrators through explicit tickets while each project keeps its own files, sessions, permissions and approvals.",
   "A group-bound President/Society session is a chat linked to one named project group. Creating it or project activity must not contact other projects. President can inspect sanitized status on request; it never dispatches tickets.",
@@ -110,10 +117,7 @@ export const Plugin = {
 
               // Group sessions are bindings to a group, not autonomous dispatchers.
               // President is read-only; Society can consult members only after an explicit user task.
-              const groupActions = groupSupervisor?.mode === "council"
-                ? ["peers", "policy", "inbox", "outbox", "linked", "groups", "group_status", "consult_all"]
-                : ["peers", "policy", "inbox", "outbox", "linked", "groups", "group_status"]
-              if (groupSupervisor && !groupActions.includes(input.action))
+              if (groupSupervisor && !groupActionAllowed(groupSupervisor.mode, input.action))
                 return yield* new ToolFailure({
                   message: groupSupervisor.mode === "council"
                     ? "Society cannot send tickets. To ask every member Orchestrator, use consult_all only after the operator explicitly gives a task or question."
