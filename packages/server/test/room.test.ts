@@ -350,6 +350,36 @@ it.live("guest commands inherit stricter rules from another room sharing the ses
   }).pipe(Effect.scoped),
 )
 
+it.live("hideExecution hides shell history from room guests", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { hideExecution: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const command = "echo private-shell-command"
+    const executed = yield* call(`/api/session/${session.id}/shell`, {
+      method: "POST",
+      headers: host,
+      body: { command },
+    })
+    expect(executed.status).toBe(204)
+    const messages = yield* call(`/api/room/${room.id}/guest/session/message`, {
+      headers: { authorization: `Bearer ${joined.body.token}` },
+    })
+    expect(messages.status).toBe(200)
+    expect(messages.body.data.some((message: { type: string }) => message.type === "shell")).toBe(false)
+    expect(JSON.stringify(messages.body.data)).not.toContain("private-shell-command")
+  }).pipe(Effect.scoped),
+)
+
 it.live("hideExecution removes command details from guest-visible room feed", () =>
   Effect.gen(function* () {
     const { call, room, code } = yield* setup
