@@ -1,7 +1,7 @@
 export * as ReadTool from "./read.js"
 
 import type { Context } from "@opencode/plugin/effect/plugin"
-import { basename, dirname, join } from "path"
+import { basename, dirname, join, relative, resolve } from "path"
 import { ToolFailure } from "@opencode/ai"
 import { Effect, Schema } from "effect"
 import { FSUtil } from "@opencode/util/fs-util"
@@ -34,6 +34,26 @@ export const Plugin = {
     const sessionInstructions = yield* SessionInstructions.Service
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
+    const rooms = yield* Room.Service
+    const sessions = yield* Session.Service
+    const rulesOf = Effect.fnUntraced(function* (sessionID: Session.ID) {
+      const lineage = new Set<string>()
+      let session = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+      while (session && !lineage.has(session.id)) {
+        lineage.add(session.id)
+        if (!session.parentID) break
+        session = yield* sessions.get(session.parentID).pipe(Effect.orElseSucceed(() => undefined))
+      }
+      if (!session) return undefined
+      const directory = session.location.directory
+      return RoomRules.merge(
+        (yield* rooms.list()).flatMap((room) =>
+          lineage.has(room.sessionID) || (room.directory && Orchestra.contains(room.directory, directory))
+            ? [room.rules ?? {}]
+            : [],
+        ),
+      )
+    })
 
     yield* ctx.tool
       .transform((editor) =>
@@ -52,6 +72,7 @@ export const Plugin = {
                   limit: input.limit,
                 })
 
+              const rules = yield* rulesOf(context.sessionID)
               const requested = yield* access.authorizeRead(input.path, context)
               const result = yield* read(requested).pipe(
                 Effect.map((content) => ({ content, target: requested, path: input.path })),
@@ -79,6 +100,19 @@ export const Plugin = {
                     }),
                 ),
               )
+              // Directory listings are reads too: omit protected credential filenames even when
+              // the requested path is an allowed parent directory.
+              if (result.content.type === "list-page") {
+                const entries = result.content.entries.filter((entry) => {
+                  const file = relative(location.directory, resolve(result.target.absolute, entry.path)).replaceAll("\\", "/")
+                  return !RoomRules.protectedFile(rules, file)
+                })
+                result.content = new ReadToolFileSystem.ListPage({
+                  ...result.content,
+                  entries,
+                  truncated: result.content.truncated || entries.length !== result.content.entries.length,
+                })
+              }
               // After a successful read, discover nearby AGENTS.md walking up to the Location
               // root exclusive and inject them as durable synthetic instructions. For a
               // directory listing the walk starts at the directory itself (so its own AGENTS.md
