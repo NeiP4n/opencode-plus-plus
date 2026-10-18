@@ -118,7 +118,6 @@ describe("SessionRunnerRetry shared rate-limit gate", () => {
     }),
   )
 
-
   it.effect("scans large provider journals across KV pages", () =>
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
