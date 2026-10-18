@@ -171,7 +171,7 @@ function commandAfterWrappers(command: string) {
 }
 
 function matchesCommand(pattern: string, command: string) {
-  const start = glob(pattern, " (^|[;&|\\\\s'\\\"(])".trim())
+  const start = glob(pattern, "(^|[;&|\\s'\"(])")
   if (
     segments(command).some((part) => start.test(part) || start.test(commandAfterWrappers(part)))
   ) return true
@@ -233,13 +233,14 @@ export function commandTouchesProtectedFile(rules: Rules | undefined, command: s
 export function commandSendsOutbound(command: string) {
   const value = command.toLowerCase()
   return (
+    // Arbitrary script interpreters can open their own sockets or print environment credentials.
+    /\b(python|python3|node|bun|deno|ruby|perl|php|pwsh|powershell|bash|sh|zsh|cmd|lua|npx|npm|pnpm|yarn)\b/.test(value) ||
+    /\b(gh|glab|aws|az|gcloud|kubectl|helm|terraform|wrangler|fly|vercel|netlify|heroku|railway)\b/.test(value) ||
     /\b(curl|wget|fetch|ssh|scp|sftp|rsync|ftp|nc|netcat|ncat|socat|telnet|tftp)\b/.test(value) ||
     /\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b/.test(value) ||
     /\bgit\s+(push|fetch|pull|clone|ls-remote|submodule\s+update)\b/.test(value) ||
-    /\b(npm|pnpm|yarn|bun)\s+(install|add|publish|update|upgrade|i)\b/.test(value) ||
+    /\bdocker\s+(pull|push|login|run|build|compose\s+up)\b/.test(value) ||
     /\bpip\s+install\b/.test(value) ||
-    /\bdocker\s+(pull|push|login)\b/.test(value) ||
-    /\b(?:python|python3|node|bun|deno|ruby|perl|php|pwsh|powershell)\b.*(?:requests?\.(?:get|post|put|patch|delete)|urllib\.request|http\.client|fetch\s*\(|axios|\.post\s*\(|\.put\s*\(|net::http|new\s+webclient|invoke-restmethod|invoke-webrequest|socket\.)/s.test(value) ||
     /\bhttps?:\/\//.test(value)
   )
 }
