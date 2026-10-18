@@ -35,7 +35,7 @@ export const Cost = Model.Cost
 export const Ref = Model.Ref
 export type Ref = typeof Ref.Type
 export const Info = Model.Info
-export type Info = Model.Info
+export type Info = typeof Info.Type
 export type RuntimeInfo = Omit<Info, "settings"> & { readonly settings?: Provider.Settings }
 export type MutableInfo = DeepMutable<Info>
 export { Event } from "@opencode/schema/model"
@@ -167,8 +167,6 @@ const layer = Layer.effect(
           }),
         )
         const all = Array.from(byProvider.values()).flatMap((models) => Array.from(models.values())).sort((left, right) => right.time.released - left.time.released)
-        // Provider-reported inventory is the source of truth. Billing tier, preview state and
-        // other metadata must not become an implicit OpenCode++ allowlist.
         cached = freeze({ data, all, available: all, byProvider }, true)
         return cached
       }
