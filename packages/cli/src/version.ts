@@ -59,10 +59,11 @@ function gitCommit(): string | undefined {
 
 const [floorMajor, floorMinor] = MINIMUM_ANNOUNCED_VERSION.split(".").map(Number)
 
+const release = releaseVersion()
+const commit = gitCommit()
+
 const version = (() => {
   if (typeof OPENCODE_VERSION === "string" && OPENCODE_VERSION !== "undefined") return OPENCODE_VERSION
-  const release = releaseVersion()
-  const commit = gitCommit()
   return commit ? `${release}+${commit}` : release
 })()
 
@@ -74,7 +75,18 @@ function releaseVersion() {
   return FALLBACK_VERSION
 }
 
-const channel = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
+// Keep an explicit build channel override when the release system supplies one. For a tagged
+// release checkout, however, the source is a release build even when it is launched directly
+// from the checkout rather than through the packaged binary. Leaving the channel as "local"
+// makes the hosted free-tier gateway classify the otherwise valid OpenCode request as a dev
+// checkout. Untagged development checkouts remain local and therefore keep the development
+// semantics instead of pretending to be a release.
+const channel =
+  typeof OPENCODE_CHANNEL === "string" && OPENCODE_CHANNEL !== "undefined"
+    ? OPENCODE_CHANNEL
+    : release !== FALLBACK_VERSION
+      ? "prod"
+      : "local"
 const artifact = typeof OPENCODE_ARTIFACT === "string" ? OPENCODE_ARTIFACT : "cli"
 
 export { version as OPENCODE_VERSION, channel as OPENCODE_CHANNEL, artifact as OPENCODE_ARTIFACT }
