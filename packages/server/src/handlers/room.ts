@@ -660,7 +660,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .pipe(Stream.orDie)
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           if (!ctx.query.follow) {
-            const visible = durable.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution))
+            const visible = durable.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution)))
             return rules?.hidePaths
               ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
               : visible
@@ -701,7 +701,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             ),
           )
           const stream = durable.pipe(Stream.merge(live, { haltStrategy: "left" }))
-          const visible = stream.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution))
+          const visible = stream.pipe(Stream.filter((event) => !hiddenRoomEvent(event, !!rules?.hideExecution)))
           return rules?.hidePaths
             ? visible.pipe(Stream.map((event) => redactRoomValue(event, directories)))
             : visible
