@@ -1,5 +1,5 @@
 import { TextAttributes, type InputRenderable } from "@opentui/core"
-import { createResource, createSignal, For, Show } from "solid-js"
+import { createEffect, createResource, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
@@ -145,6 +145,22 @@ export function DialogGroups(props: { onClose?: () => void }) {
       setOpening(undefined)
     }
   }
+
+  // Groups created by the AI command or another client also get their
+  // mode-specific chat automatically when this view is opened. Remember failed
+  // attempts for this mount so a missing local project cannot cause a retry loop.
+  const autoStarting = new Set<string>()
+  createEffect(() => {
+    if (groups.loading || groups.error || projects.list().length === 0) return
+    for (const group of listed()) {
+      if (group.supervisor || autoStarting.has(group.name)) continue
+      autoStarting.add(group.name)
+      void startSupervisor(group, false)
+        .then(() => refetch())
+        .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+        .finally(() => autoStarting.delete(group.name))
+    }
+  })
 
   return (
     <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
