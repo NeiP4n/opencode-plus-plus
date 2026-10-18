@@ -154,12 +154,17 @@ const shorten = (value: unknown, depth = 0): unknown => {
     return items
   }
   if (isRecord(value)) {
-    const entries = Object.entries(value)
-    const shortened = entries
-      .slice(0, MAX_SHORTENED_ENTRIES)
-      .map(([key, item]) => [key, shorten(item, depth + 1)])
-    if (entries.length > MAX_SHORTENED_ENTRIES)
-      shortened.push(["...", `${entries.length - MAX_SHORTENED_ENTRIES} additional entries omitted`])
+    const shortened: [string, unknown][] = []
+    let omitted = false
+    for (const key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue
+      if (shortened.length >= MAX_SHORTENED_ENTRIES) {
+        omitted = true
+        break
+      }
+      shortened.push([key, shorten(value[key], depth + 1)])
+    }
+    if (omitted) shortened.push(["...", "additional entries omitted"])
     return Object.fromEntries(shortened)
   }
   return value
