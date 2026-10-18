@@ -108,16 +108,11 @@ export const Plugin = define({
           const protectedFile = event.resources.find((item) => RoomRules.commandTouchesProtectedFile(rules, item))
           if (protectedFile) return deny("This room keeps that file off limits to the AI")
 
-          const matchedPrograms = [...new Set(event.resources.flatMap((item) => RoomRules.programsRequiringApproval(rules, item)))]
+          // Every executable needs a member-scoped first-use approval. Configured room patterns
+          // are also scanned so wrapped commands do not hide the program being launched.
+          const matchedPrograms = [...new Set(event.resources.flatMap((item) => RoomRules.programsForCommand(rules, item)))]
           const identity = yield* guestContext(event.sessionID, event.source?.messageID)
           if (identity?.member.role === "trusted") return
-          const commandPrograms = [...new Set(event.resources.map((item) => RoomRules.programName(item)).filter((item): item is string => !!item))]
-          if (
-            identity &&
-            matchedPrograms.length === 0 &&
-            commandPrograms.length > 0 &&
-            commandPrograms.every((program) => identity.member.approvedPrograms?.includes(program))
-          ) return
           if (matchedPrograms.length === 0) return
           const programs = identity
             ? matchedPrograms.filter((program) => !identity.member.approvedPrograms?.includes(program))
