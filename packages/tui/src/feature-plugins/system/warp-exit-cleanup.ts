@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import * as Warp from "@opencode/core/warp"
 import { Plugin } from "@opencode/plugin/tui"
+import { isAutoRotationFailure } from "./warp-status"
 
 type ProxyValue = { http?: string; https?: string; no_proxy?: string[] } | null
 
@@ -190,6 +191,8 @@ export default Plugin.define({
     let warpOwned = false
     let targetPath: string | undefined
     let refreshing = false
+    let autoRotationRunning = false
+    let lastAutoRotation = 0
 
     const refresh = async () => {
       if (refreshing) return
@@ -214,6 +217,32 @@ export default Plugin.define({
         refreshing = false
       }
     }
+
+    // OpenCode emits session.retry.scheduled before the terminal execution.failed event.
+    // Rate limits therefore have to be handled here if Auto IP should react immediately.
+    const [autoRotate] = context.storage.store<{ enabled: boolean }>("autoRotate", { initial: { enabled: false } })
+    const rotateOnRetry = async (error: unknown) => {
+      if (!autoRotate.enabled || autoRotationRunning || !isAutoRotationFailure(error)) return
+      if (Date.now() - lastAutoRotation < 30_000) return
+      const entries = await context.client.config.get().catch(() => [])
+      const next = currentSnapshot(entries)
+      if (!Warp.isWarpProxy(next.proxy)) return
+      if ((await Warp.mode()).mode !== "proxy") return
+
+      autoRotationRunning = true
+      lastAutoRotation = Date.now()
+      try {
+        await Warp.rotate()
+      } catch (cause) {
+        Warp.log(`automatic IP rotation failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+      } finally {
+        autoRotationRunning = false
+      }
+    }
+
+    const disposeAutoRotation = context.data.on("session.retry.scheduled", (event) => {
+      void rotateOnRetry(event.data.error)
+    })
 
     const restore = () => {
       if (!warpOwned || hasOtherLiveOpenCodeUsers() || !targetPath) return
@@ -240,6 +269,7 @@ export default Plugin.define({
 
     return () => {
       clearInterval(timer)
+      disposeAutoRotation()
       process.off("exit", onExit)
       process.off("SIGINT", onInt)
       process.off("SIGTERM", onTerm)
