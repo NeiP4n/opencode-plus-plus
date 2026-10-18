@@ -27,8 +27,9 @@ import { guestApi, ignoreGuestUnavailable, roomClient } from "../util/room-guest
 import { HoverAction } from "./hover-action"
 import { RoomDodRows } from "./room-dod"
 
-// The host polls this often for who is connected; the guest also learns of role changes and removal.
-const POLL_MS = 2000
+// Room state changes slowly; the room log handles live transcript events. Keep polling as a
+// fallback, but avoid waking the client and host every two seconds while this room is idle.
+const POLL_MS = 5000
 
 const ROLE = { viewer: "Viewer", member: "Member", helper: "Helper", cohost: "Cohost", trusted: "Trusted" } as const
 
@@ -64,38 +65,47 @@ export function RoomChat(props: { room: JoinedRoom; sessionID?: string }) {
   // only permission requests, so the room log can stay silent while the host answers. The
   // poll sees the newest message and the running state; when either moves, the view reloads.
   let latest: string | undefined
+  let stopped = false
+  let checking = false
+  let timer: ReturnType<typeof setTimeout> | undefined
 
   onMount(() => {
-    const poll = () => {
+    // Use a self-scheduling timeout instead of setInterval: slow host responses must not
+    // accumulate overlapping requests. A 5-second delay also caps idle background traffic.
+    const poll = async () => {
+      if (stopped || checking) return
+      checking = true
       const sequence = ++pollSequence
-      void remote.room.guest
-        .get({ roomID, sessionID: target })
-        .then((state) => {
-          if (sequence !== pollSequence) return
-          setJoined(state)
-          setError()
-        })
-        .catch((cause: unknown) => {
-          setError(cause)
-          // A closed room or a removed guest stays shut; a network hiccup keeps the last view.
-          if (shut(cause)) setJoined()
-        })
-      void remote.room.guest
-        .messages({ roomID, sessionID: target })
-        .then((result) => {
-          if (sequence !== pollSequence) return
-          setNote(result.note)
-          setRunning(result.running)
-          const last = result.data.at(-1)
-          const next = `${last?.id}:${last?.text.length}:${result.running}`
-          if (latest !== undefined && latest !== next) live?.()
-          latest = next
-        })
-        .catch(() => undefined)
+      try {
+        const [state, result] = await Promise.all([
+          remote.room.guest.get({ roomID, sessionID: target }),
+          remote.room.guest.messages({ roomID, sessionID: target }),
+        ])
+        if (stopped || sequence !== pollSequence) return
+        setJoined(state)
+        setError()
+        setNote(result.note)
+        setRunning(result.running)
+        const last = result.data.at(-1)
+        const next = `${last?.id}:${last?.text.length}:${result.running}`
+        if (latest !== undefined && latest !== next) live?.()
+        latest = next
+      } catch (cause: unknown) {
+        if (stopped) return
+        setError(cause)
+        // A closed room or a removed guest stays shut; a network hiccup keeps the last view.
+        if (shut(cause)) setJoined()
+      } finally {
+        checking = false
+        if (!stopped) timer = setTimeout(poll, POLL_MS)
+      }
     }
-    poll()
-    const timer = setInterval(poll, POLL_MS)
-    onCleanup(() => clearInterval(timer))
+    void poll()
+    onCleanup(() => {
+      stopped = true
+      pollSequence++
+      if (timer) clearTimeout(timer)
+    })
   })
 
   return (
