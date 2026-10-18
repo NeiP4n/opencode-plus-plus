@@ -76,7 +76,8 @@ if ($Tag) {
 $PreviousStash = (git -C $Source stash list --format=%H -1 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect the Git stash." }
 
-git -C $Source stash push --include-untracked --message "opencode-pp installer update $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')"
+# Preserve tracked edits only; untracked runtime data (.opencode/index, notes, packages/android) must stay in place.
+git -C $Source stash push --message "opencode-pp installer update $(Get-Date -Format 'yyyy-MM-ddTHH:mm:ssK')"
 if ($LASTEXITCODE -ne 0) { throw "Could not save local changes; no checkout was attempted." }
 
 $CurrentStash = (git -C $Source stash list --format=%H -1 | Out-String).Trim()
