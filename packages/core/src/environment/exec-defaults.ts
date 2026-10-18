@@ -16,10 +16,9 @@ export const execDefaults = (_spawner: ChildProcessSpawner["Service"]): FilesImp
     ),
   read: (value, range) =>
     Effect.gen(function* () {
-      const info = yield* attempt(value, () => fs.stat(value), true).pipe(
-        Effect.map((stats): FileInfo => ({ type: fileType(stats), size: stats.size, mtimeMs: stats.mtimeMs })),
-      )
-      if (info.type !== "file") return yield* new WrongKind({ path: value, actual: info.type })
+      const stats = yield* attempt(value, () => fs.stat(value), true)
+      const info: FileInfo = { type: fileType(stats), size: stats.size, mtimeMs: stats.mtimeMs }
+      if (!stats.isFile()) return yield* new WrongKind({ path: value, actual: info.type })
       const bytes = yield* attempt(value, async () => {
         if (range === undefined) return new Uint8Array(await fs.readFile(value))
         const handle = await fs.open(value, "r")
@@ -40,10 +39,9 @@ export const execDefaults = (_spawner: ChildProcessSpawner["Service"]): FilesImp
     }),
   list: (value) =>
     Effect.gen(function* () {
-      const info = yield* attempt(value, () => fs.stat(value), true).pipe(
-        Effect.map((stats): FileInfo => ({ type: fileType(stats), size: stats.size, mtimeMs: stats.mtimeMs })),
-      )
-      if (info.type !== "directory") return yield* new WrongKind({ path: value, actual: info.type })
+      const stats = yield* attempt(value, () => fs.stat(value), true)
+      const info: FileInfo = { type: fileType(stats), size: stats.size, mtimeMs: stats.mtimeMs }
+      if (!stats.isDirectory()) return yield* new WrongKind({ path: value, actual: info.type })
       const entries = yield* attempt(value, () => fs.readdir(value, { withFileTypes: true }), true)
       return entries.map((entry) => ({ name: entry.name, type: fileType(entry) }))
     }),
