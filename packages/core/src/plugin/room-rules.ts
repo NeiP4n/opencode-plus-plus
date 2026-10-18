@@ -11,13 +11,15 @@ import { Room } from "../room.js"
 import { Session } from "../session.js"
 
 // Resolve outbound tool aliases centrally so the policy is independent of the tool's display name.
+// Keep this set at module scope: the hook can run for every tool invocation.
+const OUTBOUND_TOOLS = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
+
 export function blocksOutboundTool(tool: string, action?: string, namespaced = false) {
-  const outbound = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
   const isOutbound = (name: string) => {
     const normalized = name.toLowerCase().replace(/^opencode_/, "")
     return (
-      outbound.has(name.toLowerCase()) ||
-      outbound.has(normalized) ||
+      OUTBOUND_TOOLS.has(name.toLowerCase()) ||
+      OUTBOUND_TOOLS.has(normalized) ||
       normalized.startsWith("desktop_") ||
       normalized.startsWith("mcp_") ||
       normalized.startsWith("opencode_mcp_")
