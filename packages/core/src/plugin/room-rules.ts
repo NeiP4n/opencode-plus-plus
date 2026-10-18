@@ -31,8 +31,8 @@ export const Plugin = define({
       const directory = session.location.directory
       return RoomRules.merge(
         (yield* rooms.list()).flatMap((room) =>
-          room.rules && (room.sessionID === session.id || (room.directory && Orchestra.contains(room.directory, directory)))
-            ? [room.rules]
+          room.sessionID === session.id || (room.directory && Orchestra.contains(room.directory, directory))
+            ? [room.rules ?? {}]
             : [],
         ),
       )
@@ -46,20 +46,29 @@ export const Plugin = define({
           event.effect = "deny"
           event.message = message
         }
+        const localOnlyActions = new Set([
+          "read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list",
+          "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod",
+        ])
         if (
-          rules.noOutbound &&
-          (RoomRules.outbound.includes(event.action) || event.metadata?.transport === "mcp")
+          rules.noOutbound !== false &&
+          (RoomRules.outbound.includes(event.action) ||
+            event.metadata?.transport === "mcp" ||
+            !localOnlyActions.has(event.action))
         )
-          return deny("This room does not let the AI send anything out")
+          return deny("This room blocks outbound, connected-account and unrecognized tools by default")
         if (RoomRules.commandActions.includes(event.action)) {
           const commands = event.resources
-          const blocked = RoomRules.blockedCommandForAction(rules, event.action, commands)
-          if (blocked) return deny(`This room forbids commands like "${blocked}"`)
           const protectedFile = commands.flatMap((command) => RoomRules.protectedFileInCommand(rules, command) ?? [])[0]
           if (protectedFile) return deny("This room keeps that file off limits to the AI")
+          const programs = [...new Set(commands.flatMap((command) => RoomRules.programsRequiringApproval(rules, command)))]
+          if (programs.length) {
+            event.effect = "ask"
+            event.message = `Room rules require host approval to use: ${programs.join(", ")}.`
+          }
           return
         }
-        if (event.action === "read" || event.action === "edit") {
+        if (["read", "edit", "write", "patch", "apply_patch", "apply-patch", "multiedit", "grep", "glob", "list"].includes(event.action)) {
           const file = event.resources.find((item) => RoomRules.protectedFile(rules, item))
           if (file) return deny("This room keeps that file off limits to the AI")
         }
