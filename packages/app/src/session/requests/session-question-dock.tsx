@@ -80,7 +80,7 @@ function Option(props: {
       </span>
       <span data-slot="question-option-trailing" aria-hidden="true">
         <Show when={props.picked} fallback={<Icon name="arrow-up-right" size="small" />}>
-          <Icon name="check-circle-filled" size="large" />
+          <Icon name="circle-check" size="large" />
         </Show>
       </span>
     </button>
@@ -734,7 +734,7 @@ export const SessionQuestionDock: Component<{ request: FormInfo; onSubmit: () =>
                 </span>
                 <span data-slot="question-option-trailing" aria-hidden="true">
                   <Show when={on()} fallback={<Icon name="arrow-up-right" size="small" />}>
-                    <Icon name="check-circle-filled" size="large" />
+                    <Icon name="circle-check" size="large" />
                   </Show>
                 </span>
               </button>
