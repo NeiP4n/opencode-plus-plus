@@ -78,7 +78,13 @@ export const shutdownPersistentPty = Effect.fn("cli.server-connection.shutdown-p
   const endpoint = yield* Service.discover({ ...options, version: undefined })
   if (!endpoint) return
   const client = OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
-  yield* Effect.tryPromise(() => client.experimental.persistentPty.shutdown())
+
+  // Persistent-PTY shutdown is auxiliary cleanup. A wedged/dead server must never
+  // block `service stop`/`service restart` before the actual process termination.
+  yield* Effect.tryPromise({
+    try: () => client.experimental.persistentPty.shutdown({ signal: AbortSignal.timeout(5_000) }),
+    catch: () => undefined,
+  }).pipe(Effect.ignore)
 })
 
 const resolveManaged = Effect.fnUntraced(function* (options: EnsureOptions, mismatch: NonNullable<Args["mismatch"]>) {
