@@ -31,7 +31,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const supervisorOf = (group: { name: string; projects: readonly string[]; supervisor?: string }) => group.supervisor
 
   const act = (action: () => Promise<unknown>) =>
-    void action().then(() => refetch()).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+    void action()
+      .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+      .finally(() => refetch())
 
   const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
 
@@ -45,17 +47,21 @@ export function DialogGroups(props: { onClose?: () => void }) {
     const sameProjects =
       previous?.projects.length === members.length && previous.projects.every((id, index) => id === members[index])
     act(async () => {
+      // Persist the group first, then create/reconcile its shared chat. Keep the
+      // form intact on failure so the user can retry without re-entering members.
       await client.api.orchestra.group.save({ name, projects: members as never, mode })
-      // A group always has its mode's shared chat. Reuse it when the mode is
-      // unchanged; when switching modes, create the matching chat automatically.
-      await startSupervisor({
-        name,
-        projects: members,
-        mode,
-        supervisor: previous?.mode === mode && sameProjects ? previous.supervisor : undefined,
-      }, false)
+      await startSupervisor(
+        {
+          name,
+          projects: members,
+          mode,
+          supervisor: previous?.mode === mode && sameProjects ? previous.supervisor : undefined,
+        },
+        false,
+      )
       if (nameField) nameField.value = ""
       setPicked([])
+      toast.show({ message: t("Group saved and shared chat is ready."), variant: "success" })
     })
   }
 
