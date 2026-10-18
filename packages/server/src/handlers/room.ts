@@ -283,11 +283,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         return yield* new ForbiddenError({ message: "This room forbids commands that send data outside" })
       if (input.member.role === "trusted") return
 
-      const programs = RoomRules.programsRequiringApproval(input.room.rules, input.command)
+      const programs = RoomRules.programsForCommand(input.room.rules, input.command)
+      if (programs.length === 0)
+        return yield* new ForbiddenError({ message: "Could not identify the program to approve for this command" })
       const knownMember = yield* rooms.member(input.room.id, input.member.id)
       const approved = new Set(knownMember?.approvedPrograms ?? input.member.approvedPrograms ?? [])
-      const executable = RoomRules.programName(input.command)
-      if (programs.length === 0 && executable && approved.has(executable)) return
       for (const program of programs) {
         if (approved.has(program)) continue
         yield* Permission.Service.use((permission) =>
@@ -323,47 +323,6 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         )
         approved.add(program)
       }
-
-      // Commands not listed in the program rules retain the old per-execution host confirmation,
-      // but never create a project-wide "Always allow" permission.
-      if (programs.length === 0) {
-        const executable = RoomRules.programName(input.command)
-        yield* Permission.Service.use((permission) =>
-          permission.confirm({
-            action: "room.program",
-            resources: [executable ?? input.command],
-            // "Always allow" is a member-scoped grant for the executable, never the exact command
-            // and never a project-wide saved permission.
-            save: executable ? [executable] : [],
-            metadata: {
-              ...input.metadata,
-              guest: input.member.name,
-              command: input.command,
-              program: executable,
-              scope: "this room member only",
-            },
-            sessionID: input.session.id,
-            force: true,
-            onAlways: executable
-              ? () =>
-                  Effect.gen(function* () {
-                    const current = yield* rooms.member(input.room.id, input.member.id)
-                    if (!current) return
-                    yield* rooms.saveMember(input.room.id, {
-                      ...current,
-                      approvedPrograms: [...new Set([...(current.approvedPrograms ?? []), executable])],
-                    })
-                    return
-                  })
-              : undefined,
-          }),
-        ).pipe(
-          instances.provide(input.session),
-          locationErrors,
-          Effect.catchTag("LocationNotFoundError", Effect.die),
-          Effect.mapError(() => new ForbiddenError({ message: "The host did not allow use of this program" })),
-        )
-      }
     })
 
     // Re-check current room policy after a permission wait. A host may tighten rules or
@@ -389,7 +348,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       if (member.role === "trusted") return
 
       const approved = new Set(member.approvedPrograms ?? [])
-      const newlyRequired = RoomRules.programsRequiringApproval(room.rules, input.command).filter(
+      const newlyRequired = RoomRules.programsForCommand(room.rules, input.command).filter(
         (program) => !input.initiallyRequiredPrograms.includes(program) && !approved.has(program),
       )
       if (newlyRequired.length > 0)
@@ -862,7 +821,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
-          const initiallyRequiredPrograms = RoomRules.programsRequiringApproval(joined.room.rules, command)
+          const initiallyRequiredPrograms = RoomRules.programsForCommand(joined.room.rules, command)
           yield* confirmRoomCommand({
             room: joined.room,
             member: joined.member,
