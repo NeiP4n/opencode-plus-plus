@@ -9,6 +9,10 @@ import { FileSystem } from "../../filesystem.js"
 import { Location } from "../../location.js"
 import { FileAccess } from "../../file-access.js"
 import { Permission } from "../../permission.js"
+import { Room } from "../../room.js"
+import { Session } from "../../session.js"
+import { Orchestra } from "../../orchestra.js"
+import { RoomRules } from "@opencode/schema/room-rules"
 import { Ripgrep } from "../../ripgrep.js"
 import { RelativePath } from "../../schema.js"
 
@@ -69,6 +73,26 @@ export const Plugin = {
     const location = yield* Location.Service
     const access = yield* FileAccess.Service
     const permission = yield* Permission.Service
+    const rooms = yield* Room.Service
+    const sessions = yield* Session.Service
+    const rulesOf = Effect.fnUntraced(function* (sessionID: Session.ID) {
+      const lineage = new Set<string>()
+      let session = yield* sessions.get(sessionID).pipe(Effect.orElseSucceed(() => undefined))
+      while (session && !lineage.has(session.id)) {
+        lineage.add(session.id)
+        if (!session.parentID) break
+        session = yield* sessions.get(session.parentID).pipe(Effect.orElseSucceed(() => undefined))
+      }
+      if (!session) return undefined
+      const directory = session.location.directory
+      return RoomRules.merge(
+        (yield* rooms.list()).flatMap((room) =>
+          lineage.has(room.sessionID) || (room.directory && Orchestra.contains(room.directory, directory))
+            ? [room.rules ?? {}]
+            : [],
+        ),
+      )
+    })
 
     yield* ctx.tool
       .transform((editor) =>
@@ -82,6 +106,7 @@ export const Plugin = {
           execute: (input, context) =>
             Effect.gen(function* () {
               const source = { type: "tool" as const, messageID: context.messageID, id: context.id }
+              const rules = yield* rulesOf(context.sessionID)
               const target = yield* access.resolve({ path: input.path ?? "." })
               yield* access.authorizeExternal([target], context)
               yield* permission.assert({
@@ -129,7 +154,12 @@ export const Plugin = {
                       ),
                   }),
                   Effect.map((result) =>
-                    result.map((match) =>
+                    result
+                      .filter((match) => {
+                        const file = path.relative(location.directory, path.resolve(cwd, match.entry.path)).replaceAll("\\", "/")
+                        return !RoomRules.protectedFile(rules, file)
+                      })
+                      .map((match) =>
                       FileSystem.Match.make({
                         ...match,
                         entry: FileSystem.Entry.make({
