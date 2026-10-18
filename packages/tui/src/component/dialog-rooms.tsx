@@ -1401,6 +1401,14 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
           </Button>
         </Setting>
         <Setting
+          label={t("Execution details")}
+          help={t("Guests cannot see raw tool inputs/outputs, shell commands or screenshots. The host alone handles approvals.")}
+        >
+          <Button onClick={() => save({ hideExecution: !rules().hideExecution })}>
+            {rules().hideExecution ? t("Hidden") : t("Visible")}
+          </Button>
+        </Setting>
+        <Setting
           label={t("Sending out")}
           help={t("The room's AI cannot make web requests or message other computers and projects.")}
         >
