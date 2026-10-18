@@ -68,6 +68,14 @@ function chatMessage(message: SessionMessage.Info, hostName = "host"): Room.Mess
   return text ? [{ id: message.id, role: "assistant" as const, text, created }] : []
 }
 
+function redactRoomValue<T>(value: T, directories: readonly string[]): T {
+  const redact = (text: string) => directories.reduce((result, directory) => RoomRules.redactPath(result, directory), text)
+  if (typeof value === "string") return redact(value) as T
+  if (Array.isArray(value)) return value.map((item) => redactRoomValue(item, directories)) as T
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactRoomValue(item, directories)])) as T
+  return value
+}
 const RANK: Record<Room.Role, number> = { viewer: 0, member: 1, helper: 2, cohost: 3, trusted: 4 }
 
 // Sessions a project room lists; enough for a shared project, bounded for a busy host.
@@ -438,7 +446,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             joined: Date.now(),
           })
           codes.record(room.id, { kind: "join", who: name })
-          return { ...issued, role: member.role, room }
+          const visibleRoom = room.rules?.hidePaths && room.directory
+            ? { ...room, directory: RoomRules.redactPath(room.directory, room.directory) }
+            : room
+          return { ...issued, role: member.role, room: visibleRoom }
         }),
       )
       .handle(
@@ -510,18 +521,22 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
-          return yield* messagePage(sessions, session.id, ctx.query)
+          const page = yield* messagePage(sessions, session.id, ctx.query)
+          if (!joined.room.rules?.hidePaths) return page
+          return { ...page, data: redactRoomValue(page.data, [joined.room.directory ?? "", session.location.directory].filter(Boolean)) }
         }),
       )
       .handle(
         "room.guest.get",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
+          const session = yield* inRoom(joined.room, ctx.query.sessionID)
+          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           return {
-            room: joined.room,
+            room: redactRoomValue(joined.room, directories),
             guest: joined.guest,
             role: joined.member.role,
-            session: yield* inRoom(joined.room, ctx.query.sessionID),
+            session: joined.room.rules?.hidePaths ? redactRoomValue(session, directories) : session,
           }
         }),
       )
@@ -581,8 +596,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .messages({ sessionID: session.id, limit: CHAT_LIMIT, order: "desc" })
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession), Effect.orDie)
           const note = yield* boundNote(session.id)
+          const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
+          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           return {
-            data: messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname())),
+            data: joined.room.rules?.hidePaths ? redactRoomValue(data, directories) : data,
             running: (yield* sessions.active).has(session.id),
             note: note && { name: note.name, title: note.frontmatter.title || note.name },
           }
@@ -593,7 +610,12 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
-          return { data: (yield* boundNote(session.id)) ?? null }
+          const note = (yield* boundNote(session.id)) ?? null
+          return {
+            data: joined.room.rules?.hidePaths
+              ? redactRoomValue(note, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
+              : note,
+          }
         }),
       )
       .handle(
