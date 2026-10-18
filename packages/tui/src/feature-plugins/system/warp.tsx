@@ -4,7 +4,7 @@ import * as Warp from "@opencode/core/warp"
 import { Plugin } from "@opencode/plugin/tui"
 import { createSignal } from "solid-js"
 import { hoverBackground } from "../../ui/hover"
-import { isRateLimitFailure, warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
+import { isAutoRotationFailure, warpStatusError, type WarpConnectionState, type WarpStatus } from "./warp-status"
 
 type WarpAction = "refresh" | "connect" | "disconnect" | "reconnect" | "reset" | "install" | "proxy" | "disableProxy" | "changeIp"
 type SharedBusy = { action: WarpAction | null }
@@ -264,19 +264,26 @@ async function describeProxyEntries(context: Plugin.Context) {
   }
 }
 
-async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean | undefined> {
+async function readOpenCodeProxyPort(context: Plugin.Context): Promise<number | null | undefined> {
   try {
     const entries = await context.client.config.get()
     const found = entries.findLast((entry) => entry.type === "document" && entry.info.proxy !== undefined)
-    if (!found || found.type !== "document") return false
-    return Warp.isWarpProxy(found.info.proxy)
+    if (!found || found.type !== "document") return null
+    if (Warp.isWarpProxy(found.info.proxy, Warp.DEFAULT_PORT)) return Warp.DEFAULT_PORT
+    if (Warp.isWarpProxy(found.info.proxy, Warp.HTTP_BRIDGE_PORT)) return Warp.HTTP_BRIDGE_PORT
+    return null
   } catch {
     return undefined
   }
 }
 
-async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean) {
-  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig() : null })
+async function readOpenCodeProxyEnabled(context: Plugin.Context): Promise<boolean | undefined> {
+  const port = await readOpenCodeProxyPort(context)
+  return port === undefined ? undefined : port !== null
+}
+
+async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean, port = Warp.DEFAULT_PORT) {
+  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig(port) : null })
 }
 
 async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
@@ -294,7 +301,9 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
     if (!accepted) throw cause
     next = await Warp.ensureProxy(Warp.DEFAULT_PORT, { takeOverDevice: true })
   }
-  await setOpenCodeProxy(context, true)
+  // WARP normally serves HTTP on 40000. Only use the bridge on 40001 for SOCKS5-only clients.
+  const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
+  await setOpenCodeProxy(context, true, proxyPort)
   return next
 }
 
@@ -426,7 +435,11 @@ export default Plugin.define({
 
     const describeIp = (seen: Warp.ExitIp | undefined) => seen ? seen.ip + (seen.warp ? " · WARP" : "") + (seen.loc ? " · " + seen.loc : "") : ""
     const refreshExitIp = async () => {
-      const [direct, viaWarp] = await Promise.all([Warp.exitIp(), proxy.enabled ? Warp.exitIp(Warp.HTTP_BRIDGE_PORT) : Promise.resolve(undefined)])
+      const proxyPort = proxy.enabled ? await readOpenCodeProxyPort(context) : null
+      const [direct, viaWarp] = await Promise.all([
+        Warp.exitIp(),
+        proxy.enabled && typeof proxyPort === "number" ? Warp.exitIp(proxyPort) : Promise.resolve(undefined),
+      ])
       updateExit((draft) => { if (direct) draft.direct = describeIp(direct); if (!proxy.enabled) draft.ip = ""; else if (viaWarp) draft.ip = describeIp(viaWarp) })
     }
 
@@ -452,7 +465,20 @@ export default Plugin.define({
       if (Date.now() < trustUntil && enabled !== proxy.enabled) return
       offReads = enabled ? 0 : offReads + 1
       if (enabled || offReads >= 2) updateProxy((draft) => { draft.enabled = enabled })
-      if (enabled) { leaving = false; Warp.markInUse() }
+      if (enabled) {
+        leaving = false
+        Warp.markInUse()
+        // Heal configurations saved by older builds that always pointed at 40001, even when
+        // the current WARP client serves HTTP directly on 40000.
+        const configuredPort = await readOpenCodeProxyPort(context)
+        if (configuredPort === Warp.HTTP_BRIDGE_PORT && await Warp.portOpen(Warp.DEFAULT_PORT)) {
+          const expectedPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
+          if (expectedPort !== configuredPort) {
+            await setOpenCodeProxy(context, true, expectedPort)
+            Warp.log(`repaired stale OpenCode WARP proxy port ${configuredPort} -> ${expectedPort}`)
+          }
+        }
+      }
     }
 
     const refresh = async () => {
@@ -464,7 +490,7 @@ export default Plugin.define({
       await refreshExitIp()
     }
 
-    // Repeated failures from parallel agents should trigger one rotation, not a reconnect loop.
+    // Repeated provider/network failures from parallel agents should trigger one rotation, not a reconnect loop.
     const AUTO_ROTATION_COOLDOWN_MS = 30_000
     let rateLimitRotationRequested = false
     let rateLimitRotationRunning = false
@@ -485,12 +511,19 @@ export default Plugin.define({
       rateLimitRotationRequested = false
       setSharedBusy(updateBusy, "changeIp")
       try {
-        // Verify the actual config, rather than relying only on the panel's cached state.
+        // Verify the actual config rather than relying only on cached panel state. Repair the route
+        // first so a stale 40001 setting cannot make every MCP/provider request fail with ECONNREFUSED.
         if ((await readOpenCodeProxyEnabled(context)) !== true || !autoRotate.enabled) return
+        if ((await Warp.mode()).mode !== "proxy") {
+          throw new Warp.WarpError("not-proxy-mode", text(context, "WARP must be in Local Proxy mode for automatic IP changes.", "Для авто-смены IP WARP должен работать в режиме Local Proxy."))
+        }
+        const ready = await setupLocalProxy(context)
+        setSharedStatus(updateStatus, ready)
+        updateProxy((draft) => { draft.enabled = true })
         lastRateLimitRotationAt = Date.now()
         context.ui.toast.show({
-          title: text(context, "Rate limit detected", "Обнаружен RateLimit"),
-          message: text(context, "Changing the OpenCode WARP exit IP…", "Меняю внешний IP WARP для OpenCode…"),
+          title: text(context, "Provider/network error detected", "Обнаружена сетевая ошибка"),
+          message: text(context, "Repairing the WARP route and changing the OpenCode exit IP…", "Исправляю маршрут WARP и меняю внешний IP OpenCode…"),
           variant: "info",
         })
         const rotation = await Warp.rotate()
@@ -518,7 +551,7 @@ export default Plugin.define({
     }
 
     const disposeRateLimit = context.data.on("session.execution.failed", (event) => {
-      if (!isRateLimitFailure(event.data.error) || !autoRotate.enabled) return
+      if (!isAutoRotationFailure(event.data.error) || !autoRotate.enabled) return
       rateLimitRotationRequested = true
       void runQueuedRateLimitRotation()
     })
@@ -576,13 +609,18 @@ export default Plugin.define({
       if (busy.action !== null) return
       const enabled = !autoRotate.enabled
       try {
+        if (enabled) {
+          // Always reconcile the configured endpoint, including stale settings from earlier builds.
+          const next = await setupLocalProxy(context)
+          setSharedStatus(updateStatus, next)
+          updateProxy((draft) => { draft.enabled = true })
+          await refreshExitIp()
+        }
         await updateAutoRotate((draft) => { draft.enabled = enabled })
         context.ui.toast.show({
           title: enabled ? text(context, "Auto IP enabled", "Авто-смена IP включена") : text(context, "Auto IP disabled", "Авто-смена IP выключена"),
           message: enabled
-            ? proxy.enabled
-              ? text(context, "The WARP IP will change when OpenCode receives a RateLimit error.", "IP WARP будет меняться при появлении RateLimit у OpenCode.")
-              : text(context, "Enable the OpenCode-only WARP proxy for automatic IP changes to work.", "Чтобы авто-смена работала, включи прокси WARP только для OpenCode.")
+            ? text(context, "WARP will change IP on RateLimit and transient connection errors such as ECONNREFUSED.", "WARP будет менять IP при RateLimit и временных сетевых ошибках, например ECONNREFUSED.")
             : text(context, "WARP will keep its current IP until you change it manually.", "WARP сохранит текущий IP, пока ты не сменишь его вручную."),
           variant: "info",
         })
