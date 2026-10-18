@@ -196,7 +196,10 @@ export function programsRequiringApproval(rules: Rules | undefined, command: str
     const pattern = raw.trim()
     if (!pattern || !matchesCommand(pattern, command)) return []
     const first = pattern.split(/\s+/)[0] ?? ""
-    const source = /[*?]/.test(first) ? (segments(command).find((part) => matchesCommand(pattern, part)) ?? command) : first
+    const prefix = /^[A-Za-z0-9_.-]+/.exec(first)?.[0]
+    const source = /[*?]/.test(first)
+      ? prefix || (segments(command).find((part) => matchesCommand(pattern, part)) ?? command)
+      : pattern
     const program = programName(source)
     return program ? [program] : []
   }))]
