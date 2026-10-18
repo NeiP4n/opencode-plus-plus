@@ -2,6 +2,18 @@ import { describe, expect, test } from "bun:test"
 import { createScopedCache } from "./scoped-cache"
 
 describe("createScopedCache", () => {
+  test("prunes an empty-string key when the cache is over capacity", () => {
+    const disposed: string[] = []
+    const cache = createScopedCache((key) => ({ key }), {
+      maxEntries: 0,
+      dispose: (value) => disposed.push(value.key),
+    })
+
+    cache.get("")
+    expect(cache.peek("")).toBeUndefined()
+    expect(disposed).toEqual([""])
+  })
+
   test("evicts least-recently-used entry when max is reached", () => {
     const disposed: string[] = []
 
@@ -69,4 +81,28 @@ describe("createScopedCache", () => {
     expect(second.count).toBe(2)
     expect(disposed).toEqual(["a:1"])
   })
+  test("sweeps expired entries from the oldest end of the LRU cache", () => {
+    let clock = 0
+    const disposed: string[] = []
+    const cache = createScopedCache((key) => ({ key }), {
+      ttlMs: 10,
+      now: () => clock,
+      dispose: (value) => disposed.push(value.key),
+    })
+
+    cache.get("old")
+    clock = 5
+    cache.get("recent")
+    clock = 8
+    cache.get("old")
+    clock = 11
+
+    expect(cache.peek("old")?.key).toBe("old")
+    expect(disposed).toEqual(["recent"])
+
+    clock = 19
+    expect(cache.peek("old")).toBeUndefined()
+    expect(disposed).toEqual(["recent", "old"])
+  })
+
 })
