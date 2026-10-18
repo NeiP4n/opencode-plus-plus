@@ -221,7 +221,6 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
       if (record.type === "file") return { type: "text", text: "[image hidden by room rules]" }
       return "[image hidden by room rules]"
     }
-    if (record.type === "tool") return "[tool execution hidden by room rules]"
     const output: Record<string, unknown> = {}
     for (const [childKey, child] of Object.entries(record)) {
       const result = visit(child, childKey)
@@ -252,6 +251,7 @@ function sanitizeExecutionPayload<T>(value: T): T {
     if (item === null || typeof item !== "object") return item
     const record = item as Record<string, unknown>
     if (record.type === "tool") return undefined
+    if (typeof record.action === "string" && ["shell", "room.run", "room.check", "room.program"].includes(record.action)) return undefined
     const output: Record<string, unknown> = {}
     for (const [key, child] of Object.entries(record)) {
       const result = visit(child)
