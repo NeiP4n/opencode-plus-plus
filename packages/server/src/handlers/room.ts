@@ -169,7 +169,10 @@ function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
     (typeof value.type === "string" && value.type.startsWith("session.compaction."))
   )
     return true
-  return hideExecution && (hiddenExecutionEvent(event) || value.type === "permission.asked")
+  return (
+    hideExecution &&
+    (hiddenExecutionEvent(event) || value.type === "permission.asked" || value.type === "permission.replied")
+  )
 }
 
 // The live events a following guest log adds to the durable ones. Stream fragments (text,
