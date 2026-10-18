@@ -1,5 +1,5 @@
 import { TextAttributes, type InputRenderable } from "@opentui/core"
-import { createEffect, createResource, createSignal, For, Show } from "solid-js"
+import { createResource, createSignal, For, Show } from "solid-js"
 import { useConfig } from "../config"
 import { useClient } from "../context/client"
 import { useProjects } from "../context/projects"
@@ -8,7 +8,6 @@ import { useTheme } from "../context/theme"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useGroupT } from "../util/i18n-groups"
-import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
 
@@ -26,8 +25,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
   const [armed, setArmed] = createSignal<string>()
   const [opening, setOpening] = createSignal<string>()
   const [draftMode, setDraftMode] = createSignal<"lead" | "council">("lead")
-  // Show the chosen mode immediately. Replacing a supervisor session can require several
-  // requests, and the UI must not look like the click was ignored while they run.
   const [modeOverride, setModeOverride] = createSignal<Record<string, "lead" | "council">>({})
   const modeOf = (group: { name: string; mode?: "lead" | "council" }) =>
     modeOverride()[group.name] ?? group.mode ?? "lead"
@@ -53,7 +50,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
   }
 
   type GroupToStart = { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }
-  const supervisorTasks = createTaskQueue<string>()
 
   const createSupervisor = async (group: GroupToStart, openAfterCreate = true) => {
     const mode = group.mode ?? "lead"
@@ -105,8 +101,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
         await client.api.session.remove({ sessionID: duplicate.id }).catch(() => {})
       }
 
-      // This is an initialization message to the group-bound session, not a task.
-      // Never query, message, or dispatch work to member projects while the session is created.
       const bootstrap = [
         "This message initializes the group-bound chat; it is not an operator task.",
         mode === "council"
@@ -136,20 +130,14 @@ export function DialogGroups(props: { onClose?: () => void }) {
     }
   }
 
-  const startSupervisor = (group: GroupToStart, openAfterCreate = true): Promise<void> =>
-    supervisorTasks.run(group.name, () => createSupervisor(group, openAfterCreate))
-
   const save = () => {
     const name = nameField?.value.trim()
     if (!name) return toast.show({ message: t("Enter a group name."), variant: "error" })
     if (picked().length === 0) return toast.show({ message: t("Pick at least one project."), variant: "error" })
     const members = [...picked()]
     const mode = draftMode()
-    const previous = listed().find((group) => group.name === name)
-    const sameProjects = previous?.projects.length === members.length && previous.projects.every((id, index) => id === members[index])
     act(async () => {
-      await client.api.orchestra.group.save({ name, projects: members as never, mode })
-      await startSupervisor({ name, projects: members, mode, supervisor: previous?.mode === mode && sameProjects ? previous.supervisor : undefined }, false)
+      await client.api.orchestra.group.save({ name, projects: members as never, mode, supervisor: undefined })
       if (nameField) nameField.value = ""
       setPicked([])
       setDraftMode("lead")
@@ -167,9 +155,10 @@ export function DialogGroups(props: { onClose?: () => void }) {
     setModeOverride((current) => ({ ...current, [group.name]: mode }))
     void (async () => {
       try {
+        // Changing a mode only changes the group's configuration. It must never
+        // create/open a session or send anything to member projects implicitly.
         if (group.supervisor) await client.api.session.remove({ sessionID: group.supervisor }).catch(() => {})
         await client.api.orchestra.group.save({ name: group.name, projects: group.projects as never, mode, supervisor: undefined })
-        await startSupervisor({ name: group.name, projects: group.projects, mode }, false)
       } catch (error) {
         toast.show({ message: errorMessage(error), variant: "error" })
       } finally {
@@ -180,7 +169,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
   }
 
   const openSupervisor = (group: GroupToStart) => {
-    void startSupervisor(group, true).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
+    void createSupervisor(group, true).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
   const link = (name: string) => act(async () => {
@@ -193,20 +182,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
     setArmed()
     act(() => client.api.orchestra.group.remove({ name }))
   }
-
-  const autoStarting = new Set<string>()
-  createEffect(() => {
-    if (groups.loading || groups.error || opening() || projects.list().length === 0) return
-    for (const group of listed()) {
-      if (group.supervisor || autoStarting.has(group.name)) continue
-      autoStarting.add(group.name)
-      void startSupervisor(group, false)
-        .then(() => refetch())
-        .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
-        .finally(() => autoStarting.delete(group.name))
-      break
-    }
-  })
 
   const projectNames = (group: { projects: readonly string[] }) => group.projects.map(nameOf)
 
@@ -236,14 +211,12 @@ export function DialogGroups(props: { onClose?: () => void }) {
                 <text fg={theme.text.muted}>{t("Mode") + ":"}</text>
                 <Button
                   variant={modeOf(group) === "lead" ? "primary" : "secondary"}
-                  disabled={modeOf(group) === "lead"}
                   onClick={() => changeMode(group, "lead")}
                 >
                   {t("Single coordinator")}
                 </Button>
                 <Button
                   variant={modeOf(group) === "council" ? "primary" : "secondary"}
-                  disabled={modeOf(group) === "council"}
                   onClick={() => changeMode(group, "council")}
                 >
                   {t("Orchestrator council")}
@@ -265,8 +238,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
               </box>
               <text fg={theme.text.muted} wrapMode="word">
                 {modeOf(group) === "council"
-                  ? t("To use the council, open Society above and type your task or question in that chat. It will ask every project Orchestrator for a proposal and collect the answers here. Changing the mode alone does not send tasks.")
-                  : t("President is a chat bound to this group. Ask it for the group status or a recommendation; it will not dispatch tasks to project sessions on its own.")}
+                  ? t("Choose Orchestrator council to set the group mode. Then press Create Society: it creates one chat bound to this group. That chat is the only place where the council works; changing the mode does not start or move any project session.")
+                  : t("President is a chat bound to this group. Press Create President to create one group chat. It will not dispatch tasks to project sessions on its own.")}
               </text>
             </box>
           )}
