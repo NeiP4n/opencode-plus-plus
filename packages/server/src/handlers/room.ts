@@ -953,7 +953,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
           const session = yield* inRoom(joined.room, undefined)
-          const initiallyRequiredPrograms = RoomRules.programsRequiringApproval(joined.room.rules, command)
+          const initiallyRequiredPrograms = RoomRules.programsForCommand(joined.room.rules, command)
           yield* confirmRoomCommand({
             room: joined.room,
             member: joined.member,
