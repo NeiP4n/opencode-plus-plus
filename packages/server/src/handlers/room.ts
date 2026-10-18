@@ -708,6 +708,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
+          // A shell can open arbitrary network connections, so noOutbound fails closed for guest commands too.
+          if (joined.room.rules?.noOutbound)
+            return yield* new ForbiddenError({ message: "This room does not allow shell commands while outbound access is disabled" })
           // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
@@ -843,6 +846,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
+          // Verification commands are shell execution and must obey the same outbound restriction.
+          if (joined.room.rules?.noOutbound)
+            return yield* new ForbiddenError({ message: "This room does not allow shell commands while outbound access is disabled" })
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
           const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
