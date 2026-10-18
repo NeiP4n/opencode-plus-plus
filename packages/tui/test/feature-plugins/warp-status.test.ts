@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { isRateLimitFailure, parseWarpStatus, warpCliUnavailable, warpStatusError } from "../../src/feature-plugins/system/warp-status"
+import { isAutoRotationFailure, isRateLimitFailure, parseWarpStatus, warpCliUnavailable, warpStatusError } from "../../src/feature-plugins/system/warp-status"
 
 describe("WARP status parsing", () => {
   test("recognizes a connected tunnel", () => {
@@ -44,5 +44,28 @@ describe("WARP automatic IP rotation trigger", () => {
   test("does not rotate for unrelated quota or transport errors", () => {
     expect(isRateLimitFailure({ type: "provider.quota", message: "Quota exhausted" })).toBe(false)
     expect(isRateLimitFailure({ type: "provider.transport", message: "Connection reset" })).toBe(false)
+  })
+})
+
+
+describe("WARP automatic IP rotation for network failures", () => {
+  test("recognizes ECONNREFUSED provider errors", () => {
+    expect(isAutoRotationFailure({
+      type: "provider.transport",
+      message: "ECONNREFUSED: Unable to connect. Is the computer able to access the url?",
+    })).toBe(true)
+  })
+
+  test("recognizes network codes nested in Error.cause", () => {
+    expect(isAutoRotationFailure({
+      type: "provider.transport",
+      message: "fetch failed",
+      cause: Object.assign(new Error("connect failed"), { code: "ECONNRESET" }),
+    })).toBe(true)
+  })
+
+  test("still ignores unrelated application failures", () => {
+    expect(isAutoRotationFailure({ type: "provider.invalid-request", message: "Invalid model name" })).toBe(false)
+    expect(isAutoRotationFailure({ type: "provider.quota", message: "Quota exhausted" })).toBe(false)
   })
 })
