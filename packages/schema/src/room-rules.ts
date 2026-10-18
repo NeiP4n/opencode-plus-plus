@@ -141,7 +141,7 @@ export function describe(rules: Rules | undefined) {
   if (!rules) return undefined
   const lines = [
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
-    rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles approvals for shell, hub and desktop actions." : undefined,
+    rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles all tool approvals." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound ? "Send nothing out: no web requests, MCP calls, shell or hub commands, or messages to other computers or projects." : undefined,
