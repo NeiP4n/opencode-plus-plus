@@ -926,6 +926,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const directory = yield* roomDirectory(joined.room)
           let rules = yield* effectiveRules(joined.room, directory)
+          const dodError = (error: Dod.DodError) => new InvalidRequestError({
+            message: rules?.hidePaths ? redactRoomValue(error.message, [directory]) : error.message,
+          })
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
