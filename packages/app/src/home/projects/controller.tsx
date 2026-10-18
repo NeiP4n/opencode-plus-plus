@@ -251,7 +251,7 @@ function ProjectPathChoiceDialog(props: {
         <For each={props.candidates}>
           {(item) => (
             <Button
-              variant={selected().includes(item.directory) ? "secondary" : "ghost"}
+              variant={selected().includes(item.directory) ? "outline" : "ghost"}
               class="h-auto min-h-9 justify-start whitespace-normal break-all text-left"
               onClick={() => toggle(item.directory)}
             >
@@ -260,7 +260,7 @@ function ProjectPathChoiceDialog(props: {
           )}
         </For>
         <Button
-          variant={createNew() ? "secondary" : "ghost"}
+          variant={createNew() ? "outline" : "ghost"}
           class="h-auto min-h-9 justify-start whitespace-normal text-left"
           onClick={() => {
             setCreateNew((value) => !value)
