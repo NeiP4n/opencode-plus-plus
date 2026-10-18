@@ -98,7 +98,9 @@ const layer = Layer.effect(
         yield* Effect.callback<void>((resume) => {
           const forget = () => {
             clearTimeout(timer)
-            waiters.get(roomID)?.delete(wake)
+            const waiting = waiters.get(roomID)
+            waiting?.delete(wake)
+            if (waiting?.size === 0) waiters.delete(roomID)
           }
           const wake = () => {
             forget()
