@@ -72,6 +72,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               : ctx.query
           const page = yield* session.list({
             ...query,
+            archived: query.archived ?? false,
             limit: ctx.query.limit ?? DefaultSessionsLimit,
           })
           const sessions = page.data
