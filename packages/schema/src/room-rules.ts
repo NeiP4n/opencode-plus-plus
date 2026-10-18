@@ -44,6 +44,17 @@ export function outboundAction(action: string) {
   return outbound.includes(value) || /(?:web|http|fetch|browser|peer|federation|mcp|integration|connector|api|github|gitlab|git|slack|discord|telegram|whatsapp|email|gmail|outlook|mail|message|send|publish|upload|request|network|remote|external|dropbox|drive|notion|linear|jira|salesforce|shopify|calendar|cloud|account|oauth|token|webhook)/.test(value)
 }
 
+const LOCAL_ONLY_ACTIONS = new Set([
+  "read", "edit", "write", "patch", "multiedit", "grep", "glob", "list", "shell",
+  "todowrite", "todoread", "task", "plan", "question", "skill", "lsp", "dod", "memory",
+])
+
+// Privacy mode is deny-by-default for tool actions: tools that are not explicitly known to be
+// local are blocked, since a connected-account tool may have an innocent-looking name.
+export function localOnlyAction(action: string) {
+  return LOCAL_ONLY_ACTIONS.has(action.toLowerCase())
+}
+
 // Credential files are protected in every shared room by default, even when the host has not
 // added them to the custom list. Explicit room rules can add further patterns, not weaken this set.
 const SECRET_FILE_PATTERNS: readonly string[] = [
