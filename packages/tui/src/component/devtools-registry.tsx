@@ -568,7 +568,7 @@ function PluginTools(props: {
   return (
     <box gap={1}>
       <text fg={theme.text.muted} wrapMode="word">
-        {t("Manage built-in and external TUI plugins. Built-ins disabled at startup can stay unloaded until enabled.")}
+        {t("Plugin toggles are saved to config. Built-ins disabled at startup stay unloaded; restart to release modules already loaded.")}
       </text>
       <box flexDirection="row" gap={1}>
         <text fg={theme.text.muted} flexShrink={0}>{t("Search")}</text>
