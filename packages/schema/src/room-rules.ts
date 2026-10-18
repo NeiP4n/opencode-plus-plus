@@ -8,7 +8,7 @@ import { Schema } from "effect"
 export const Rules = Schema.Struct({
   // Guests and their AIs never see the project's path on the host.
   hidePaths: Schema.Boolean.pipe(Schema.optional),
-  // Guests do not receive raw tool inputs/outputs, command execution details, or screenshots.
+  // Other guests do not receive raw tool inputs/outputs, command execution details, or screenshots.
   hideExecution: Schema.Boolean.pipe(Schema.optional),
   // Commands nobody runs in the room, by the host's AI, guests' commands or checks.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
@@ -126,7 +126,7 @@ export function describe(rules: Rules | undefined) {
   if (!rules) return undefined
   const lines = [
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
-    rules.hideExecution ? "Do not expose raw tool inputs or outputs, command execution details, or screenshots to guests. The host alone handles approvals for shell, hub and desktop actions." : undefined,
+    rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles approvals for shell, hub and desktop actions." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
     rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
