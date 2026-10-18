@@ -49,6 +49,10 @@ export const Plugin = define({
         if (rules.noOutbound && RoomRules.outbound.includes(event.action))
           return deny("This room does not let the AI send anything out")
         if (event.action === "shell") {
+          // Shell commands can open arbitrary network connections that permission actions cannot see.
+          // Fail closed: noOutbound disables shell execution rather than pretending command-name matching
+          // can reliably distinguish local work from data exfiltration.
+          if (rules.noOutbound) return deny("This room does not allow shell commands while outbound access is disabled")
           const blocked = event.resources.flatMap((command) => RoomRules.blockedCommand(rules, command) ?? [])[0]
           if (blocked) return deny(`This room forbids commands like "${blocked}"`)
           const protectedFile = event.resources.flatMap((command) => RoomRules.protectedFileInCommand(rules, command) ?? [])[0]
