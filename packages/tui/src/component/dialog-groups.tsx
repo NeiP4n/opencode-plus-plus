@@ -82,8 +82,10 @@ export function DialogGroups(props: { onClose?: () => void }) {
       const sessionID = matches[0]?.id ?? supervisorSessionID(group.name, mode)
       const created = matches[0] ?? await client.api.session.create({
         id: sessionID,
-        title: mode === "council" ? "общество" : "President",
-        agent: "orchestrator",
+        title: mode === "council" ? "Общество" : "Президент",
+        // A Council chat is a shared Orchestrator session; a President chat sits one
+        // level above the member Orchestrators and runs its own agent.
+        agent: mode === "council" ? "orchestrator" : "president",
         location: { directory: leader.directory },
         metadata: { "opencode-pp:group-supervisor": { groupName: group.name, leader: leaderID, mode } },
         permissions: [
@@ -116,6 +118,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
       await client.api.session.prompt({
         sessionID: created.id,
         text: bootstrap,
+        // Setup is context, not a task: store it without waking the model.
+        resume: false,
         metadata: { "opencode-pp:group-supervisor-bootstrap": true },
       })
       if (openAfterCreate) {
@@ -162,7 +166,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
       } catch (error) {
         toast.show({ message: errorMessage(error), variant: "error" })
       } finally {
-        await refetch().catch(() => {})
+        await Promise.resolve(refetch?.()).catch(() => {})
         clearModeOverride(group.name)
       }
     })()
