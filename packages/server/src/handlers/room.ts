@@ -763,7 +763,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
-          const rules = yield* effectiveRules(joined.room, session.location.directory)
+          let rules = yield* effectiveRules(joined.room, session.location.directory)
+          const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
           // noOutbound is fail-closed: arbitrary shell commands can exfiltrate data even when
           // they do not match a configured blockCommands pattern.
           if (rules?.noOutbound)
@@ -791,23 +792,32 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
             )
           }
+          // Rules may have changed while the host was deciding whether to approve the command.
+          rules = yield* effectiveRules(joined.room, session.location.directory)
+          if (rules?.noOutbound)
+            return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
+          if (RoomRules.protectedFileInCommand(rules, command))
+            return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
+          const currentBlock = RoomRules.blockedCommand(rules, command)
+          if (currentBlock)
+            return yield* new ForbiddenError({ message: `This room forbids commands like "${currentBlock}"` })
           codes.record(joined.room.id, {
             kind: "run",
             who: joined.member.name,
             detail: rules?.hidePaths
-              ? RoomRules.redactPath(command, session.location.directory)
+              ? redactRoomValue(command, directories)
               : command,
           })
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, session.location.directory, signal),
             catch: (error) =>
               new InvalidRequestError({
-                message: `Could not run the command: ${rules?.hidePaths ? RoomRules.redactPath(String(error), session.location.directory) : String(error)}`,
+                message: `Could not run the command: ${rules?.hidePaths ? redactRoomValue(String(error), directories) : String(error)}`,
               }),
           })
           // Command output is sent to a remote guest; redact the project path just like room metadata.
           if (rules?.hidePaths)
-            return { ...result, output: RoomRules.redactPath(result.output, session.location.directory) }
+            return { ...result, output: redactRoomValue(result.output, directories) }
           return result
         }),
       )
@@ -913,7 +923,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const directory = yield* roomDirectory(joined.room)
-          const rules = yield* effectiveRules(joined.room, directory)
+          let rules = yield* effectiveRules(joined.room, directory)
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
@@ -943,6 +953,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this check" })),
             )
           }
+          // Rules may have changed while the host was deciding whether to approve the check.
+          rules = yield* effectiveRules(joined.room, directory)
+          if (rules?.noOutbound)
+            return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
+          if (RoomRules.protectedFileInCommand(rules, command))
+            return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
+          const currentBlock = RoomRules.blockedCommand(rules, command)
+          if (currentBlock)
+            return yield* new ForbiddenError({ message: `This room forbids commands like "${currentBlock}"` })
           // A denied command must not leave guest-supplied content in the host's handover notes.
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           const result = yield* Effect.tryPromise({
