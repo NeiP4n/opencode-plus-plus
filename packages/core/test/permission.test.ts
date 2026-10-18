@@ -7,6 +7,8 @@ import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Bus } from "@opencode/core/bus"
 import { Location } from "@opencode/core/location"
 import { Permission } from "@opencode/core/permission"
+import { Room } from "@opencode/core/room"
+import { PluginHooks } from "@opencode/core/plugin/hooks"
 import { PermissionTable } from "@opencode/core/permission/sql"
 import { PermissionSaved } from "@opencode/core/permission/saved"
 import { Project } from "@opencode/core/project"
@@ -144,6 +146,25 @@ describe("Permission", () => {
       yield* setRules([{ action: "read", resource: "*", effect: "deny" }])
       const blocked = yield* service.assert(assertion()).pipe(Effect.flip)
       expect(blocked).toBeInstanceOf(Permission.BlockedError)
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("room policy denial cannot be overridden by a later permission hook", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "webfetch", resource: "*", effect: "allow" }])
+      const rooms = yield* Room.Service
+      yield* rooms.create({ sessionID: Session.ID.make("ses_test"), rules: { noOutbound: true } })
+      const hooks = yield* PluginHooks.Service
+      yield* hooks.register("permission", "evaluate", (event) =>
+        Effect.sync(() => {
+          event.effect = "allow"
+        }),
+      )
+      const service = yield* Permission.Service
+      expect(yield* service.ask(assertion({ action: "webfetch", resources: ["*"] }))).toMatchObject({
+        effect: "deny",
+      })
       expect(yield* service.list()).toEqual([])
     }),
   )
