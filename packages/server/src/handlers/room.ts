@@ -160,7 +160,10 @@ function hiddenExecutionEvent(event: unknown) {
 
 function hiddenRoomEvent(event: unknown, hideExecution: boolean) {
   if (!event || typeof event !== "object") return false
-  const value = event as { type?: unknown }
+  const value = event as { type?: unknown; data?: { action?: unknown } }
+  // Program approval prompts are private to the host; other guests must not learn which
+  // executable another member is trying to use or see the associated permission action.
+  if (value.type === "permission.asked" && value.data?.action === "room.program") return true
   // These events contain private model context, not user-facing chat.
   if (
     value.type === "session.reasoning.delta" ||
@@ -765,7 +768,6 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
-          const rules = yield* effectiveRules(joined.room, session.location.directory)
           const durable = sessions
             .log({ sessionID: session.id, after: ctx.query.after, follow: ctx.query.follow })
             .pipe(
@@ -918,7 +920,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             locationErrors,
             Effect.orDie,
           )
-          const visible = rules?.hideExecution ? [] : requests
+          const visible = rules?.hideExecution ? [] : requests.filter((request) => request.action !== "room.program")
           const data = rules?.hidePaths
             ? redactRoomValue(visible, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
             : visible
