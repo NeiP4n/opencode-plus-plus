@@ -497,6 +497,8 @@ export type RoomRules = {
   blockCommands?: Array<string> | undefined
   protectedFiles?: Array<string> | undefined
   noOutbound?: boolean | undefined
+  hideCommandExecution?: boolean | undefined
+  hideScreenshots?: boolean | undefined
 }
 
 export type RoomDodItem = {
@@ -556,6 +558,7 @@ export type RoomMemberView = {
   name: string
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   device?: string | undefined
+  approvedPrograms?: Array<string> | undefined
   address?: string | undefined
   joined: number
   seen?: number | undefined
@@ -567,6 +570,7 @@ export type RoomMember = {
   name: string
   role: "viewer" | "member" | "helper" | "cohost" | "trusted"
   device?: string | undefined
+  approvedPrograms?: Array<string> | undefined
   address?: string | undefined
   joined: number
 }
