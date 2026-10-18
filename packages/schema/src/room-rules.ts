@@ -31,7 +31,8 @@ export function merge(all: ReadonlyArray<Rules | undefined>): Rules | undefined 
   return {
     hidePaths: rules.some((item) => item.hidePaths),
     hideExecution: rules.some((item) => item.hideExecution),
-    noOutbound: rules.some((item) => item.noOutbound),
+    // Outbound tools are denied by default in shared rooms; every overlapping room must opt in.
+    noOutbound: rules.some((item) => item.noOutbound !== false),
     denyGuestPrompts: rules.some((item) => item.denyGuestPrompts),
     denyGuestCommands: rules.some((item) => item.denyGuestCommands),
     blockCommands: [...new Set(rules.flatMap((item) => item.blockCommands ?? []))],
@@ -104,9 +105,128 @@ export function blockedCommandForAction(rules: Rules | undefined, action: string
   }
 }
 
+const COMMAND_WRAPPERS = new Set(["sudo", "doas", "command", "builtin", "nohup", "time", "nice", "stdbuf", "env", "exec"])
+const WRAPPER_OPTIONS_WITH_VALUE: Record<string, ReadonlySet<string>> = {
+  sudo: new Set(["-u", "--user", "-g", "--group", "-h", "--host", "-p", "--prompt", "-C", "--chdir"]),
+  doas: new Set(["-u", "-C"]),
+  env: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]),
+  nice: new Set(["-n", "--adjustment"]),
+  stdbuf: new Set(["-i", "--input", "-o", "--output", "-e", "--error"]),
+  time: new Set(["-f", "--format", "-o", "--output"]),
+}
+function commandTokens(command: string) {
+  return command.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) ?? []
+}
+function unquoteToken(token: string) {
+  return token.replace(/^['"]|['"]$/g, "")
+}
+function unwrapCommand(command: string) {
+  const tokens = commandTokens(command)
+  let index = 0
+  while (index < tokens.length) {
+    const token = unquoteToken(tokens[index])
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+      index++
+      continue
+    }
+    const base = token.split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat|ps1|com)$/i, "").toLowerCase()
+    if (!base || !COMMAND_WRAPPERS.has(base)) break
+    index++
+    const options = WRAPPER_OPTIONS_WITH_VALUE[base] ?? new Set<string>()
+    while (index < tokens.length) {
+      const option = unquoteToken(tokens[index])
+      if (base === "env" && /^[A-Za-z_][A-Za-z0-9_]*=/.test(option)) {
+        index++
+        continue
+      }
+      if (!option.startsWith("-")) break
+      const equals = option.indexOf("=")
+      const name = equals > 0 ? option.slice(0, equals) : option
+      index++
+      if (options.has(name) && equals < 0 && index < tokens.length) index++
+    }
+  }
+  return tokens.slice(index).map(unquoteToken).join(" ")
+}
+export function programName(command: string): string | undefined {
+  const token = commandTokens(unwrapCommand(command))[0]
+  if (!token) return undefined
+  const name = token.split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat|ps1|com)$/i, "").toLowerCase()
+  return name || undefined
+}
+function blockedMatchCandidate(pattern: string, command: string) {
+  const start = glob(pattern, "^")
+  for (const part of segments(command)) {
+    const words = part.split(/\s+/).filter(Boolean)
+    const candidates = [part, ...words.map((_, index) => words.slice(index).join(" "))]
+    const found = candidates.find((candidate) => start.test(candidate))
+    if (found) return found
+  }
+  return !pattern.includes("*") && command.toLowerCase().includes(pattern.toLowerCase()) ? command : undefined
+}
+// A matching rule means that using this program requires host approval; it is not an unconditional ban.
+export function programsRequiringApproval(rules: Rules | undefined, command: string): string[] {
+  const output = new Set<string>()
+  for (const raw of rules?.blockCommands ?? []) {
+    const pattern = raw.trim()
+    if (!pattern) continue
+    const matched = blockedMatchCandidate(pattern, command)
+    if (!matched) continue
+    const first = pattern.split(/\s+/)[0] ?? ""
+    const prefix = /^[A-Za-z0-9_.-]+/.exec(first)?.[0]
+    const source = /[*?]/.test(first) ? prefix ?? matched : matched
+    const program = programName(source)
+    if (program) output.add(program)
+  }
+  return [...output]
+}
+
+// Credential stores are protected in every room by default; custom rules only add restrictions.
+export const SECRET_FILE_PATTERNS: readonly string[] = [
+  ".env*",
+  "**/.ssh", "**/.ssh/**",
+  "**/.aws", "**/.aws/**",
+  "**/.azure", "**/.azure/**",
+  "**/.config/gcloud/**",
+  "**/.config/gh/**",
+  "**/.config/opencode/**",
+  "**/.local/share/opencode/auth.json",
+  "**/.claude/.credentials.json",
+  "**/.claude.json",
+  "**/.codex/auth.json",
+  "**/.config/codex/**",
+  "**/.git-credentials",
+  "**/.netrc",
+  "**/.npmrc",
+  "**/.pypirc",
+  "**/.docker/config.json",
+  "**/.kube/config",
+  "**/.vault-token",
+  "**/.terraformrc",
+  "**/terraform.tfstate*",
+  "**/auth.json",
+  "**/token.json",
+  "**/tokens.json",
+  "**/*token*.json",
+  "**/*oauth*.json",
+  "**/*secret*.json",
+  "**/credentials",
+  "**/credentials/**",
+  "**/secrets/**",
+  "**/*credentials*.json",
+  "**/*service-account*.json",
+  "**/*.pem",
+  "**/*.key",
+  "**/*.p12",
+  "**/*.pfx",
+  "**/*.keystore",
+  "**/id_rsa*",
+  "**/id_ed25519*",
+]
+
 export function protectedFile(rules: Rules | undefined, file: string) {
   const normal = file.replaceAll("\\", "/")
-  return (rules?.protectedFiles ?? []).find((raw) => {
+  return [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])].find((raw) => {
     const pattern = raw.trim().replaceAll("\\", "/")
     return pattern !== "" && glob(pattern, "(^|/)", "$").test(normal)
   })
@@ -116,7 +236,7 @@ export function protectedFile(rules: Rules | undefined, file: string) {
 // This does not replace OS-level sandboxing for indirect access via scripts or aliases.
 export function protectedFileInCommand(rules: Rules | undefined, command: string) {
   const normal = command.replaceAll("\\", "/")
-  return (rules?.protectedFiles ?? []).find((raw) => {
+  return [...SECRET_FILE_PATTERNS, ...(rules?.protectedFiles ?? [])].find((raw) => {
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
     const body = pattern
@@ -140,6 +260,7 @@ export function redactPath(text: string, directory: string) {
 export function describe(rules: Rules | undefined) {
   if (!rules) return undefined
   const lines = [
+    "Credential and secret files (including .env, SSH/cloud auth, API tokens and private keys) are protected by default.",
     rules.hidePaths ? "Do not reveal the project's absolute path to anyone in the room." : undefined,
     rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles all tool approvals." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
