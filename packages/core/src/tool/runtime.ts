@@ -140,13 +140,28 @@ const typeName = (property: unknown): string => {
 
 // The echo exists to show the shape the model sent. A rejected write with a whole file in it used
 // to come back verbatim and double the tokens of the failed step.
+const SHORTENED_DEPTH = "[maximum depth reached]"
+const MAX_SHORTENED_ENTRIES = 50
+
 const shorten = (value: unknown, depth = 0): unknown => {
   if (typeof value === "string")
     return value.length > 300 ? `${value.slice(0, 200)}... [${value.length - 200} more characters]` : value
-  if (depth > 6) return value
-  if (Array.isArray(value)) return value.map((item) => shorten(item, depth + 1))
-  if (isRecord(value))
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shorten(item, depth + 1)]))
+  if (depth > 6) return SHORTENED_DEPTH
+  if (Array.isArray(value)) {
+    const items = value.slice(0, MAX_SHORTENED_ENTRIES).map((item) => shorten(item, depth + 1))
+    if (value.length > MAX_SHORTENED_ENTRIES)
+      items.push(`...${value.length - MAX_SHORTENED_ENTRIES} additional entries omitted`)
+    return items
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value)
+    const shortened = entries
+      .slice(0, MAX_SHORTENED_ENTRIES)
+      .map(([key, item]) => [key, shorten(item, depth + 1)])
+    if (entries.length > MAX_SHORTENED_ENTRIES)
+      shortened.push(["...", `${entries.length - MAX_SHORTENED_ENTRIES} additional entries omitted`])
+    return Object.fromEntries(shortened)
+  }
   return value
 }
 
