@@ -392,10 +392,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
     const effectiveRules = Effect.fnUntraced(function* (room: Room.Info, directory: string) {
       return RoomRules.merge(
         (yield* rooms.list()).flatMap((candidate) =>
-          candidate.rules &&
-          (candidate.sessionID === room.sessionID ||
-            (candidate.directory !== undefined && Orchestra.contains(candidate.directory, directory)))
-            ? [candidate.rules]
+          candidate.sessionID === room.sessionID ||
+          (candidate.directory !== undefined && Orchestra.contains(candidate.directory, directory))
+            ? [candidate.rules ?? {}]
             : [],
         ),
       )
