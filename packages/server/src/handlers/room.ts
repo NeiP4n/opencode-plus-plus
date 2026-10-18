@@ -843,11 +843,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "helper")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
-          const rules = yield* effectiveRules(joined.room, session.location.directory)
           yield* Effect.gen(function* () {
             const permission = yield* Permission.Service
             const request = yield* permission.get(ctx.params.requestID)
             if (!request || request.sessionID !== session.id) return yield* missingRequest(ctx.params.requestID)
+            const rules = yield* effectiveRules(joined.room, session.location.directory)
             if (HOST_ONLY.has(request.action))
               return yield* new ForbiddenError({ message: "Only the host answers this request" })
             if (rules?.hideExecution)
