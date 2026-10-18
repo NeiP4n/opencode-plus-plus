@@ -1237,6 +1237,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           // A guest's new session runs on the room session's model, the one the host picked; left
           // unset it would fall to the first model in the host's catalog.
           const rules = yield* effectiveRules(joined.room, joined.room.directory)
+          // Creating a guest-owned session still creates a new host-credential AI context. Do not
+          // let guests bypass denyGuestPrompts by switching from the shared session to a new one.
+          if (rules?.denyGuestPrompts)
+            return yield* new ForbiddenError({ message: "This room does not allow guests to prompt the host's AI" })
           const shared = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
           const data = yield* sessions
             .create({
