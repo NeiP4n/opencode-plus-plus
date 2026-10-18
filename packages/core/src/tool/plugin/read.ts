@@ -110,7 +110,6 @@ export const Plugin = {
                 result.content = new ReadToolFileSystem.ListPage({
                   ...result.content,
                   entries,
-                  truncated: result.content.truncated || entries.length !== result.content.entries.length,
                 })
               }
               // After a successful read, discover nearby AGENTS.md walking up to the Location
