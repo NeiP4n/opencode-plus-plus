@@ -62,7 +62,9 @@ export const Plugin = {
       while (session && !lineage.has(session.id)) {
         lineage.add(session.id)
         if (!session.parentID) break
-        session = yield* sessions.get(session.parentID).pipe(Effect.orElseSucceed(() => undefined))
+        const parent = yield* sessions.get(session.parentID).pipe(Effect.orElseSucceed(() => undefined))
+        if (!parent) break
+        session = parent
       }
       if (!session) return undefined
       const directory = session.location.directory
