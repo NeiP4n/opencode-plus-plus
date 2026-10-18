@@ -194,6 +194,15 @@ it.live("a join code admits a guest whose token opens only that room", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("removing a room releases its join code and transient state", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    expect((yield* call("/api/room/join", { method: "POST", body: { code, name: "Before removal" } })).status).toBe(200)
+    expect((yield* call(`/api/room/${room.id}`, { method: "DELETE", headers: host })).status).toBe(204)
+    expect((yield* call("/api/room/join", { method: "POST", body: { code, name: "After removal" } })).status).toBe(401)
+  }).pipe(Effect.scoped),
+)
+
 it.live("the room list anyone may read names only the open rooms; a closed one keeps its id but not its name", () =>
   Effect.gen(function* () {
     const { call, room } = yield* setup
