@@ -135,8 +135,8 @@ function findProxyProperty(text: string) {
         }
         return j
       })()
-      if (text.slice(i + 1, end) === "proxy" && text.slice(skipSpace(text, end + 1), skipSpace(text, end + 1) + 1) === ":") {
-        const colon = skipSpace(text, end + 1)
+      const colon = skipSpace(text, end + 1)
+      if (text.slice(i + 1, end) === "proxy" && text[colon] === ":") {
         const valueStart = skipSpace(text, colon + 1)
         return { keyStart: i, valueStart, valueEnd: scanValueEnd(text, valueStart) }
       }
@@ -228,10 +228,14 @@ export default Plugin.define({
     const onInt = onSignal(130)
     const onTerm = onSignal(143)
     const onHup = onSignal(129)
+    const onQuit = onSignal(131)
+    const onBreak = onSignal(0x80000000)
     process.once("exit", onExit)
     process.once("SIGINT", onInt)
     process.once("SIGTERM", onTerm)
     process.once("SIGHUP", onHup)
+    process.once("SIGQUIT", onQuit)
+    process.once("SIGBREAK", onBreak)
 
     void refresh()
     const timer = setInterval(() => void refresh(), 250)
@@ -242,6 +246,8 @@ export default Plugin.define({
       process.off("SIGINT", onInt)
       process.off("SIGTERM", onTerm)
       process.off("SIGHUP", onHup)
+      process.off("SIGQUIT", onQuit)
+      process.off("SIGBREAK", onBreak)
     }
   },
 })
