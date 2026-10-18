@@ -141,6 +141,19 @@ test("credential and environment dumps stay blocked even when outbound access is
   expect(RoomRules.commandLeaksCredentials("echo hello")).toBe(false)
 })
 
+test("authoritative room policy denies protected data and asks for program use", () => {
+  expect(RoomRules.policy({ noOutbound: true }, { action: "webfetch", resources: ["*"] }))
+    .toMatchObject({ effect: "deny" })
+  expect(RoomRules.policy({ noOutbound: false, protectedFiles: [".env*"] }, {
+    action: "shell",
+    resources: ["cat .env.local"],
+  })).toMatchObject({ effect: "deny" })
+  expect(RoomRules.policy({ noOutbound: false, blockCommands: ["git push*"] }, {
+    action: "shell",
+    resources: ["git push origin main"],
+  })).toMatchObject({ effect: "ask", message: "Room rules require host approval to use: git.", save: [] })
+})
+
 
 test("describe states only the rules that are set", () => {
   expect(RoomRules.describe({})).toContain("Credential and secret files")
