@@ -184,18 +184,14 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         // Lexical containment is not enough: a symlink inside the project can point outside it.
         // Resolve each target, or its nearest existing ancestor, before live() scans plot folders.
-        const canonicalPaths = yield* Effect.tryPromise({
-          try: () => Promise.all(paths.map((item) => canonicalInside(directory, item))),
-          catch: () => [],
-        })
+        const canonicalPaths = yield* Effect.promise(() =>
+          Promise.all(paths.map((item) => canonicalInside(directory, item))).catch(() => []),
+        )
         if (canonicalPaths.length !== paths.length || canonicalPaths.some((item) => item === undefined))
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
         const safePaths = canonicalPaths as string[]
         const storage = path.join(directory, FOLDER)
-        const safeStorage = yield* Effect.tryPromise({
-          try: () => pathsInside(directory, [storage]),
-          catch: () => false,
-        })
+        const safeStorage = yield* Effect.promise(() => pathsInside(directory, [storage]).catch(() => false))
         if (!safeStorage)
           return yield* new TakenError({ message: "Plot storage must stay inside the project directory." })
         const others = yield* live(safePaths, directory)
@@ -256,10 +252,9 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
           return relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)
         })
         const canonicalFiles = !outside
-          ? yield* Effect.tryPromise({
-              try: () => Promise.all(files.map((file) => canonicalInside(directory, file))),
-              catch: () => [],
-            })
+          ? yield* Effect.promise(() =>
+              Promise.all(files.map((file) => canonicalInside(directory, file))).catch(() => []),
+            )
           : []
         if (canonicalFiles.length !== files.length || canonicalFiles.some((file) => file === undefined))
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
