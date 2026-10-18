@@ -202,6 +202,11 @@ export const SECRET_FILE_PATTERNS: readonly string[] = [
   "**/.codex/auth.json",
   "**/.config/codex/**",
   "**/.git-credentials",
+  "**/.git/config",
+  "**/.bash_history",
+  "**/.zsh_history",
+  "**/.python_history",
+  "**/.config/fish/fish_history",
   "**/.netrc",
   "**/.npmrc",
   "**/.pypirc",
@@ -245,6 +250,8 @@ export function commandLeaksCredentials(command: string) {
     /\b(env|printenv)\b/i.test(command) ||
     /(?:^|[;&|()\s])set(?:\s|$)/i.test(command) ||
     /\b(?:get-childitem|gci)\s+env:/i.test(command) ||
+    /\bpython(?:3)?\b.*(?:os\.environb?|os\.getenv|environ\s*\[|printenv)/is.test(command) ||
+    /\bnode\b.*(?:process\.env|Object\.keys\s*\(\s*process\.env)/is.test(command) ||
     /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(command) ||
     /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i.test(command)
   )
