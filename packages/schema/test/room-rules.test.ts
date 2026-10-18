@@ -115,6 +115,9 @@ test("outbound access is denied by default whenever room rules are active", () =
 })
 
 test("room policy fails closed for unknown tools and MCP transport metadata", () => {
+  expect(RoomRules.isLocalOnlyAction("read")).toBe(true)
+  expect(RoomRules.isLocalOnlyAction("webfetch")).toBe(false)
+  expect(RoomRules.isLocalOnlyAction("custom_upload")).toBe(false)
   const rules: RoomRules.Rules = { noOutbound: true }
   expect(RoomRules.policy(rules, { action: "read", resources: [] })).toBeUndefined()
   expect(RoomRules.policy(rules, { action: "custom_upload", resources: [] })).toMatchObject({
