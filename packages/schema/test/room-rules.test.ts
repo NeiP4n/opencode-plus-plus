@@ -65,6 +65,10 @@ test("redacting a path covers slash styles and Windows casing", () => {
   expect(RoomRules.redactPath("C:\\Users\\me\\app", "C:\\Users\\me\\app")).toBe("<project>")
   expect(RoomRules.redactPath("opened C:/Users/me/app/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
   expect(RoomRules.redactPath("opened c:/USERS/ME/APP/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
+  expect(RoomRules.redactPath("opened /Users/me/app/src", "/Users/me/app")).toBe("opened <project>/src")
+  expect(RoomRules.redactPath("opened /Users/me/App/src", "/Users/me/app")).toBe("opened /Users/me/App/src")
+  expect(RoomRules.redactPath("opened /Users/me/application/src", "/Users/me/app")).toBe("opened /Users/me/application/src")
+  expect(RoomRules.redactPath("opened C:\\work\\application\\src", "C:\\work\\app")).toBe("opened C:\\work\\application\\src")
 })
 
 test("a session in several rooms gets the strictest rules", () => {
