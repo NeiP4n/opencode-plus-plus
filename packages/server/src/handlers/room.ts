@@ -1039,9 +1039,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.model.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
+          const session = yield* sessions.get(joined.room.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           const data = yield* atRoom(joined.room, Model.Service.use((models) => models.available()))
-          const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
@@ -1049,9 +1050,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.agent.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
+          const session = yield* sessions.get(joined.room.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           const data = yield* atRoom(joined.room, Agent.Service.use((agents) => agents.list()))
-          const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
@@ -1059,13 +1061,14 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.mcp.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
+          const session = yield* sessions.get(joined.room.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           const servers = yield* atRoom(
             joined.room,
             Mcp.Service.use((mcp) => mcp.servers()),
           )
           const data = servers.map((server) => ({ name: server.name, status: server.status.status }))
-          const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
@@ -1073,9 +1076,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.command.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
+          const session = yield* sessions.get(joined.room.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
           const data = yield* atRoom(joined.room, Command.Service.use((commands) => commands.list()))
-          const directory = yield* roomDirectory(joined.room)
-          const rules = yield* rulesForRoom(joined.room, directory)
+          const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* rulesForRoom(joined.room, session.location.directory)
           return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
