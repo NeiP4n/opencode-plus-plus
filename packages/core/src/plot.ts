@@ -186,7 +186,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         // Resolve each target, or its nearest existing ancestor, before live() scans plot folders.
         const canonicalPaths = yield* Effect.tryPromise({
           try: () => Promise.all(paths.map((item) => canonicalInside(directory, item))),
-          catch: () => [],
+          catch: () => new TakenError({ message: "Plot paths must stay inside the project directory." }),
         })
         if (canonicalPaths.length !== paths.length || canonicalPaths.some((item) => item === undefined))
           return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
@@ -194,7 +194,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         const storage = path.join(directory, FOLDER)
         const safeStorage = yield* Effect.tryPromise({
           try: () => pathsInside(directory, [storage]),
-          catch: () => false,
+          catch: () => new TakenError({ message: "Plot storage must stay inside the project directory." }),
         })
         if (!safeStorage)
           return yield* new TakenError({ message: "Plot storage must stay inside the project directory." })
@@ -224,8 +224,8 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         const folder = path.join(directory, FOLDER)
         const safeStorage = yield* Effect.tryPromise({
           try: () => pathsInside(directory, [folder]),
-          catch: () => false,
-        })
+          catch: () => new Error("Unable to verify plot storage path."),
+        }).pipe(Effect.catchAll(() => Effect.succeed(false)))
         if (!safeStorage) return 0
         const plots = (yield* read(folder)).map((entry) => entry.plot)
         const mine = yield* Effect.filter(plots, (plot) =>
@@ -258,7 +258,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         const canonicalFiles = !outside
           ? yield* Effect.tryPromise({
               try: () => Promise.all(files.map((file) => canonicalInside(directory, file))),
-              catch: () => [],
+              catch: () => new TakenError({ message: "Plot paths must stay inside the project directory." }),
             })
           : []
         if (canonicalFiles.length !== files.length || canonicalFiles.some((file) => file === undefined))
