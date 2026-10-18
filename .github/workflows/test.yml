@@ -12,7 +12,7 @@ on:
 concurrency:
   # Keep every run on dev so cancelled checks do not pollute the default branch
   # commit history. PRs and other branches still share a group and cancel stale runs.
-  group: ${{ case(github.ref == 'refs/heads/dev', format('{0}-{1}', github.workflow, github.run_id), format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref)) }}
+  group: ${{ format('{0}-{1}', github.workflow, (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/lan-rooms') && github.run_id || github.event.pull_request.number || github.ref) }}
   cancel-in-progress: ${{ github.ref_name != 'lan-rooms' && github.base_ref != 'lan-rooms' }}
 
 permissions:
