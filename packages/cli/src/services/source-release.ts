@@ -166,19 +166,19 @@ export async function follow(root = checkout) {
 }
 
 async function runBun(args: string[], root: string, timeout: number) {
-  // The Bun shell Command API in some bundled runtimes does not implement .timeout().
-  // Bun.spawn supports a timeout option and keeps the updater from hanging indefinitely.
+  // Avoid Bun shell Command.timeout(): it is missing in some packaged runtimes and
+  // makes the updater fail before it can replace itself with a newer checkout.
   const child = Bun.spawn([process.execPath, ...args], {
     cwd: root,
     stdout: "pipe",
     stderr: "pipe",
     timeout,
+    killSignal: "SIGTERM",
   })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ])
+  const stdoutPromise = new Response(child.stdout).text()
+  const stderrPromise = new Response(child.stderr).text()
+  const exitCode = await child.exited
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise])
   return { stdout, stderr, exitCode }
 }
 
