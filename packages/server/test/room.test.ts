@@ -757,6 +757,47 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     })
     expect((yield* Fiber.join(otherPending)).body.output).toContain("other-member")
 
+    // Tightening room rules while a command is awaiting approval must apply before execution.
+    const dynamicCommand = "echo should-not-run > dynamic-rule"
+    const dynamicPending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: otherGuest,
+      body: { command: dynamicCommand },
+    }).pipe(Effect.forkScoped)
+    const dynamicRequest = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) =>
+          item.action === "room.program" &&
+          item.metadata?.guest === "Other Phone" &&
+          item.metadata?.command === dynamicCommand,
+        ),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("5 seconds"),
+      Effect.map((requests) => requests.find((item) =>
+        item.action === "room.program" &&
+        item.metadata?.guest === "Other Phone" &&
+        item.metadata?.command === dynamicCommand,
+      )!),
+    )
+    yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { blockCommands: ["echo*"], protectedFiles: ["dynamic-rule"] } },
+    })
+    yield* call(`/api/session/${session.id}/permission/${dynamicRequest.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+    expect((yield* Fiber.join(dynamicPending)).status).toBe(403)
+    expect(yield* Effect.promise(() => Bun.file(path.join(directory, "dynamic-rule")).exists())).toBe(false)
+
     yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
       method: "PATCH",
       headers: host,
