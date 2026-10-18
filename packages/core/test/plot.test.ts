@@ -141,6 +141,16 @@ describe("Plot", () => {
           }),
         ),
       ).toContain("must stay inside the project directory")
+      expect(
+        yield* refusal(
+          plots.claim({ sessionID: session.id, directory, paths: [], purpose: "empty" }),
+        ),
+      ).toContain("between 1 and 128")
+      expect(
+        yield* refusal(
+          plots.claim({ sessionID: session.id, directory, paths: Array.from({ length: 129 }, () => "src"), purpose: "too many" }),
+        ),
+      ).toContain("between 1 and 128")
       expect(yield* plots.list(directory)).toEqual([])
     }).pipe(Effect.scoped),
   )
