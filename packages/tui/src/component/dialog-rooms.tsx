@@ -1344,6 +1344,7 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
   const [rooms, { refetch }] = createResource(() => client.api.room.list())
   const room = () => (rooms.error ? undefined : rooms.latest)?.find((item) => item.id === props.roomID)
   const rules = () => room()?.rules ?? {}
+  const noOutbound = () => rules().noOutbound !== false
   const list = (value: string) =>
     value
       .split(",")
@@ -1436,14 +1437,14 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
         </Setting>
         <Section title={t("Command & file restrictions")} />
         <Setting
-          label={t("Forbidden commands")}
-          help={t("Comma-separated. A command that starts with one, or contains it, does not run. * matches any text.")}
+          label={t("Commands requiring approval")}
+          help={t("Comma-separated patterns. A match asks the host for approval to use that program; Always allow is saved for that room member only. * matches any text.")}
         >
           {field("blockCommands", "rm -rf, git push*, curl")}
         </Setting>
         <Setting
           label={t("Off-limits files")}
-          help={t("Comma-separated names or folders the AI may not read or edit, for example .env*, secrets/*.")}
+          help={t("Comma-separated file/folder patterns. .env, SSH/cloud auth, OpenCode/Claude/Codex tokens, API credentials and private keys are protected automatically too.")}
         >
           {field("protectedFiles", ".env*, secrets/*")}
         </Setting>
