@@ -19,12 +19,9 @@ export function blocksOutboundTool(tool: string, action?: string, namespaced = f
       resources: [],
       metadata,
     })?.effect === "deny"
-  // Fail closed: a plugin tool that never calls Permission.assert must not become an egress bypass.
   return denied(tool) || (!!action && denied(action))
 }
 
-// Applies a room's rules to the host's own AI. The server applies them to guests' commands and to
-// what guests see; this covers the sessions the room shares, subagents included, wherever they run.
 export const Plugin = define({
   id: "opencode.room-rules",
   effect: Effect.fn(function* (ctx) {
@@ -81,5 +78,5 @@ export const Plugin = define({
         if (text) event.system.push({ type: "text", text: `# Room rules\nThe host set these rules for this room; they cannot be lifted from inside it.\n${text}` })
       }),
     )
-  }),
+  }).pipe(Effect.orDie),
 })
