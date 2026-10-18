@@ -1090,6 +1090,21 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           currentSession = yield* inRoom(currentJoin.room, currentSession.id)
           rules = yield* effectiveRules(currentJoin.room, currentSession.location.directory)
           directories = [currentJoin.room.directory ?? "", currentSession.location.directory].filter(Boolean)
+          // If privacy or security tightened while the process ran, withhold its output too.
+          if (
+            rules?.denyGuestCommands ||
+            rules?.noOutbound ||
+            RoomRules.commandLeaksCredentials(command) ||
+            RoomRules.protectedFileInCommand(rules, command)
+          )
+            return yield* new ForbiddenError({ message: "Room rules changed while the command was running; output was withheld" })
+          const afterBlock = RoomRules.blockedCommand(rules, command)
+          if (afterBlock && currentJoin.member.role !== "trusted") {
+            const afterPrograms = RoomRules.programsRequiringApproval(rules, command)
+            const grants = new Set([...(currentJoin.member.approvedPrograms ?? []), ...authorizedPrograms])
+            if (!afterPrograms.length || afterPrograms.some((program) => !grants.has(program)))
+              return yield* new ForbiddenError({ message: "Room command rules changed during execution; output was withheld" })
+          }
           const visibleResult = rules?.hidePaths
             ? { ...result, output: redactRoomValue(result.output, directories) }
             : result
@@ -1150,7 +1165,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             if (!id) return yield* new InvalidRequestError({ message: "Name the item to give back", field: "id" })
             // Release first: it refuses an item the guest does not hold, and the handover is only the holder's to write.
             const dod = yield* Dod.release({ directory, id, owner }).pipe(Effect.mapError(dodError))
-            if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
+            if (ctx.payload.handover?.trim()) yield* writeHandover(currentJoin.room, id, owner.name, ctx.payload.handover)
             yield* freeDodPlots(directory, id)
             record("release", id)
             const visible = rules?.hideExecution ? hideDodExecution(dod) : dod
@@ -1287,8 +1302,20 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (afterCommand !== command)
             return yield* new ForbiddenError({ message: "The assigned check changed while it was running; its result was discarded" })
           rules = yield* effectiveRules(currentJoin.room, directory)
-          if (rules?.denyGuestCommands || rules?.noOutbound || RoomRules.commandLeaksCredentials(command) || RoomRules.protectedFileInCommand(rules, command))
+          if (
+            rules?.denyGuestCommands ||
+            rules?.noOutbound ||
+            RoomRules.commandLeaksCredentials(command) ||
+            RoomRules.protectedFileInCommand(rules, command)
+          )
             return yield* new ForbiddenError({ message: "Room rules changed while the check was running; its result was discarded" })
+          const afterBlock = RoomRules.blockedCommand(rules, command)
+          if (afterBlock && currentJoin.member.role !== "trusted") {
+            const afterPrograms = RoomRules.programsRequiringApproval(rules, command)
+            const grants = new Set([...(currentJoin.member.approvedPrograms ?? []), ...authorizedPrograms])
+            if (!afterPrograms.length || afterPrograms.some((program) => !grants.has(program)))
+              return yield* new ForbiddenError({ message: "Room command rules changed during the check; its result was discarded" })
+          }
           const output = rules?.hidePaths
             ? RoomRules.redactPath(result.output, directory)
             : result.output
@@ -1310,8 +1337,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           })
           const safeDod = rules?.hideExecution ? hideDodExecution(dod) : dod
           const response = rules?.hideExecution
-            ? forGuest(safeDod, joined.member)
-            : { ...forGuest(safeDod, joined.member), check: { exitCode: result.exitCode, output } }
+            ? forGuest(safeDod, currentJoin.member)
+            : { ...forGuest(safeDod, currentJoin.member), check: { exitCode: result.exitCode, output } }
           return RoomRules.sanitizeScreenshots(response, !!rules?.hideScreenshots)
         }),
       )
