@@ -38,17 +38,17 @@
     "typecheck:dist": "bun run build && bun typecheck --project tsconfig.dist.json"
   },
   "dependencies": {
-    "@effect/opentelemetry": "catalog:",
-    "@effect/platform-node": "catalog:",
-    "@effect/platform-node-shared": "catalog:",
-    "@npmcli/arborist": "catalog:",
+    "@effect/opentelemetry": "4.0.0-rc.112",
+    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/platform-node-shared": "4.0.0-rc.112",
+    "@npmcli/arborist": "9.4.0",
     "@npmcli/config": "10.8.1",
     "@opentelemetry/api": "1.9.0",
     "@opentelemetry/api-logs": "0.219.0",
     "@opentelemetry/context-async-hooks": "2.8.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.219.0",
     "@opentelemetry/resources": "2.8.0",
-    "@opentelemetry/sdk-logs": "0.219.0",
+    "@opentelemetry/sdk-logs": "2.8.0",
     "@opentelemetry/sdk-metrics": "2.8.0",
     "@opentelemetry/sdk-trace-base": "2.8.0",
     "@opentelemetry/sdk-trace-node": "2.8.0",
@@ -69,6 +69,7 @@
     "@types/npm-package-arg": "6.1.4",
     "@types/npmcli__arborist": "6.3.3",
     "@types/pacote": "11.1.8",
+    "@types/mime-types": "2.1.4",
     "@typescript/native-preview": "catalog:"
   }
 }
