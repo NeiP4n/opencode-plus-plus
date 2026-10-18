@@ -300,8 +300,8 @@ const layer: Layer.Layer<Service, never, KV.Service | Orchestra.Service | Sessio
           if (!allGroups.some((group) => group.supervisor)) return
           const allProjects = yield* orchestra.projects()
           const owners = yield* orchestra.owners()
-          const mainProject = allProjects.find((item) => item.main === event.sessionID)
-          const projectID = owners[event.sessionID] ?? mainProject?.id
+          const mainProject = allProjects.find((item) => item.main === event.data.sessionID)
+          const projectID = owners[event.data.sessionID] ?? mainProject?.id
           if (!projectID) return
           const interested = allGroups.filter((group) => group.supervisor && group.projects.includes(projectID))
           if (interested.length === 0) return

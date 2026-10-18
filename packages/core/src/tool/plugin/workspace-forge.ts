@@ -292,7 +292,7 @@ export const Plugin = {
               }
             }
             }).pipe(
-              Effect.map((result) => ({ output: result.output, content: result.output })),
+              Effect.map((result) => ({ output: result, content: result.output })),
               Effect.mapError((error) =>
                 error instanceof ToolFailure
                   ? error
