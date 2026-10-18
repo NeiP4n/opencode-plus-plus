@@ -98,6 +98,14 @@ test("hard room policy blocks outbound actions, arbitrary MCP tools, commands an
   })).toContain("send anything out")
   expect(RoomRules.violation(restricted, { action: "read", resources: [".env.local"] })).toContain("off limits")
   expect(RoomRules.violation(restricted, { action: "read", resources: ["src/index.ts"] })).toBeUndefined()
+  expect(RoomRules.violation({ protectedFiles: [".env*"] }, {
+    action: "shell",
+    resources: ["cat .env.local"],
+  })).toContain("off limits")
+  expect(RoomRules.violation({ protectedFiles: ["secrets/*"] }, {
+    action: "edit",
+    resources: ["secrets/key.pem"],
+  })).toContain("off limits")
   expect(RoomRules.violation({ blockCommands: ["git push*"] }, {
     action: "shell",
     resources: ["git push origin main"],
