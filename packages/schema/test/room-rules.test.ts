@@ -18,6 +18,15 @@ test("blocked wildcard patterns cannot be hidden inside shell wrappers", () => {
   expect(RoomRules.blockedCommand(rules, 'sh -c "echo hi; curl https://example.test"')).toBe("curl")
 })
 
+test("room command policy covers shell and Registry hub actions", () => {
+  expect(RoomRules.commandActions).toEqual(["shell", "hub"])
+  expect(RoomRules.outbound).toContain("hub")
+  expect(RoomRules.blockedCommandForAction(rules, "shell", ["git status"])).toBeUndefined()
+  expect(RoomRules.blockedCommandForAction(rules, "hub", ["echo ok", "curl https://example.com"])).toBe("curl")
+  expect(RoomRules.blockedCommandForAction(rules, "hub", ["git push origin main"])).toBe("git push*")
+  expect(RoomRules.blockedCommandForAction(rules, "read", ["curl https://example.com"])).toBeUndefined()
+})
+
 test("a pattern without a wildcard also catches the command inside a wrapper", () => {
   expect(RoomRules.blockedCommand(rules, 'bash -c "rm -rf build"')).toBe("rm -rf")
 })
