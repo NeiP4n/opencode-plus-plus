@@ -108,13 +108,13 @@ export function protectedFile(rules: Rules | undefined, file: string) {
 
 // Also guard file paths passed as shell arguments (including quoted paths and --option=path).
 export function commandTouchesProtectedFile(rules: Rules | undefined, command: string) {
-  const tokens = command.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) ?? []
-  return tokens.some((raw) => {
-    const token = raw.replace(/^['"]|['"]$/g, "").replace(/[;,|(){}]+$/g, "")
-    const candidates = [token]
-    const equals = token.indexOf("=")
-    if (equals >= 0) candidates.push(token.slice(equals + 1).replace(/^['"]|['"]$/g, ""))
-    return candidates.some((candidate) => protectedFile(rules, candidate) !== undefined)
+  const normal = command.replaceAll("\\", "/")
+  return (rules?.protectedFiles ?? []).some((raw) => {
+    const pattern = raw.trim().replaceAll("\\", "/")
+    if (!pattern) return false
+    // Check path-like substrings too: a filename can be embedded inside a quoted script
+    // argument (for example python -c 'open(".env").read()').
+    return glob(pattern, "(^|/)").test(normal) || (!pattern.includes("/") && glob(pattern, "").test(normal))
   })
 }
 
@@ -150,6 +150,9 @@ export function redactPaths<T>(value: T, directory: string): T {
   if (typeof value === "string") return redactPath(value, directory) as T
   if (Array.isArray(value)) return value.map((item) => redactPaths(item, directory)) as T
   if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value)
+    // Preserve Date/DateTime and other non-DTO values; API payloads are plain objects.
+    if (prototype !== Object.prototype && prototype !== null) return value
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, redactPaths(item, directory)]),
     ) as T
