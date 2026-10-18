@@ -275,7 +275,6 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       member: Room.Member
       session: Session.Info
       command: string
-      fallbackAction: "room.run" | "room.check"
       metadata?: Record<string, unknown>
     }) {
       if (RoomRules.commandTouchesProtectedFile(input.room.rules, input.command))
@@ -331,12 +330,18 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         const executable = RoomRules.programName(input.command)
         yield* Permission.Service.use((permission) =>
           permission.confirm({
-            action: input.fallbackAction,
-            resources: [input.command],
+            action: "room.program",
+            resources: [executable ?? input.command],
             // "Always allow" is a member-scoped grant for the executable, never the exact command
             // and never a project-wide saved permission.
             save: executable ? [executable] : [],
-            metadata: { ...input.metadata, guest: input.member.name, command: input.command, program: executable },
+            metadata: {
+              ...input.metadata,
+              guest: input.member.name,
+              command: input.command,
+              program: executable,
+              scope: "this room member only",
+            },
             sessionID: input.session.id,
             force: true,
             onAlways: executable
@@ -356,9 +361,41 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           instances.provide(input.session),
           locationErrors,
           Effect.catchTag("LocationNotFoundError", Effect.die),
-          Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this command" })),
+          Effect.mapError(() => new ForbiddenError({ message: "The host did not allow use of this program" })),
         )
       }
+    })
+
+    // Re-check current room policy after a permission wait. A host may tighten rules or
+    // demote a member while the prompt is open; an old approval must not bypass the new policy.
+    const assertCurrentRoomCommand = Effect.fnUntraced(function* (input: {
+      roomID: Room.ID
+      memberID: string
+      command: string
+      minimumRole: "member" | "cohost"
+      initiallyRequiredPrograms: ReadonlyArray<string>
+    }) {
+      const found = yield* rooms.get(input.roomID).pipe(Effect.option)
+      if (Option.isNone(found)) return yield* new ForbiddenError({ message: "This room is no longer available" })
+      const room = found.value
+      if (RoomRules.commandTouchesProtectedFile(room.rules, input.command))
+        return yield* new ForbiddenError({ message: "This room keeps that file off limits to the AI" })
+      if (room.rules?.noOutbound !== false && RoomRules.commandSendsOutbound(input.command))
+        return yield* new ForbiddenError({ message: "This room forbids commands that send data outside" })
+
+      const member = yield* rooms.member(room.id, input.memberID)
+      if (!member || RANK[member.role] < RANK[input.minimumRole])
+        return yield* new ForbiddenError({ message: "The host changed this member's role while the command was awaiting approval" })
+      if (member.role === "trusted") return
+
+      const approved = new Set(member.approvedPrograms ?? [])
+      const newlyRequired = RoomRules.programsRequiringApproval(room.rules, input.command).filter(
+        (program) => !input.initiallyRequiredPrograms.includes(program) && !approved.has(program),
+      )
+      if (newlyRequired.length > 0)
+        return yield* new ForbiddenError({
+          message: "Room rules changed and now require approval for " + newlyRequired.join(", ") + ". Run the command again to request approval.",
+        })
     })
 
     // A member keeps a DoD item while it stays in some room on this server and was heard
@@ -825,13 +862,20 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
           const command = ctx.payload.command.trim()
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
+          const initiallyRequiredPrograms = RoomRules.programsRequiringApproval(joined.room.rules, command)
           yield* confirmRoomCommand({
             room: joined.room,
             member: joined.member,
             session,
             command,
-            fallbackAction: "room.run",
             metadata: { operation: "room.run" },
+          })
+          yield* assertCurrentRoomCommand({
+            roomID: joined.room.id,
+            memberID: joined.member.id,
+            command,
+            minimumRole: "cohost",
+            initiallyRequiredPrograms,
           })
           codes.record(joined.room.id, { kind: "run", who: joined.member.name, detail: command })
           const result = yield* Effect.tryPromise({
@@ -940,13 +984,20 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
           const session = yield* inRoom(joined.room, undefined)
+          const initiallyRequiredPrograms = RoomRules.programsRequiringApproval(joined.room.rules, command)
           yield* confirmRoomCommand({
             room: joined.room,
             member: joined.member,
             session,
             command,
-            fallbackAction: "room.check",
             metadata: { operation: "room.check", item: id },
+          })
+          yield* assertCurrentRoomCommand({
+            roomID: joined.room.id,
+            memberID: joined.member.id,
+            command,
+            minimumRole: "member",
+            initiallyRequiredPrograms,
           })
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           const result = yield* Effect.tryPromise({
