@@ -503,8 +503,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new UnauthorizedError({
               message: code ? "Join code is wrong or expired" : "This room needs the join code its host shows",
             })
-          const hostSession = yield* sessions.get(room.sessionID).pipe(Effect.catchTag("Session.NotFoundError", missingSession))
-          const roomPath = room.directory ?? hostSession.location.directory
+          const hostSession = Option.getOrUndefined(yield* sessions.get(room.sessionID).pipe(Effect.option))
+          const roomPath = room.directory ?? hostSession?.location.directory
+          if (!roomPath)
+            return yield* new UnauthorizedError({ message: "This room's session is unavailable" })
           const device = ctx.payload.device?.trim() || undefined
           if (Room.banned(yield* rooms.bans(room.id), { device, address }))
             return yield* new UnauthorizedError({ message: "The host banned you from this room" })
@@ -961,7 +963,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.feed",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          const directory = yield* roomDirectory(joined.room)
+          const directory = yield* roomDirectory(joined.room).pipe(
+            Effect.catchTag("Session.NotFoundError", () =>
+              Effect.fail(new RoomNotFoundError({ roomID: joined.room.id })),
+            ),
+          )
           return redactForGuest(joined.room, directory, yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait))
         }),
       )
