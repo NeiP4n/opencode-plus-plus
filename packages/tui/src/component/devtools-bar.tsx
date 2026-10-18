@@ -566,7 +566,25 @@ export function DevToolsBar() {
                     ),
                   set: (id, config) => client.api.config.update({ mcpServers: { [id]: config } }),
                 }}
-                plugins={plugins}
+                plugins={{
+                  registered: plugins.registered,
+                  list: plugins.list,
+                  // Persist manual toggles as the final config directive. A runtime-only
+                  // deactivate is undone by the next plugin reconciliation, which defaults
+                  // built-ins to enabled.
+                  activate: async (id) => {
+                    const current = config.data.plugins ?? []
+                    const next = current.filter((entry) => entry !== `-${id}` && entry !== id)
+                    await client.api.config.update({ plugins: [...next, id] })
+                    return true
+                  },
+                  deactivate: async (id) => {
+                    const current = config.data.plugins ?? []
+                    const next = current.filter((entry) => entry !== `-${id}` && entry !== id)
+                    await client.api.config.update({ plugins: [...next, `-${id}`] })
+                    return true
+                  },
+                }}
               />
             ),
             undefined,
