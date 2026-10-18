@@ -28,12 +28,12 @@ function lazy(id: string, load: Loader): Plugin.Definition {
 
 export const builtins = [
   lazy("opencode.home.footer", () => import("../feature-plugins/home/footer")),
-  lazy("opencode.prompt.footer", () => import("../feature-plugins/prompt/footer")),
   lazy("opencode.btw", () => import("../feature-plugins/prompt/btw")),
+  lazy("opencode.prompt.footer", () => import("../feature-plugins/prompt/footer")),
   lazy("opencode.mascot", () => import("../feature-plugins/prompt/mascot")),
   lazy("opencode.sidebar.context", () => import("../feature-plugins/sidebar/context")),
-  lazy("opencode.sidebar.footer", () => import("../feature-plugins/sidebar/footer")),
   lazy("opencode.sidebar.mcp", () => import("../feature-plugins/sidebar/mcp")),
+  lazy("opencode.sidebar.footer", () => import("../feature-plugins/sidebar/footer")),
   lazy("opencode.notifications", () => import("../feature-plugins/system/notifications")),
   lazy("opencode.plugins", () => import("../feature-plugins/system/plugins")),
   lazy("opencode.warp", () => import("../feature-plugins/system/warp")),
