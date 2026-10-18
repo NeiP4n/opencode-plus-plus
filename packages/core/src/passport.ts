@@ -109,10 +109,10 @@ async function readTail(stream: ReadableStream<Uint8Array>, limit: number) {
 
 // The output goes back to a guest, so the host's keys and tokens stay out of the command's environment.
 const SECRET =
-  /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|DATABASE|DB_URL|DSN|CONNECTION_STRING|REDIS_URL|MONGO_URL|MYSQL|POSTGRES|SIGNING|ENCRYPTION|CERTIFICATE|BEARER/i
+  /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE|DATABASE|DB_URL|DSN|CONNECTION_STRING|REDIS_URL|MONGO_URL|MYSQL|POSTGRES|SIGNING|ENCRYPTION|CERTIFICATE|BEARER|PROXY|KUBECONFIG|DOCKER_CONFIG|DOCKER_HOST|GIT_CONFIG|ASKPASS|NETRC|CURL_HOME|GPG_AGENT|SSH_AGENT|AWS_PROFILE|AZURE_CONFIG|NPM_CONFIG|YARN_NPM|PIP_INDEX|BOTO_CONFIG|BOTO_PATH|XDG_CONFIG_HOME/i
 
-function guestEnv() {
-  return Object.fromEntries(Object.entries(process.env).filter(([name]) => !SECRET.test(name)))
+export function guestEnv(env: NodeJS.ProcessEnv = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !SECRET.test(name)))
 }
 
 // Branch, commit and how many files are changed; absent outside a git checkout.
