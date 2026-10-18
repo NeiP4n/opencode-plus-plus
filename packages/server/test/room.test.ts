@@ -785,7 +785,7 @@ it.live("hidePaths redacts the host directory from trusted guest command output"
       yield* call("/api/room", {
         method: "POST",
         headers: host,
-        body: { sessionID: session.id, rules: { hidePaths: true } },
+        body: { sessionID: session.id, directory, rules: { hidePaths: true } },
       })
     ).body.data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
@@ -796,6 +796,12 @@ it.live("hidePaths redacts the host directory from trusted guest command output"
       headers: host,
       body: { role: "trusted" },
     })
+
+    const view = yield* call(`/api/room/${room.id}/guest`, { headers: guest })
+    expect(view.body.room.directory).toBe("<project>")
+    expect(view.body.session.location.directory).toBe("<project>")
+    const sessions = yield* call(`/api/room/${room.id}/guest/session`, { headers: guest })
+    expect(JSON.stringify(sessions.body)).not.toContain(directory)
 
     const result = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
