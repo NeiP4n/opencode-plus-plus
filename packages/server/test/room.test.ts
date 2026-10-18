@@ -538,9 +538,7 @@ it.live("hideExecution removes command details from guest-visible room feed", ()
     expect(run.status).toBe(200)
     expect(run.body.output).toContain("command-hidden-from-feed")
     const feed = yield* call(`/api/room/${room.id}/guest/feed`, { headers: guestHeaders })
-    const event = feed.body.events.find((item: { kind: string }) => item.kind === "run")
-    expect(event).toBeDefined()
-    expect(event.detail).toBeUndefined()
+    expect(feed.body.events.some((item: { kind: string }) => ["run", "pass", "fail"].includes(item.kind))).toBe(false)
   }).pipe(Effect.scoped),
 )
 
