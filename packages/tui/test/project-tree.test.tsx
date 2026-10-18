@@ -231,7 +231,7 @@ test("opening project settings from the gear stays open after the mouse is relea
   const gear = cell(hovered, "⚙")
   await setup.mockMouse.click(gear.x, gear.y)
 
-  const dialog = await setup.waitForFrame((frame) => frame.includes("Edit project") && frame.includes("Path"))
+  await setup.waitForFrame((frame) => frame.includes("Edit project") && frame.includes("Path"))
   await setup.renderOnce()
   expect(setup.captureCharFrame()).toContain("Edit project")
 })
