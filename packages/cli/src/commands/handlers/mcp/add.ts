@@ -1,6 +1,6 @@
 import { EOL } from "node:os"
 import path from "node:path"
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, stat, writeFile, unlink } from "node:fs/promises"
 import { Effect, Option } from "effect"
 import { applyEdits, modify } from "jsonc-parser"
 import { Global } from "@opencode/util/global"
@@ -84,6 +84,11 @@ async function write(configPath: string, name: string, server: unknown) {
   const updated = applyEdits(text, edits)
   await mkdir(path.dirname(configPath), { recursive: true })
   const temporary = `${configPath}.${process.pid}.tmp`
-  await writeFile(temporary, updated.endsWith("\n") ? updated : updated + "\n", { mode: 0o600 })
-  await rename(temporary, configPath)
+  try {
+    await writeFile(temporary, updated.endsWith("\n") ? updated : updated + "\n", { mode: 0o600 })
+    await rename(temporary, configPath)
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined)
+    throw error
+  }
 }
