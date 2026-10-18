@@ -12,7 +12,8 @@ export const Rules = Schema.Struct({
   hideExecution: Schema.Boolean.pipe(Schema.optional),
   // Commands nobody runs in the room, by the host's AI, guests' commands or checks.
   blockCommands: Schema.Array(Schema.String).pipe(Schema.optional),
-  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`).
+  // Files the room's AI may not read or edit (patterns such as `.env*` or `secrets/*`);
+  // direct shell references are checked too, but indirect access still needs OS sandboxing.
   protectedFiles: Schema.Array(Schema.String).pipe(Schema.optional),
   // The room's AI cannot send anything out: no web requests, no messages to other computers or projects.
   noOutbound: Schema.Boolean.pipe(Schema.optional),
@@ -56,17 +57,23 @@ export const outbound: readonly string[] = [
 // A glob where `*` is any text and `?` one character, case-insensitive.
 function glob(pattern: string, before: string, after = "") {
   const body = pattern
-    .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
     .replaceAll("*", ".*")
     .replaceAll("?", ".")
   return new RegExp(before + body + after, "i")
 }
 
-// The parts of a command line that each start a command. Wrapping a command in `bash -c`
-// is not unpicked; patterns are also checked against the complete command string.
+// The parts of a command line that each start a command. Wrapping a command in bash -c
+// or a subshell is not unpicked: policy checks must inspect nested commands too.
 function segments(command: string) {
-  return command
-    .split(/&&|\|\||[;|\n]/)
+  // Shell commands can be nested in substitutions, quoted wrappers, subshells,
+  // redirections and background jobs. This is deliberately conservative: policy
+  // matching may reject a harmless command containing a blocked invocation, but
+  // must not silently permit common shell wrappers.
+  // POSIX backslash escapes the next character; backslash-newline joins physical lines.
+  const normalized = command.replace(/\\\r?\n/g, "").replace(/\\(.)/gs, "$1")
+  return normalized
+    .split(/[;&|()\n\r\t\x60<>$"'\\]+/)
     .map((part) => part.trim())
     .filter(Boolean)
 }
@@ -75,9 +82,15 @@ export function blockedCommand(rules: Rules | undefined, command: string) {
   return (rules?.blockCommands ?? []).find((raw) => {
     const pattern = raw.trim()
     if (!pattern) return false
-    if (glob(pattern, "").test(command)) return true
     const start = glob(pattern, "^")
-    return segments(command).some((part) => start.test(part))
+    const candidates = segments(command).flatMap((part) => {
+      const words = part.split(/\s+/).filter(Boolean)
+      // Try every word boundary so wrappers such as sudo, env, command and nohup
+      // cannot hide a blocked executable at the start of a later token.
+      return [part, ...words.map((_, index) => words.slice(index).join(" "))]
+    })
+    if (candidates.some((candidate) => start.test(candidate))) return true
+    return !pattern.includes("*") && command.toLowerCase().includes(pattern.toLowerCase())
   })
 }
 
@@ -105,7 +118,7 @@ export function protectedFileInCommand(rules: Rules | undefined, command: string
     const pattern = raw.trim().replaceAll("\\", "/")
     if (!pattern) return false
     const body = pattern
-    .replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
       .replaceAll("*", ".*")
       .replaceAll("?", ".")
     return new RegExp("(?:^|[\\s\"'=:/])" + body + "(?=$|[\\s\"/:])", "i").test(normal)
@@ -129,7 +142,7 @@ export function describe(rules: Rules | undefined) {
     rules.hideExecution ? "Do not broadcast raw tool inputs or outputs, command execution details, or screenshots to other guests. The host alone handles approvals for shell, hub and desktop actions." : undefined,
     rules.blockCommands?.length ? `These commands are forbidden: ${rules.blockCommands.join(", ")}.` : undefined,
     rules.protectedFiles?.length ? `These files are off limits: ${rules.protectedFiles.join(", ")}.` : undefined,
-    rules.noOutbound ? "Send nothing out: no web requests and no messages to other computers or projects." : undefined,
+    rules.noOutbound ? "Send nothing out: no web requests, MCP calls, shell or hub commands, or messages to other computers or projects." : undefined,
     rules.denyGuestPrompts ? "Guests must not submit prompts to the host's AI." : undefined,
     rules.denyGuestCommands ? "Guests must not invoke slash commands, execute shell commands or submit command checks." : undefined,
   ].filter((line): line is string => line !== undefined)
