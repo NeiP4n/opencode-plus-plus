@@ -191,6 +191,27 @@ test("Zod schemas validate, transform, and describe typed tools", async () => {
   )
 })
 
+test("invalid tool input previews are bounded by depth and collection size", async () => {
+  const deep = { secret: "deep-value" }
+  let nested: Record<string, unknown> = deep
+  for (let index = 0; index < 9; index++) nested = { nested }
+  const wide = Object.fromEntries(Array.from({ length: 80 }, (_, index) => [`key${index}`, index]))
+  const tool: Info = {
+    name: "bounded",
+    description: "Bounded preview",
+    input: z.object({ count: z.string() }),
+    execute: () => Effect.succeed({ content: "unused" }),
+  }
+
+  const error = await Effect.runPromise(
+    Effect.flip(execute(tool, { count: 41, nested, wide }, context)),
+  )
+  expect(error).toBeInstanceOf(Tool.Error)
+  expect(error.message).toContain("[maximum depth reached]")
+  expect(error.message).toContain("30 additional entries omitted")
+  expect(error.message).not.toContain("deep-value")
+})
+
 test("portable schema failures become tool failures", async () => {
   const input = {
     "~standard": {
