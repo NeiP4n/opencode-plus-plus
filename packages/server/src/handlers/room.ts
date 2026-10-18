@@ -1335,7 +1335,6 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const directory = joined.room.directory
           const root = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
           const ruleDirectory = directory ?? Option.getOrUndefined(root)?.location.directory
-          const rules = ruleDirectory ? yield* effectiveRules(joined.room, ruleDirectory) : joined.room.rules
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
           if (directory === undefined) {
             const data = Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option))
@@ -1380,7 +1379,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new InvalidRequestError({ message: "This room shares one session; the host starts others" })
           // A guest's new session runs on the room session's model, the one the host picked; left
           // unset it would fall to the first model in the host's catalog.
-          const rules = yield* effectiveRules(joined.room, joined.room.directory)
+          let rules = yield* effectiveRules(joined.room, joined.room.directory)
           // Creating a guest-owned session still creates a new host-credential AI context. Do not
           // let guests bypass denyGuestPrompts by switching from the shared session to a new one.
           if (rules?.denyGuestPrompts)
