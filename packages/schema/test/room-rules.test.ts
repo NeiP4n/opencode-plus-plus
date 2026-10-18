@@ -73,8 +73,11 @@ test("configured commands require approval for the executable, not the exact inv
   expect(RoomRules.programName("sudo -u root git push origin main")).toBe("git")
 })
 
-test("protected files are also detected in shell arguments", () => {
+test("protected files are also detected in shell arguments, including built-in secret patterns", () => {
   expect(RoomRules.commandTouchesProtectedFile(rules, "cat .env.local")).toBe(true)
+  expect(RoomRules.commandTouchesProtectedFile(undefined, "cat .env.local")).toBe(true)
+  expect(RoomRules.commandTouchesProtectedFile(undefined, "cat /home/alice/.ssh/id_ed25519")).toBe(true)
+  expect(RoomRules.commandTouchesProtectedFile(undefined, "cat .config/opencode/auth.json")).toBe(true)
   expect(RoomRules.commandTouchesProtectedFile(rules, "cat secrets/key.pem")).toBe(true)
   expect(RoomRules.commandTouchesProtectedFile(rules, "python -c 'open(\".env\").read()'")).toBe(true)
   expect(RoomRules.commandTouchesProtectedFile(rules, "cat src/index.ts")).toBe(false)
