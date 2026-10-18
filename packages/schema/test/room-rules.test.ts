@@ -67,6 +67,11 @@ test("protected files are detected when directly referenced in shell commands", 
   expect(RoomRules.protectedFileInCommand(rules, "cat .env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, 'cat ".env.local"')).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "cat ./secrets/key.pem")).toBe("secrets/*")
+  const exactRules: RoomRules.Rules = { protectedFiles: ["secrets/key.pem"] }
+  expect(RoomRules.protectedFileInCommand(exactRules, "cat secrets/key.pem")).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(exactRules, "cat 'secrets/key.pem'")).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(exactRules, 'cat "secrets/key.pem"')).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(exactRules, "tool --config='secrets/key.pem'")).toBe("secrets/key.pem")
   expect(RoomRules.protectedFileInCommand(rules, "cat C:\\work\\app\\.env")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "tool --config=.env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "echo secret > .env.local")).toBe(".env*")
