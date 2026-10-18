@@ -137,7 +137,15 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
       })
 
     const live = (paths: ReadonlyArray<string>, directory: string) =>
-      Effect.forEach(folders(paths, directory), read).pipe(Effect.map((all) => all.flat()))
+      Effect.gen(function* () {
+        const candidates = folders(paths, directory)
+        const safe = yield* Effect.forEach(candidates, (folder) =>
+          Effect.promise(() => pathsInside(directory, [folder]).catch(() => false)).pipe(
+            Effect.map((inside) => (inside ? folder : undefined)),
+          ),
+        )
+        return (yield* Effect.forEach(safe.filter((folder): folder is string => folder !== undefined), read)).flat()
+      })
 
     const write = (folder: string, plot: Info) =>
       Effect.promise(async () => {
