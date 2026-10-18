@@ -15,6 +15,7 @@ export function HomeSessions(props: {
         <HomeSessionsView
           language={props.sessions.copy.language}
           groups={props.sessions.data.groups()}
+          archivedGroups={props.sessions.data.archivedGroups()}
           loading={props.sessions.data.loading()}
           desktop={props.sessions.platform.desktop}
           location={props.sessions.location.value}
@@ -34,6 +35,7 @@ export function HomeSessions(props: {
           onCreateSession={props.sessions.session.create}
           onOpenSession={props.sessions.session.open}
           onArchiveSession={props.sessions.session.archive}
+          onRestoreSession={props.sessions.session.restore}
           onRenameSession={props.sessions.session.rename}
           onExportSession={props.sessions.session.export}
           onDeleteSession={props.sessions.session.showDelete}
