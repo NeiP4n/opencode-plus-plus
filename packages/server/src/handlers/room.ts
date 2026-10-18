@@ -729,10 +729,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             )
           }
           codes.record(joined.room.id, { kind: "run", who: joined.member.name, detail: command })
-          return yield* Effect.tryPromise({
+          const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, session.location.directory, signal),
-            catch: (error) => new InvalidRequestError({ message: `Could not run the command: ${String(error)}` }),
+            catch: (error) =>
+              new InvalidRequestError({
+                message: `Could not run the command: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), session.location.directory) : String(error)}`,
+              }),
           })
+          // Command output is sent to a remote guest; redact the project path just like room metadata.
+          if (joined.room.rules?.hidePaths)
+            return { ...result, output: RoomRules.redactPath(result.output, session.location.directory) }
+          return result
         }),
       )
       .handle(
