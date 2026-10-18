@@ -125,13 +125,18 @@ try {
     throw "Cannot link @opencode/tui. Expected $TuiPackage"
   }
 
-  $ResolvedTui = (Resolve-Path $TuiLink -ErrorAction Stop).Path
   $ResolvedRoot = (Resolve-Path $TuiRoot -ErrorAction Stop).Path
-  if ($ResolvedTui.TrimEnd('\') -ne $ResolvedRoot.TrimEnd('\')) {
-    throw "@opencode/tui resolved to '$ResolvedTui' instead of '$ResolvedRoot'"
+  $LinkItem = Get-Item $TuiLink -ErrorAction Stop
+  $LinkTarget = @($LinkItem.Target) | Select-Object -First 1
+  if (-not $LinkTarget) {
+    throw "@opencode/tui junction was created but its target cannot be read: $TuiLink"
+  }
+  $ResolvedTuiTarget = (Resolve-Path $LinkTarget -ErrorAction Stop).Path
+  if ($ResolvedTuiTarget.TrimEnd('\') -ne $ResolvedRoot.TrimEnd('\')) {
+    throw "@opencode/tui junction targets '$ResolvedTuiTarget' instead of '$ResolvedRoot'"
   }
 
-  Write-Host "Verified @opencode/tui -> $ResolvedTui"
+  Write-Host "Verified @opencode/tui -> $ResolvedTuiTarget"
 } finally {
   Pop-Location
 }
