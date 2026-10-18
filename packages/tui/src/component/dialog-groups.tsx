@@ -8,6 +8,7 @@ import { useTheme } from "../context/theme"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useGroupT } from "../util/i18n-groups"
+import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
 
@@ -80,8 +81,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
   // Multiple reactive paths can request the same group chat at once (Save and the
   // auto-repair effect). Deduplicate per group and serialize creation so a transient
   // "another group is opening" state never silently drops a chat-creation request.
-  const supervisorTasks = new Map<string, Promise<void>>()
-  let supervisorQueue: Promise<void> = Promise.resolve()
+  const supervisorTasks = createTaskQueue<string>()
 
   const createSupervisor = async (group: GroupToStart, openAfterCreate = true) => {
     const mode = group.mode ?? "lead"
@@ -150,25 +150,8 @@ export function DialogGroups(props: { onClose?: () => void }) {
     }
   }
 
-  const startSupervisor = (group: GroupToStart, openAfterCreate = true): Promise<void> => {
-    const pending = supervisorTasks.get(group.name)
-    if (pending) return pending
-    const task = supervisorQueue.then(() => createSupervisor(group, openAfterCreate))
-    supervisorTasks.set(group.name, task)
-    supervisorQueue = task.then(
-      () => undefined,
-      () => undefined,
-    )
-    void task.then(
-      () => {
-        if (supervisorTasks.get(group.name) === task) supervisorTasks.delete(group.name)
-      },
-      () => {
-        if (supervisorTasks.get(group.name) === task) supervisorTasks.delete(group.name)
-      },
-    )
-    return task
-  }
+  const startSupervisor = (group: GroupToStart, openAfterCreate = true): Promise<void> =>
+    supervisorTasks.run(group.name, () => createSupervisor(group, openAfterCreate))
 
   // Groups created by the AI command or another client also get their
   // mode-specific chat automatically when this view is opened. Remember failed
