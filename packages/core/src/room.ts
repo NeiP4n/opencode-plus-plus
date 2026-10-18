@@ -118,8 +118,15 @@ const layer = Layer.effect(
 
     return Service.of({
       list: Effect.fn("Room.list")(function* () {
-        const result = yield* kv.scan({ prefix: PREFIX, limit: 1000 })
-        return result.entries
+        const entries: { key: string; value: unknown }[] = []
+        let after: string | undefined
+        for (;;) {
+          const page = yield* kv.scan({ prefix: PREFIX, limit: 1000, ...(after ? { after } : {}) })
+          entries.push(...page.entries)
+          if (!page.next) break
+          after = page.next
+        }
+        return entries
           .flatMap((entry) => Option.toArray(decode(entry.value)))
           .toSorted((a, b) => a.created - b.created)
       }),
