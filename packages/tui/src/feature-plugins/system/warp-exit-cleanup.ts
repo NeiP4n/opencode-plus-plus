@@ -5,7 +5,7 @@ import { applyEdits, modify, parse } from "jsonc-parser"
 import * as Warp from "@opencode/core/warp"
 import { Plugin } from "@opencode/plugin/tui"
 
-type ProxyValue = Record<string, unknown> | null
+type ProxyValue = { http?: string; https?: string; no_proxy?: string[] } | null
 
 type Snapshot = {
   proxy: ProxyValue
@@ -38,8 +38,9 @@ function currentSnapshot(entries: readonly unknown[]): Snapshot {
   const documents = entries.filter(isDocument)
   const found = documents.findLast((entry) => entry.info.proxy !== undefined)
   const writable = documents.findLast((entry) => entry.path !== undefined)
+  const proxy = found?.info.proxy
   return {
-    proxy: found?.info.proxy && typeof found.info.proxy === "object" ? (found.info.proxy as ProxyValue) : null,
+    proxy: proxy && typeof proxy === "object" ? (proxy as ProxyValue) : null,
     path: found?.path ?? writable?.path,
   }
 }
@@ -47,7 +48,7 @@ function currentSnapshot(entries: readonly unknown[]): Snapshot {
 function restoreSync(file: string, proxy: ProxyValue) {
   try {
     const text = readFileSync(file, "utf8")
-    const root = parse(text) as { proxy?: unknown }
+    const root = parse(text) as { proxy?: { http?: string; https?: string } | null }
     if (!Warp.isWarpProxy(root.proxy)) return
     const edits = modify(text, ["proxy"], proxy, { formattingOptions: { insertSpaces: true, tabSize: 2 } })
     writeFileSync(file, applyEdits(text, edits), "utf8")
@@ -73,14 +74,12 @@ export default Plugin.define({
             targetPath = next.path ?? targetPath
             warpOwned = true
           }
+        } else if (warpOwned) {
+          snapshot = next
+          targetPath = next.path ?? targetPath
+          warpOwned = false
         } else {
-          if (warpOwned) {
-            snapshot = next
-            targetPath = next.path ?? targetPath
-            warpOwned = false
-          } else {
-            snapshot = next
-          }
+          snapshot = next
         }
       } catch {}
       finally {
@@ -94,10 +93,17 @@ export default Plugin.define({
     }
 
     const onExit = () => restore()
+    const onSignal = (code: number) => () => {
+      restore()
+      process.exit(code)
+    }
+    const onInt = onSignal(130)
+    const onTerm = onSignal(143)
+    const onHup = onSignal(129)
     process.once("exit", onExit)
-    process.once("SIGINT", onExit)
-    process.once("SIGTERM", onExit)
-    process.once("SIGHUP", onExit)
+    process.once("SIGINT", onInt)
+    process.once("SIGTERM", onTerm)
+    process.once("SIGHUP", onHup)
 
     void refresh()
     const timer = setInterval(() => void refresh(), 250)
@@ -105,9 +111,9 @@ export default Plugin.define({
     return () => {
       clearInterval(timer)
       process.off("exit", onExit)
-      process.off("SIGINT", onExit)
-      process.off("SIGTERM", onExit)
-      process.off("SIGHUP", onExit)
+      process.off("SIGINT", onInt)
+      process.off("SIGTERM", onTerm)
+      process.off("SIGHUP", onHup)
     }
   },
 })
