@@ -142,7 +142,18 @@ const MEMBER_LIMIT = 100
 
 // Requests that run a command on the host for a guest. Only the host answers them, so a
 // cohost or helper cannot approve its own command.
-const HOST_ONLY = new Set(["room.run", "room.check", "room.program"])
+// Host-side command, desktop and connected-computer actions must never be approved by another guest.
+const HOST_ONLY = new Set([
+  "room.run",
+  "room.check",
+  "room.program",
+  "shell",
+  "hub",
+  "desktop",
+  "playtest",
+  "peers",
+  "federation",
+])
 const HIDDEN_EXECUTION_EVENTS = new Set([
   "session.shell.started",
   "session.shell.ended",
