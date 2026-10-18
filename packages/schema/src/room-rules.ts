@@ -79,6 +79,10 @@ const SECRET_FILE_PATTERNS: readonly string[] = [
   "**/.codex/auth.json",
   "**/.config/codex/**",
   "**/.git-credentials",
+  "**/.git/config",
+  "**/.gitconfig",
+  "**/.config/hub",
+  "**/.config/hub/**",
   "**/.netrc",
   "**/.npmrc",
   "**/.pypirc",
@@ -244,11 +248,15 @@ export function commandTouchesProtectedFile(rules: Rules | undefined, command: s
 export function commandSendsOutbound(command: string) {
   const value = command.toLowerCase()
   return (
-    // Arbitrary script interpreters can open their own sockets or print environment credentials.
+    // Arbitrary script interpreters can open sockets or print environment credentials.
     /\b(python|python3|node|bun|deno|ruby|perl|php|pwsh|powershell|bash|sh|zsh|cmd|lua|npx|npm|pnpm|yarn)\b/.test(value) ||
     /\b(env|printenv|set)\b/.test(value) ||
-    /\b(?:openai|anthropic|claude|github|gh|aws|azure|google|gcp)_[a-z0-9_]*(?:api_key|token|secret|password|credential|private_key)[a-z0-9_]*\b/i.test(value) ||
+    // Refuse likely credential-variable references rather than forwarding them through stdout.
+    /\b[A-Z][A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|PRIVATE_KEY|ACCESS_KEY|CLIENT_SECRET)[A-Z0-9_]*\b/i.test(value) ||
     /\b(?:get-childitem|gci)\s+env:/i.test(value) ||
+    // Git's config listing can include embedded remote credentials or HTTP Authorization headers.
+    /\bgit\s+config\s+(?:--list|--get-regexp|--show-origin)\b/.test(value) ||
+    /\b(?:opencode|claude|codex)\s+(?:auth|login|logout|token)\b/.test(value) ||
     /\b(gh|glab|aws|az|gcloud|kubectl|helm|terraform|wrangler|fly|vercel|netlify|heroku|railway)\b/.test(value) ||
     /\b(curl|wget|fetch|ssh|scp|sftp|rsync|ftp|nc|netcat|ncat|socat|telnet|tftp)\b/.test(value) ||
     /\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b/.test(value) ||
