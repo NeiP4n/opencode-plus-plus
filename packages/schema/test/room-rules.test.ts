@@ -131,8 +131,8 @@ test("program rules request approval for the executable, including wrapped comma
 })
 
 test("shell tokenization remains linear for long escaped quoted arguments", () => {
-  const quotedAssignment = `"FOO=${"\\\\\\".repeat(256)}!"`
-  expect(RoomRules.programName(`env ${quotedAssignment} git status`)).toBe("git")
+  const quotedAssignment = '"' + "FOO=" + String.fromCharCode(92).repeat(256) + '!"'
+  expect(RoomRules.programName("env " + quotedAssignment + " git status")).toBe("git")
 })
 
 test("outbound access is denied by default across overlapping rooms", () => {
