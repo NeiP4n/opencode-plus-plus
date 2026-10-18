@@ -960,9 +960,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const directory = joined.room.directory
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
           if (directory === undefined) {
-            const data = { data: Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option)) }
-            const root = (yield* sessions.get(joined.room.sessionID).pipe(Effect.option)).map((session) => session.location.directory)
-            return joined.room.rules?.hidePaths && root._tag === "Some" ? redactGuestData(data, root.value) : data
+            const root = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
+            const data = { data: Option.toArray(root) }
+            return joined.room.rules?.hidePaths && Option.isSome(root)
+              ? redactGuestData(data, root.value.location.directory)
+              : data
           }
           const page = yield* sessions.list({ parentID: null, limit: SESSION_LIMIT })
           const data = page.data.filter((session) => Orchestra.contains(directory, session.location.directory))
@@ -980,14 +982,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           // A guest's new session runs on the room session's model, the one the host picked; left
           // unset it would fall to the first model in the host's catalog.
           const shared = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
+          const data = yield* sessions
+            .create({
+              title: ctx.payload.title?.trim() || undefined,
+              location: { directory: AbsolutePath.make(joined.room.directory) },
+              model: Option.getOrUndefined(shared)?.model,
+            })
+            .pipe(Effect.orDie)
           return {
-            data: yield* sessions
-              .create({
-                title: ctx.payload.title?.trim() || undefined,
-                location: { directory: AbsolutePath.make(joined.room.directory) },
-                model: Option.getOrUndefined(shared)?.model,
-              })
-              .pipe(Effect.orDie),
+            data: joined.room.rules?.hidePaths
+              ? redactGuestData(data, joined.room.directory)
+              : data,
           }
         }),
       )
