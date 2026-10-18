@@ -264,6 +264,23 @@ export function commandTouchesProtectedFile(rules: Rules | undefined, command: s
 
 // Best-effort command-level outbound guard for shells that can bypass the AI's web/peer tools.
 // This is a policy check, not an OS-level network sandbox.
+// Secret disclosure is forbidden even when the host deliberately enables network access.
+// These commands expose environment credentials or local account tokens directly to stdout.
+export function commandDisclosesSecrets(command: string) {
+  const value = command.toLowerCase()
+  return (
+    /\b(env|printenv|set)\b/.test(value) ||
+    /\b[A-Z][A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|PRIVATE_KEY|ACCESS_KEY|CLIENT_SECRET)[A-Z0-9_]*\b/i.test(command) ||
+    /\b(?:get-childitem|gci)\s+env:/i.test(value) ||
+    /\/proc\/(?:self|\d+)\/(?:environ|cmdline)\b/.test(value) ||
+    /\bgit\s+config\s+(?:--list|--get-regexp|--show-origin)\b/.test(value) ||
+    /\bgit\s+credential\s+fill\b/.test(value) ||
+    /\b(?:gh|glab)\s+auth\s+(?:token|status)\b/.test(value) ||
+    /\b(?:opencode|claude|codex)\s+(?:auth|login|token)\b/.test(value) ||
+    /\b(?:process\.env|os\.environ|os\.getenv|getenv\s*\(|environment\.getenvironmentvariables|system\.environment)\b/i.test(command)
+  )
+}
+
 export function commandSendsOutbound(command: string) {
   const value = command.toLowerCase()
   return (
