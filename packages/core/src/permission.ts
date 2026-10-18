@@ -214,25 +214,23 @@ const layer = Layer.effect(
       )
       const sourceIndex = messages.findIndex((message) => message.id === source.messageID)
       if (sourceIndex < 0) return undefined
-      const prompt = messages.slice(sourceIndex).find((message) => {
-        if (message.type !== "user" || !message.metadata || typeof message.metadata !== "object") return false
-        const roomInfo = (message.metadata as Record<string, unknown>).room
-        if (!roomInfo || typeof roomInfo !== "object") return false
-        const roomRecord = roomInfo as Record<string, unknown>
-        const guest = roomRecord.guest
-        return (
-          typeof roomRecord.id === "string" &&
-          guest !== null &&
-          typeof guest === "object" &&
-          typeof (guest as Record<string, unknown>).id === "string"
-        )
-      })
-      if (!prompt || prompt.type !== "user" || !prompt.metadata) return undefined
-      const roomInfo = prompt.metadata.room as Record<string, unknown>
-      const guest = roomInfo.guest as Record<string, unknown>
-      const room = yield* rooms.get(roomInfo.id as Room.ID).pipe(Effect.orElseSucceed(() => undefined))
+      // Do not skip a newer non-room user prompt and accidentally attribute a subagent
+      // tool call to an older guest who happened to use the same shared session.
+      const prompt = messages.slice(sourceIndex).find((message) => message.type === "user")
+      if (!prompt || prompt.type !== "user" || !prompt.metadata || typeof prompt.metadata !== "object") return undefined
+      const roomInfo = (prompt.metadata as Record<string, unknown>).room
+      if (!roomInfo || typeof roomInfo !== "object") return undefined
+      const roomRecord = roomInfo as Record<string, unknown>
+      const guest = roomRecord.guest
+      if (
+        typeof roomRecord.id !== "string" ||
+        guest === null ||
+        typeof guest !== "object" ||
+        typeof (guest as Record<string, unknown>).id !== "string"
+      ) return undefined
+      const room = yield* rooms.get(roomRecord.id as Room.ID).pipe(Effect.orElseSucceed(() => undefined))
       if (!room) return undefined
-      const member = yield* rooms.member(room.id, guest.id as string)
+      const member = yield* rooms.member(room.id, (guest as Record<string, unknown>).id as string)
       if (!member) return undefined
       return { roomID: room.id, member }
     })
