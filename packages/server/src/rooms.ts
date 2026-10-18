@@ -38,6 +38,9 @@ const FEED_LIMIT = 200
 export const FEED_WAIT_MS = 25_000
 // Readers one room may hold waiting at once; past it, a read answers at once instead of waiting.
 const FEED_WAITERS = 100
+// Presence is only useful for leases up to LEASE_MS. Sweep infrequently to avoid
+// turning every guest request into a full-map walk while still bounding stale entries.
+const PRESENCE_SWEEP_INTERVAL = 256
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ServerRooms") {}
 
@@ -50,16 +53,35 @@ const layer = Layer.effect(
     // Each room's newest code, so a new code retires the one before it.
     const issued = new Map<Room.ID, string>()
     const presence = new Map<string, number>()
+    let presenceTouches = 0
+    const touch = (guestID: string) => {
+      const now = Date.now()
+      presence.set(guestID, now)
+      // A missing timestamp and a timestamp older than LEASE_MS are both offline
+      // for every lease decision, so pruning these entries does not change semantics.
+      if (++presenceTouches % PRESENCE_SWEEP_INTERVAL !== 0) return
+      const staleBefore = now - LEASE_MS
+      for (const [id, seen] of presence) {
+        if (seen < staleBefore) presence.delete(id)
+      }
+    }
     const feeds = new Map<Room.ID, Room.Event[]>()
     const waiters = new Map<Room.ID, Set<() => void>>()
     const after = (roomID: Room.ID, seq: number) => (feeds.get(roomID) ?? []).filter((event) => event.seq > seq)
     return Service.of({
-      touch: (guestID) => void presence.set(guestID, Date.now()),
+      touch,
       seen: (guestID) => presence.get(guestID),
       started: Date.now(),
       record: (roomID, event) => {
-        const list = feeds.get(roomID) ?? []
-        feeds.set(roomID, [...list, { ...event, seq: (list.at(-1)?.seq ?? 0) + 1, at: Date.now() }].slice(-FEED_LIMIT))
+        // Mutate the private bounded buffer instead of allocating/copying up to
+        // FEED_LIMIT events for every live event.
+        let list = feeds.get(roomID)
+        if (!list) {
+          list = []
+          feeds.set(roomID, list)
+        }
+        list.push({ ...event, seq: (list.at(-1)?.seq ?? 0) + 1, at: Date.now() })
+        if (list.length > FEED_LIMIT) list.splice(0, list.length - FEED_LIMIT)
         const waiting = waiters.get(roomID)
         waiters.delete(roomID)
         waiting?.forEach((wake) => wake())
@@ -68,8 +90,9 @@ const layer = Layer.effect(
         // A reader whose cursor is past the end saw a feed from before a restart; it starts over.
         const last = feeds.get(roomID)?.at(-1)?.seq ?? 0
         const from = seq > last ? 0 : seq
-        if (after(roomID, from).length > 0 || !wait || (waiters.get(roomID)?.size ?? 0) >= FEED_WAITERS)
-          return { events: after(roomID, from) }
+        const available = after(roomID, from)
+        if (available.length > 0 || !wait || (waiters.get(roomID)?.size ?? 0) >= FEED_WAITERS)
+          return { events: available }
         yield* Effect.callback<void>((resume) => {
           const forget = () => {
             clearTimeout(timer)
