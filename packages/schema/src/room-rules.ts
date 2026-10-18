@@ -342,12 +342,12 @@ export function redactPath(text: string, directory: string) {
   const variants = [...candidates, ...[...candidates].map((item) => item.replaceAll("/", "\\"))]
     .filter((variant) => variant.length > 1)
     .sort((a, b) => b.length - a.length)
+  const windowsPath = /^(?:[a-z]:[\\/]|\\\\)/i.test(directory)
   return variants.reduce((out, variant) => {
     const escaped = variant.replace(/[.*+?^{}$()|[\]\\]/g, "\\$&")
-    return out.replace(new RegExp(escaped + "(?=$|[/\\\\\\s:'\"<>])", "gi"), "<project>")
+    return out.replace(new RegExp(escaped + "(?=$|[/\\\\\\s:'\"<>])", windowsPath ? "gi" : "g"), "<project>")
   }, text)
 }
-
 // Remove embedded image/screenshot data from values shared with room guests.
 // The function is deliberately recursive because images can appear in messages, tool results,
 // event metadata, attachments or nested response objects.
