@@ -355,7 +355,7 @@ export function sanitizeScreenshots<T>(value: T, enabled: boolean): T {
       if (/^data:image\//i.test(item)) return undefined
       if (key && /^(?:url|uri|path|filename|name)$/i.test(key) && imageExtension.test(item)) return undefined
       // A data URI may be embedded in otherwise ordinary text/tool output; strip its payload only.
-      return item.replace(/data:image\/[^,\s]+;base64,[A-Za-z0-9+/=]+/gi, "[image hidden by room rules]")
+      return item.replace(/data:image\/[^;,\s]+;base64,[A-Za-z0-9+/=]+/gi, "[image hidden by room rules]")
     }
     if (Array.isArray(item)) {
       return item.flatMap((child) => {
