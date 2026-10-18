@@ -1365,6 +1365,93 @@ it.live("revoking a guest while a command runs withholds its output", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("a DoD check is discarded if its assigned command changes during approval", () =>
+  Effect.gen(function* () {
+    const { call, room, code, directory, session } = yield* setup
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(directory, ".opencode", "dod.yaml"),
+        [
+          "leaves:",
+          "  - id: L-001",
+          '    what: "Verify the output"',
+          "    task_state: NOT_STARTED",
+          "    verification:",
+          "      state: NOT_CHECKED",
+          '      command: "echo old-check > stale-check.txt"',
+          "",
+        ].join("\n"),
+      ),
+    )
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false, blockCommands: ["echo*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = (yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "DoD checker" },
+    })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const claimed = yield* call(`/api/room/${room.id}/guest/dod`, {
+      method: "POST",
+      headers: guest,
+      body: { id: "L-001", take: true },
+    })
+    expect(claimed.status).toBe(200)
+
+    const oldCommand = "echo old-check > stale-check.txt"
+    const pending = yield* call(`/api/room/${room.id}/guest/dod/submit`, {
+      method: "POST",
+      headers: guest,
+      body: { id: "L-001" },
+    }).pipe(Effect.forkScoped)
+    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.command === oldCommand),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("3 seconds"),
+      Effect.map((requests) => requests.find(
+        (item) => item.action === "room.program" && item.metadata?.command === oldCommand,
+      )!),
+    )
+
+    // The assignment changes after the prompt was created but before the host answers it.
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(directory, ".opencode", "dod.yaml"),
+        [
+          "leaves:",
+          "  - id: L-001",
+          '    what: "Verify the output"',
+          "    task_state: IN_PROGRESS",
+          "    owner: " + JSON.stringify("DoD checker"),
+          "    verification:",
+          "      state: NOT_CHECKED",
+          '      command: "echo replacement-check > stale-check.txt"',
+          "",
+        ].join("\n"),
+      ),
+    )
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(yield* Effect.promise(() => Bun.file(path.join(directory, "stale-check.txt")).exists())).toBe(false)
+  }).pipe(Effect.scoped),
+)
+
 it.live("guests share the host project's DoD: one takes an item with a plot, the host frees it", () =>
   Effect.gen(function* () {
     const { call, room, code, directory } = yield* setup
