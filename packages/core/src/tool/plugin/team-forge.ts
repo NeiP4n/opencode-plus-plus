@@ -408,7 +408,11 @@ export const Plugin = {
             })
             .pipe(Effect.asVoid)
         },
-      }).add({
+      }),
+    )
+
+    yield* ctx.command.transform((editor) =>
+      editor.add({
         name: "forge-group",
         description: "Configure a federation group of projects and their AI orchestration: [group name] [project IDs] [lead|council]",
         execute: (input) =>
