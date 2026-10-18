@@ -52,7 +52,7 @@ export const layer = Layer.effect(
                       action: name(tool.server, tool.name),
                       resources: ["*"],
                       save: ["*"],
-                      metadata: {},
+                      metadata: { transport: "mcp" },
                       sessionID: context.sessionID,
                       agent: context.agent,
                       source: {
