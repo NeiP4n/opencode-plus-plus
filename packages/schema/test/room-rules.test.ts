@@ -27,6 +27,7 @@ test("blocked wildcard patterns cannot be hidden inside shell wrappers", () => {
 test("room command policy covers shell and Registry hub actions", () => {
   expect(RoomRules.commandActions).toEqual(["shell", "hub"])
   expect(RoomRules.outbound).toContain("hub")
+  expect(RoomRules.outbound).toContain("desktop")
   expect(RoomRules.blockedCommandForAction(rules, "shell", ["git status"])).toBeUndefined()
   expect(RoomRules.blockedCommandForAction(rules, "hub", ["echo ok", "curl https://example.com"])).toBe("curl")
   expect(RoomRules.blockedCommandForAction(rules, "hub", ["git push origin main"])).toBe("git push*")
