@@ -38,6 +38,32 @@ export const Plugin = define({
       )
     })
 
+    // A shell tool call belongs to the user prompt that triggered its assistant message.
+    // Looking backwards from the tool's own message ID prevents one guest's "Always allow"
+    // decision from being attached to whichever guest happened to speak most recently.
+    const guestContext = Effect.fnUntraced(function* (sessionID: SessionID, sourceMessageID?: string) {
+      const messages = yield* sessions.messages({ sessionID, limit: 100, order: "desc" }).pipe(
+        Effect.orElseSucceed(() => []),
+      )
+      const sourceIndex = sourceMessageID ? messages.findIndex((item) => item.id === sourceMessageID) : -1
+      const recent = sourceIndex >= 0 ? messages.slice(sourceIndex) : messages
+      const prompt = recent.find((item) => {
+        if (item.type !== "user" || !item.metadata || typeof item.metadata !== "object") return false
+        const room = (item.metadata as Record<string, unknown>).room
+        return room !== null && typeof room === "object" && "guest" in room && "id" in room
+      })
+      if (!prompt || !prompt.metadata || typeof prompt.metadata !== "object") return undefined
+      const metadata = prompt.metadata as Record<string, unknown>
+      const roomInfo = metadata.room as Record<string, unknown>
+      const guest = roomInfo.guest as Record<string, unknown>
+      if (typeof roomInfo.id !== "string" || typeof guest.id !== "string") return undefined
+      const room = yield* rooms.get(roomInfo.id as Room.ID).pipe(Effect.orElseSucceed(() => undefined))
+      if (!room) return undefined
+      const member = yield* rooms.member(room.id, guest.id)
+      if (!member) return undefined
+      return { room, member }
+    })
+
     yield* ctx.permission.hook("evaluate", (event) =>
       Effect.gen(function* () {
         const rules = yield* rulesOf(event.sessionID)
@@ -49,8 +75,40 @@ export const Plugin = define({
         if (rules.noOutbound && RoomRules.outbound.includes(event.action))
           return deny("This room does not let the AI send anything out")
         if (event.action === "shell") {
-          const blocked = event.resources.flatMap((command) => RoomRules.blockedCommand(rules, command) ?? [])[0]
-          if (blocked) return deny(`This room forbids commands like "${blocked}"`)
+          const command = event.resources.join("\\n")
+          if (rules.noOutbound && RoomRules.commandSendsOutbound(command))
+            return deny("This room does not let the AI send commands that connect or send data outside")
+          const protectedFile = event.resources.find((item) => RoomRules.commandTouchesProtectedFile(rules, item))
+          if (protectedFile) return deny("This room keeps that file off limits to the AI")
+
+          const programs = [...new Set(event.resources.flatMap((item) => RoomRules.programsRequiringApproval(rules, item)))]
+          if (programs.length === 0) return
+          const identity = yield* guestContext(event.sessionID, event.source?.messageID)
+          if (identity?.member.role === "trusted") return
+          if (identity && programs.every((program) => identity.member.approvedPrograms?.includes(program))) return
+
+          // The regular permission UI still asks before running the shell tool. "Always allow"
+          // is redirected to this device's room-member record and is never a project-wide grant.
+          event.effect = "ask"
+          event.message = identity
+            ? `Allow ${identity.member.name} to use ${programs.join(", ")}? This approval is private to this room member.`
+            : `This room requires approval to use ${programs.join(", ")}. Only a one-time approval is available without a room member identity.`
+          if (identity) {
+            event.save = programs
+            event.onAlways = () =>
+              Effect.gen(function* () {
+                const current = yield* rooms.member(identity.room.id, identity.member.id)
+                if (!current) return
+                yield* rooms.saveMember(identity.room.id, {
+                  ...current,
+                  approvedPrograms: [...new Set([...(current.approvedPrograms ?? []), ...programs])],
+                })
+                return
+              })
+          } else {
+            event.save = []
+            event.onAlways = undefined
+          }
           return
         }
         if (event.action === "read" || event.action === "edit") {
