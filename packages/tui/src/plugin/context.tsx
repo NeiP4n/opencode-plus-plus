@@ -321,7 +321,11 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
       const entry = source.entry
       const target = typeof entry === "string" ? entry : entry.package
       if (target.startsWith("-")) {
-        for (const item of desired.values()) if (matches(target.slice(1), item.plugin.id)) item.enabled = false
+        const excluded = target.slice(1)
+        for (const item of desired.values()) {
+          if (matches(excluded, item.plugin.id) || (item.target !== undefined && matches(excluded, item.target)))
+            item.enabled = false
+        }
         continue
       }
 
