@@ -271,19 +271,17 @@ describe("QuestionTool", () => {
       ],
       custom: true,
     })
-    expect(toField({ ...base, kind: "priority" }, 1).options?.map((option) => option.value)).toEqual([
-      "Low",
-      "Normal",
-      "High",
-      "Critical",
-    ])
-    expect(toField({ ...base, kind: "rating" }, 2).options?.map((option) => option.value)).toEqual([
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-    ])
+    expect(toField({ ...base, kind: "priority" }, 1)).toMatchObject({
+      options: [
+        { value: "Low" },
+        { value: "Normal" },
+        { value: "High" },
+        { value: "Critical" },
+      ],
+    })
+    expect(toField({ ...base, kind: "rating" }, 2)).toMatchObject({
+      options: [{ value: "1" }, { value: "2" }, { value: "3" }, { value: "4" }, { value: "5" }],
+    })
     expect(toField({ ...base, kind: "text" }, 3)).toMatchObject({
       type: "string",
       options: [],
