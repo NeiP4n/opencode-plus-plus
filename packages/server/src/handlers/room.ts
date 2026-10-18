@@ -964,8 +964,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = yield* roomDirectory(joined.room).pipe(
-            Effect.catchTag("Session.NotFoundError", () =>
-              Effect.fail(new RoomNotFoundError({ roomID: joined.room.id })),
+            Effect.catchTag("SessionNotFoundError", () =>
+              Effect.fail(new RoomNotFoundError({
+                roomID: joined.room.id,
+                message: "This room's session is unavailable",
+              })),
             ),
           )
           return redactForGuest(joined.room, directory, yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait))
