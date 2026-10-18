@@ -10,10 +10,6 @@ import { Orchestra } from "../orchestra.js"
 import { Room } from "../room.js"
 import { Session } from "../session.js"
 
-// Resolve outbound tool aliases centrally so the policy is independent of the tool's display name.
-// Keep this set at module scope: the hook can run for every tool invocation.
-const OUTBOUND_TOOLS = new Set(RoomRules.outbound.map((name) => name.toLowerCase()))
-
 export function blocksOutboundTool(tool: string, action?: string, namespaced = false) {
   const rules: RoomRules.Rules = { noOutbound: true }
   const metadata = namespaced ? { transport: "mcp" } : undefined
@@ -42,7 +38,6 @@ export const Plugin = define({
         return yield* top(session.parentID)
       })
 
-    // The rules of every room that shares this session or the directory it works in.
     const rulesOf = Effect.fnUntraced(function* (sessionID: SessionID) {
       const session = yield* top(sessionID)
       if (!session) return undefined
@@ -56,12 +51,8 @@ export const Plugin = define({
       )
     })
 
-    // Cache tool namespaces by effective name. MCP tools may arrive after plugin startup, so
-    // resolve each new name once rather than enumerating the registry on every tool call.
     const namespacedTools = new Map<string, boolean>()
 
-    // Enforce outbound restrictions at tool execution time. Context instructions alone are not
-    // a security boundary: a model can ignore them, and compaction can remove them.
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
         const rules = yield* rulesOf(event.sessionID)
@@ -76,8 +67,6 @@ export const Plugin = define({
           namespaced = !!registered.find((item) => item.name.toLowerCase() === tool)?.options?.namespace
           namespacedTools.set(tool, namespaced)
         }
-        // MCP tool names are server-defined, so a name-only allowlist is insufficient.
-        // Registered namespaced tools are treated as MCP transports for this rule.
         if (blocksOutboundTool(tool, action, namespaced))
           return yield* new Tool.Error({
             message: "This room does not allow tools that can send data out.",
@@ -86,7 +75,6 @@ export const Plugin = define({
       }),
     )
 
-    // The AI follows rules it knows about instead of only meeting refusals.
     yield* ctx.session.hook("context", (event) =>
       Effect.gen(function* () {
         const text = RoomRules.describe(yield* rulesOf(event.sessionID))
