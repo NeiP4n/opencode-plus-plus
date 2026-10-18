@@ -310,6 +310,9 @@ const layer = Layer.effect(
               input.message ? new CorrectedError({ feedback: input.message }) : new DeclinedError(),
             )
             pending.delete(input.requestID)
+            // A member-scoped/forced decline must not reject another participant's independent
+            // pending request in the shared room session.
+            if (!existing.saveGlobally) return
             for (const [id, item] of pending) {
               if (item.request.sessionID !== existing.request.sessionID) continue
               yield* bus.publish(Permission.Event.Replied, {
