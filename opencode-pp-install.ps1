@@ -132,21 +132,29 @@ try {
   Write-Host "Repairing @opencode/tui workspace link..."
   $Scope = Split-Path $TuiLink -Parent
   New-Item -ItemType Directory -Force -Path $Scope | Out-Null
-  if (Test-Path $TuiLink) {
-    Remove-Item -Force -Recurse -ErrorAction Stop $TuiLink
+
+  # Remove a stale Bun link without following a junction into packages/tui.
+  $ExistingTuiLink = Get-Item -LiteralPath $TuiLink -Force -ErrorAction SilentlyContinue
+  if ($ExistingTuiLink) {
+    if ($ExistingTuiLink.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+      Remove-Item -LiteralPath $TuiLink -Force -ErrorAction Stop
+    } else {
+      Remove-Item -LiteralPath $TuiLink -Force -Recurse -ErrorAction Stop
+    }
   }
+
   New-Item -ItemType Junction -Path $TuiLink -Target $TuiRoot | Out-Null
-
-  if (-not (Test-Path $TuiPackage)) {
-    throw "Cannot link @opencode/tui. Expected $TuiPackage"
+  if (-not (Test-Path (Join-Path $TuiLink "package.json"))) {
+    throw "Cannot link @opencode/tui. Expected $(Join-Path $TuiLink 'package.json')"
   }
 
-  # Test the package through Bun's actual resolver from the CLI package.
+  # Resolve using Bun from the CLI package. Resolve-Path on a junction reports
+  # the junction path itself, not its target, and must not be used for validation.
   Push-Location (Join-Path $Source "packages\cli")
   try {
-    bun -e "import('@opencode/tui').then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1) })"
+    bun -e "console.log(import.meta.resolve('@opencode/tui'))"
     if ($LASTEXITCODE -ne 0) {
-      throw "Bun cannot resolve @opencode/tui from packages/cli even after repairing the workspace link."
+      throw "Bun cannot resolve @opencode/tui from packages/cli."
     }
   } finally {
     Pop-Location
