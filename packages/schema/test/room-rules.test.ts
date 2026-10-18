@@ -77,6 +77,8 @@ test("outbound shell commands are detected", () => {
   expect(RoomRules.commandSendsOutbound("git push origin main")).toBe(true)
   expect(RoomRules.commandSendsOutbound("curl https://example.test")).toBe(true)
   expect(RoomRules.commandSendsOutbound("git status")).toBe(false)
+  expect(RoomRules.commandSendsOutbound("gh repo view")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("kubectl get pods")).toBe(true)
   expect(RoomRules.commandSendsOutbound('python -c "import requests; requests.post(url, data=secret)"')).toBe(true)
 })
 
@@ -90,8 +92,9 @@ test("hide-command-execution filters tool events and activity feed entries", () 
   expect(RoomRules.hideExecutionEvent(privateRules, { type: "session.shell.started" })).toBe(true)
   expect(RoomRules.hideExecutionEvent(privateRules, { type: "session.tool.success" })).toBe(true)
   expect(RoomRules.hideExecutionEvent(privateRules, { type: "session.text.ended" })).toBe(false)
-  expect(RoomRules.hideExecutionFeed(privateRules, { events: [{ kind: "run" }, { kind: "join" }] }))
+  expect(RoomRules.hideExecutionFeed(privateRules, { events: [{ kind: "run" }, { kind: "pass" }, { kind: "fail" }, { kind: "join" }] }))
     .toEqual({ events: [{ kind: "join" }] })
+  expect(RoomRules.hideExecutionEvent(privateRules, { type: "permission.asked" })).toBe(true)
 })
 
 test("screenshot privacy strips image attachments and replaces tool images with text", () => {
