@@ -261,7 +261,10 @@ function ProjectPathChoiceDialog(props: {
         <Button
           variant={createNew() ? "secondary" : "ghost"}
           class="h-auto min-h-9 justify-start whitespace-normal text-left"
-          onClick={() => setCreateNew((value) => !value)}
+          onClick={() => {
+            setCreateNew((value) => !value)
+            setSelected([])
+          }}
         >
           {createNew() ? "✓ " : ""}Create a new project from selected path{props.paths.length > 1 ? "s" : ""}
         </Button>
