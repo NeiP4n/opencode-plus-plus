@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test"
 import path from "node:path"
+import { symlink } from "node:fs/promises"
 import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
@@ -151,6 +152,31 @@ describe("Plot", () => {
           plots.claim({ sessionID: session.id, directory, paths: Array.from({ length: 129 }, () => "src"), purpose: "too many" }),
         ),
       ).toContain("between 1 and 128")
+      expect(yield* plots.list(directory)).toEqual([])
+    }).pipe(Effect.scoped),
+  )
+
+  it.live("plot claims cannot follow a symlink outside the project", () =>
+    Effect.gen(function* () {
+      if (process.platform === "win32") return
+      const tmp = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-")))
+      const outside = yield* Effect.acquireDisposable(Effect.promise(() => tmpdir("opencode-plot-outside-")))
+      const plots = yield* Plot.Service
+      const sessions = yield* Session.Service
+      const directory = tmp.path
+      const session = yield* sessions.create({ location: { directory: AbsolutePath.make(directory) } })
+      yield* Effect.promise(() => symlink(outside.path, path.join(directory, "linked")))
+
+      expect(
+        yield* refusal(
+          plots.claim({
+            sessionID: session.id,
+            directory,
+            paths: ["linked"],
+            purpose: "attempted symlink escape",
+          }),
+        ),
+      ).toContain("must stay inside the project directory")
       expect(yield* plots.list(directory)).toEqual([])
     }).pipe(Effect.scoped),
   )
