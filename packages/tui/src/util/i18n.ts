@@ -88,6 +88,8 @@ const ruExtra: Record<string, string> = {
   "Privacy, network and command/file restrictions also constrain the host's AI. Guest-only restrictions apply to every remote role.": "Ограничения приватности, сети, команд и файлов также действуют на ИИ хоста. Ограничения для гостей применяются ко всем удалённым ролям.",
   "Privacy & visibility": "Приватность и видимость",
   "Guests see <project> instead of the folder on your computer.": "Гости видят <project> вместо папки на твоём компьютере.",
+  "Screenshots & images": "Скриншоты и изображения",
+  "Hides image attachments and screenshot payloads in guest history and live room events, without hiding ordinary text.": "Скрывает вложенные изображения и скриншоты в истории и событиях комнаты для гостей, не скрывая обычный текст.",
   "Execution details": "Детали выполнения",
   "Other guests cannot see raw tool inputs/outputs, shell commands or screenshots. The host alone handles approvals.": "Другие гости не видят исходные входы/выходы инструментов, shell-команды или скриншоты. Разрешения обрабатывает только хост.",
   "Sending out": "Отправка наружу",
