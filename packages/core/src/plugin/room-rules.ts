@@ -8,6 +8,8 @@ import { Effect } from "effect"
 import { Orchestra } from "../orchestra.js"
 import { Room } from "../room.js"
 import { Session } from "../session.js"
+import { Mcp } from "../mcp/index.js"
+import { McpTool } from "../tool/mcp.js"
 
 // Applies a room's rules to the host's own AI. The server applies them to guests' commands and to
 // what guests see; this covers the sessions the room shares, subagents included, wherever they run.
@@ -16,6 +18,7 @@ export const Plugin = define({
   effect: Effect.fn(function* (ctx) {
     const rooms = yield* Room.Service
     const sessions = yield* Session.Service
+    const mcp = yield* Mcp.Service
 
     const top = (sessionID: SessionID): Effect.Effect<SessionSchema.Info | undefined> =>
       Effect.gen(function* () {
@@ -46,8 +49,18 @@ export const Plugin = define({
           event.effect = "deny"
           event.message = message
         }
-        if (rules.noOutbound && RoomRules.outbound.includes(event.action))
-          return deny("This room does not let the AI send anything out")
+        if (rules.noOutbound) {
+          if (
+            RoomRules.outbound.includes(event.action) ||
+            event.action === "opencode_list_mcp_resources" ||
+            event.action === "opencode_read_mcp_resource"
+          )
+            return deny("This room does not let the AI send anything out")
+          // MCP actions are dynamically named after the configured server and tool, so a fixed
+          // action list would leave arbitrary connected services as an outbound escape hatch.
+          if ((yield* mcp.tools()).some((tool) => McpTool.name(tool.server, tool.name) === event.action))
+            return deny("This room does not let the AI send anything out")
+        }
         if (event.action === "shell") {
           // Shell commands can open arbitrary network connections that permission actions cannot see.
           // Fail closed: noOutbound disables shell execution rather than pretending command-name matching
