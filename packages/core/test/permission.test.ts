@@ -15,7 +15,7 @@ import { Project } from "@opencode/core/project"
 import { ProjectTable } from "@opencode/core/project/sql"
 import { AbsolutePath } from "@opencode/core/schema"
 import { Session } from "@opencode/core/session"
-import { SessionTable } from "@opencode/core/session/sql"
+import { SessionMessageTable, SessionTable } from "@opencode/core/session/sql"
 import { SessionStore } from "@opencode/core/session/store"
 import { ShellParse } from "@opencode/core/shell/parse"
 import { eq } from "drizzle-orm"
@@ -147,6 +147,152 @@ describe("Permission", () => {
       const blocked = yield* service.assert(assertion()).pipe(Effect.flip)
       expect(blocked).toBeInstanceOf(Permission.BlockedError)
       expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("AI program approvals are stored per room member, never as project-wide grants", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "shell", resource: "*", effect: "allow" }])
+      const sessionID = Session.ID.make("ses_test")
+      const rooms = yield* Room.Service
+      const room = yield* rooms.create({
+        sessionID,
+        rules: { noOutbound: false, blockCommands: ["git push*"] },
+      })
+      const phone = {
+        id: "guest_phone",
+        name: "Phone",
+        role: "cohost" as const,
+        joined: Date.now(),
+      }
+      const otherPhone = {
+        id: "guest_other_phone",
+        name: "Other Phone",
+        role: "cohost" as const,
+        joined: Date.now() + 1,
+      }
+      yield* rooms.saveMember(room.id, phone)
+      yield* rooms.saveMember(room.id, otherPhone)
+
+      // Store two room-authored user prompts, each followed by the assistant tool-call message
+      // whose Permission.Source identifies the triggering member.
+      const created = Date.now()
+      const messages = [
+        {
+          id: "msg_guest_phone",
+          session_id: sessionID,
+          type: "user" as const,
+          seq: 1,
+          time_created: created,
+          time_updated: created,
+          data: {
+            text: "Please run the repository command",
+            files: [],
+            agents: [],
+            skills: [],
+            time: { created },
+            metadata: { room: { id: room.id, guest: { id: phone.id, name: phone.name } } },
+          } as never,
+        },
+        {
+          id: "msg_ai_phone",
+          session_id: sessionID,
+          type: "assistant" as const,
+          seq: 2,
+          time_created: created + 1,
+          time_updated: created + 1,
+          data: {
+            agent: "build",
+            model: { id: "test-model", providerID: "test-provider" },
+            content: [],
+            time: { created: created + 1 },
+          } as never,
+        },
+        {
+          id: "msg_guest_other",
+          session_id: sessionID,
+          type: "user" as const,
+          seq: 3,
+          time_created: created + 2,
+          time_updated: created + 2,
+          data: {
+            text: "Please run the same repository command",
+            files: [],
+            agents: [],
+            skills: [],
+            time: { created: created + 2 },
+            metadata: { room: { id: room.id, guest: { id: otherPhone.id, name: otherPhone.name } } },
+          } as never,
+        },
+        {
+          id: "msg_ai_other",
+          session_id: sessionID,
+          type: "assistant" as const,
+          seq: 4,
+          time_created: created + 3,
+          time_updated: created + 3,
+          data: {
+            agent: "build",
+            model: { id: "test-model", providerID: "test-provider" },
+            content: [],
+            time: { created: created + 3 },
+          } as never,
+        },
+      ]
+      const { db } = yield* Database.Service
+      yield* db.insert(SessionMessageTable).values(messages as never).run().pipe(Effect.orDie)
+
+      const service = yield* Permission.Service
+      const bus = yield* Bus.Service
+      const waitForProgram = (sourceMessageID: string, id: string, guestName: string) =>
+        Effect.gen(function* () {
+          const asked = yield* Deferred.make<Permission.Request>()
+          const unsubscribe = yield* bus.listen((event) => {
+            if (event.type !== Permission.Event.Asked.type) return Effect.void
+            const request = event.data as Permission.Request
+            if (request.id !== Permission.ID.make(id)) return Effect.void
+            return Deferred.succeed(asked, request).pipe(Effect.asVoid)
+          })
+          yield* Effect.addFinalizer(() => unsubscribe)
+          const fiber = yield* service.assert(assertion({
+            id: Permission.ID.make(id),
+            sessionID,
+            action: "shell",
+            resources: ["git push origin main"],
+            source: { type: "tool", messageID: sourceMessageID, id: "tool_git_push" },
+          })).pipe(Effect.forkScoped)
+          const request = yield* Deferred.await(asked)
+          expect(request.action).toBe("room.program")
+          expect(request.resources).toEqual(["git"])
+          expect(request.metadata?.guest).toBe(guestName)
+          return { fiber, request }
+        })
+
+      const first = yield* waitForProgram("msg_ai_phone", "per_phone_program", "Phone")
+      yield* service.reply({ requestID: first.request.id, reply: "always" })
+      yield* Fiber.join(first.fiber)
+      expect((yield* rooms.member(room.id, phone.id))?.approvedPrograms).toEqual(["git"])
+      // Member approvals must not persist to PermissionSaved or the shared project's permission table.
+      expect(yield* (yield* PermissionSaved.Service).list()).toEqual([])
+      expect(yield* service.list()).toEqual([])
+
+      // Phone's grant lets Phone use git without another prompt.
+      yield* service.assert(assertion({
+        id: Permission.ID.make("per_phone_repeat"),
+        sessionID,
+        action: "shell",
+        resources: ["git push origin release"],
+        source: { type: "tool", messageID: "msg_ai_phone", id: "tool_git_push_repeat" },
+      }))
+      expect(yield* service.list()).toEqual([])
+
+      // The same program in another member's prompt must still require an independent host answer.
+      const second = yield* waitForProgram("msg_ai_other", "per_other_program", "Other Phone")
+      expect((yield* rooms.member(room.id, otherPhone.id))?.approvedPrograms).toBeUndefined()
+      yield* service.reply({ requestID: second.request.id, reply: "once" })
+      yield* Fiber.join(second.fiber)
+      expect((yield* rooms.member(room.id, otherPhone.id))?.approvedPrograms).toBeUndefined()
+      expect(yield* (yield* PermissionSaved.Service).list()).toEqual([])
     }),
   )
 
