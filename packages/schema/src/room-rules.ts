@@ -108,7 +108,7 @@ export function redactPath(text: string, directory: string) {
   // of the same absolute path, so literal case-sensitive replacement is not sufficient.
   const windowsPath = /^(?:[a-z]:[\\/]|\\\\)/i.test(directory)
   return variants.reduce((out, variant) => {
-    const escaped = variant.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")
+    const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     return out.replace(new RegExp(escaped, windowsPath ? "gi" : "g"), "<project>")
   }, text)
 }
