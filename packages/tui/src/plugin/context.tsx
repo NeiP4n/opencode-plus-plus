@@ -49,6 +49,7 @@ type RegisteredPlugin = {
   readonly id: string
   readonly source: "builtin" | "external"
   readonly active: boolean
+  readonly target?: string
 }
 
 type Value = {
@@ -605,6 +606,7 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
             id,
             source: plugin.source,
             active: plugin.active,
+            target: plugin.target,
           })),
         route: (id, name) => store.registrations[id]?.routes[name]?.render,
         slots: { register: registerSlot, resolved },
@@ -616,7 +618,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
             if (!changed) return false
             try {
               await config.update((draft) => {
-                draft.plugins = pluginDirective(draft.plugins, id, true)
+                const target = store.registrations[id]?.target ?? id
+                draft.plugins = pluginDirective(draft.plugins, target, true)
               })
               return true
             } catch (error) {
@@ -630,7 +633,8 @@ export function PluginProvider(props: ParentProps<{ packages: PackageSource; dir
             if (!changed) return false
             try {
               await config.update((draft) => {
-                draft.plugins = pluginDirective(draft.plugins, id, false)
+                const target = store.registrations[id]?.target ?? id
+                draft.plugins = pluginDirective(draft.plugins, target, false)
               })
               return true
             } catch (error) {
