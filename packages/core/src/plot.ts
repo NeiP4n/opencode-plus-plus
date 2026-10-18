@@ -158,6 +158,12 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
 
     return Service.of({
       claim: Effect.fn("Plot.claim")(function* (input) {
+        if (input.paths.length === 0 || input.paths.length > 128)
+          return yield* new TakenError({ message: "A plot must contain between 1 and 128 paths." })
+        if (input.paths.some((item) => item.length > 4096 || item.includes("\0")))
+          return yield* new TakenError({ message: "Plot paths must be shorter than 4096 characters and contain no NUL." })
+        if (input.purpose.length > 500)
+          return yield* new TakenError({ message: "Plot purpose must be 500 characters or fewer." })
         const directory = path.resolve(input.directory)
         const paths = input.paths.map((item) => path.resolve(directory, item))
         // Guests may choose paths only inside this project. Without this check, a ../ path
