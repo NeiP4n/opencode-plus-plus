@@ -279,6 +279,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
     }) {
       if (RoomRules.commandTouchesProtectedFile(input.room.rules, input.command))
         return yield* new ForbiddenError({ message: "This room keeps that file off limits to the AI" })
+      if (RoomRules.commandDisclosesSecrets(input.command))
+        return yield* new ForbiddenError({ message: "Commands that dump environment credentials or account tokens are blocked" })
       if (input.room.rules?.noOutbound !== false && RoomRules.commandSendsOutbound(input.command))
         return yield* new ForbiddenError({ message: "This room forbids commands that send data outside" })
       if (input.member.role === "trusted") return
