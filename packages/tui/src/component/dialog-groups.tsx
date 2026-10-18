@@ -8,6 +8,7 @@ import { useTheme } from "../context/theme"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useT } from "../util/i18n"
+import { Orchestra } from "@opencode/schema/orchestra"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
 
