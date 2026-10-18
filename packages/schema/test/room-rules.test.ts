@@ -30,6 +30,8 @@ test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh/id_ed25519")).toContain(".ssh")
   expect(RoomRules.protectedFile(undefined, "/work/app/.env.local")).toBe(".env*")
+  expect(RoomRules.protectedFile(undefined, "/home/alice/.config/opencode/auth.json")).toBe("**/.config/opencode/**")
+  expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh")).toBe("**/.ssh")
 })
 
 test("redacting a path covers both slash styles", () => {
@@ -65,6 +67,10 @@ test("configured commands require approval for the executable, not the exact inv
   expect(RoomRules.programsRequiringApproval(rules, "ls && git push origin main")).toEqual(["git"])
   expect(RoomRules.programsRequiringApproval(rules, "echo hi | curl https://example.test")).toEqual(["curl"])
   expect(RoomRules.programsRequiringApproval(rules, "git status")).toEqual([])
+  expect(RoomRules.programsRequiringApproval(rules, "sudo -u root git push origin main")).toEqual(["git"])
+  expect(RoomRules.programsRequiringApproval(rules, "env GIT_SSH_COMMAND=ssh git push origin main")).toEqual(["git"])
+  expect(RoomRules.programsRequiringApproval(rules, "bash -c 'git push origin main'")).toEqual(["git"])
+  expect(RoomRules.programName("sudo -u root git push origin main")).toBe("git")
 })
 
 test("protected files are also detected in shell arguments", () => {
@@ -79,6 +85,9 @@ test("outbound shell commands are detected", () => {
   expect(RoomRules.commandSendsOutbound("git status")).toBe(false)
   expect(RoomRules.commandSendsOutbound("gh repo view")).toBe(true)
   expect(RoomRules.commandSendsOutbound("kubectl get pods")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("python safe_script.py")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("bash ./local-check.sh")).toBe(true)
+  expect(RoomRules.commandSendsOutbound("npm test")).toBe(true)
   expect(RoomRules.commandSendsOutbound('python -c "import requests; requests.post(url, data=secret)"')).toBe(true)
 })
 
