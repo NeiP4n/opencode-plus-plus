@@ -468,8 +468,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           codes.record(room.id, { kind: "join", who: name })
           // The join payload itself is guest-visible; do not leak a project directory before
           // the guest even requests the room view.
-          const visibleRoom =
-            room.rules?.hidePaths && room.directory ? redactGuestData(room, room.directory) : room
+          const rules = yield* rulesForRoom(room)
+          const directory = room.directory ?? (yield* sessions.get(room.sessionID).pipe(Effect.option)).pipe(Option.map((session) => session.location.directory), Option.getOrUndefined)
+          const visibleRoom = rules?.hidePaths && directory ? redactGuestData(room, directory) : room
           return { ...issued, role: member.role, room: visibleRoom }
         }),
       )
@@ -1048,7 +1049,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const data = yield* atRoom(joined.room, Agent.Service.use((agents) => agents.list()))
           const directory = yield* roomDirectory(joined.room)
-          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
@@ -1061,7 +1063,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           )
           const data = servers.map((server) => ({ name: server.name, status: server.status.status }))
           const directory = yield* roomDirectory(joined.room)
-          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
@@ -1070,7 +1073,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const data = yield* atRoom(joined.room, Command.Service.use((commands) => commands.list()))
           const directory = yield* roomDirectory(joined.room)
-          return { data: joined.room.rules?.hidePaths ? redactGuestData(data, directory) : data }
+          const rules = yield* rulesForRoom(joined.room, directory)
+          return { data: rules?.hidePaths ? redactGuestData(data, directory) : data }
         }),
       )
       .handle(
