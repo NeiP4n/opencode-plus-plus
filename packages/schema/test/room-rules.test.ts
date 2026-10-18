@@ -136,6 +136,8 @@ test("strict outbound mode blocks connected account actions as well as web tools
   expect(RoomRules.outboundAction("git")).toBe(true)
   expect(RoomRules.outboundAction("read")).toBe(false)
   expect(RoomRules.localOnlyAction("read")).toBe(true)
+  expect(RoomRules.localOnlyAction("bash")).toBe(true)
+  expect(RoomRules.localOnlyAction("terminal")).toBe(true)
   expect(RoomRules.localOnlyAction("unknown_custom_tool")).toBe(false)
 })
 
