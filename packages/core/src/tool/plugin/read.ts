@@ -105,7 +105,7 @@ export const Plugin = {
               if (result.content.type === "list-page") {
                 const entries = result.content.entries.filter((entry) => {
                   const file = relative(location.directory, resolve(result.target.absolute, entry.path)).replaceAll("\\", "/")
-                  return !RoomRules.protectedFile(rules, file)
+                  return !rules || !RoomRules.protectedFile(rules, file)
                 })
                 result.content = new ReadToolFileSystem.ListPage({
                   ...result.content,
