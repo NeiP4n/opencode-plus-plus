@@ -673,7 +673,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             locationErrors,
             Effect.orDie,
           )
-          return { data: requests }
+          const data = joined.room.rules?.hidePaths
+            ? redactRoomValue(requests, [joined.room.directory ?? "", session.location.directory].filter(Boolean))
+            : requests
+          return { data }
         }),
       )
       .handle(
@@ -781,7 +784,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.dod.get",
         Effect.fn(function* (ctx) {
           const room = yield* rooms.get(ctx.params.roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
-          return yield* Dod.read(yield* roomDirectory(room), yield* live()).pipe(Effect.mapError(invalidDod))
+          const dod = yield* Dod.read(yield* roomDirectory(room), yield* live()).pipe(Effect.mapError(invalidDod))
+          return room.rules?.hidePaths && room.directory ? redactRoomValue(dod, [room.directory]) : dod
         }),
       )
       .handle(
@@ -936,7 +940,10 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.feed",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          const feed = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          return joined.room.rules?.hidePaths && joined.room.directory
+            ? redactRoomValue(feed, [joined.room.directory])
+            : feed
         }),
       )
       .handle(
@@ -962,12 +969,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = joined.room.directory
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
-          if (directory === undefined)
-            return { data: Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option)) }
+          if (directory === undefined) {
+            const data = Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option))
+            return {
+              data: joined.room.rules?.hidePaths ? redactRoomValue(data, [joined.room.directory ?? ""]) : data,
+            }
+          }
           const page = yield* sessions.list({ parentID: null, limit: SESSION_LIMIT })
           const data = page.data.filter((session) => Orchestra.contains(directory, session.location.directory))
           // The host's grouping, so a guest's tree shows the same categories as the host's.
-          return { data, category: yield* orchestra.categories(data.map((session) => session.id)) }
+          const visible = joined.room.rules?.hidePaths ? redactRoomValue(data, [directory]) : data
+          return { data: visible, category: yield* orchestra.categories(data.map((session) => session.id)) }
         }),
       )
       .handle(
@@ -979,14 +991,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           // A guest's new session runs on the room session's model, the one the host picked; left
           // unset it would fall to the first model in the host's catalog.
           const shared = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
+          const data = yield* sessions
+            .create({
+              title: ctx.payload.title?.trim() || undefined,
+              location: { directory: AbsolutePath.make(joined.room.directory) },
+              model: Option.getOrUndefined(shared)?.model,
+            })
+            .pipe(Effect.orDie)
           return {
-            data: yield* sessions
-              .create({
-                title: ctx.payload.title?.trim() || undefined,
-                location: { directory: AbsolutePath.make(joined.room.directory) },
-                model: Option.getOrUndefined(shared)?.model,
-              })
-              .pipe(Effect.orDie),
+            data: joined.room.rules?.hidePaths ? redactRoomValue(data, [joined.room.directory]) : data,
           }
         }),
       )
