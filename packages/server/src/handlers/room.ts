@@ -347,8 +347,11 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
       .handle(
         "room.remove",
         Effect.fn(function* (ctx) {
-          yield* rooms.remove(ctx.params.roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
-          yield* codes.forget(ctx.params.roomID)
+          const roomID = ctx.params.roomID
+          yield* rooms.get(roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
+          const members = yield* rooms.members(roomID)
+          yield* rooms.remove(roomID).pipe(Effect.catchTag("Room.NotFoundError", missingRoom))
+          yield* codes.forget(roomID, members.map((member) => member.id))
           return HttpApiSchema.NoContent.make()
         }),
       )
