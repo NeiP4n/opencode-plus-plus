@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anomalyco/opencode.git",
+    "url": "https://github.com/anomalyco/opencode.git",
     "directory": "packages/util"
   },
   "publishConfig": {
@@ -25,7 +25,7 @@
       "default": "./src/global-roots.ts"
     },
     "#runtime-import": {
-      "workerd": "./src/runtime/import.workerd.ts",
+      "workerd": "./src/runtime/import.bun.ts",
       "bun": "./src/runtime/import.bun.ts",
       "node": "./src/runtime/import.node.ts",
       "default": "./src/runtime/import.bun.ts"
@@ -48,7 +48,7 @@
     "@opentelemetry/context-async-hooks": "2.8.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.219.0",
     "@opentelemetry/resources": "2.8.0",
-    "@opentelemetry/sdk-logs": "2.8.0",
+    "@opentelemetry/sdk-logs": "0.219.0",
     "@opentelemetry/sdk-metrics": "2.8.0",
     "@opentelemetry/sdk-trace-base": "2.8.0",
     "@opentelemetry/sdk-trace-node": "2.8.0",
@@ -65,11 +65,11 @@
     "@tsconfig/bun": "catalog:",
     "@types/bun": "catalog:",
     "@types/cross-spawn": "catalog:",
-    "@types/node": "catalog:",
+    "@types/node": "24.12.2",
     "@types/npm-package-arg": "6.1.4",
     "@types/npmcli__arborist": "6.3.3",
     "@types/pacote": "11.1.8",
-    "@types/mime-types": "2.1.4",
+    "@types/mime-types": "3.0.1",
     "@typescript/native-preview": "catalog:"
   }
 }
