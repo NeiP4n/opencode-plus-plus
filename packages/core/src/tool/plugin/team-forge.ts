@@ -408,6 +408,18 @@ export const Plugin = {
             })
             .pipe(Effect.asVoid)
         },
+      }).add({
+        name: "forge-group",
+        description: "Configure a federation group of projects and their AI orchestration: [group name] [project IDs] [lead|council]",
+        execute: (input) =>
+          ctx.session
+            .prompt({
+              ...input.prompt,
+              sessionID: input.sessionID,
+              text: groupPrompt(input.prompt.text.trim()),
+              delivery: input.delivery,
+            })
+            .pipe(Effect.asVoid),
       }),
     )
 
@@ -451,6 +463,24 @@ export const Plugin = {
 
 
   }),
+}
+
+function groupPrompt(request: string) {
+  return [
+    "You are configuring one federation group of existing OpenCode projects for the operator.",
+    request ? `Operator request: ${request}` : "The operator did not provide a group name or project list yet. Ask one concise question for the group name, exact project IDs (or project names you can resolve confidently), and coordination mode.",
+    "",
+    "Workflow:",
+    "1. Inspect the current team registry with team_forge action=list and existing groups with federation action=groups. Reuse existing roles and teams wherever they fit.",
+    "2. Resolve every requested project to an exact project ID. Use federation action=peers from the current project when it can resolve names. Never invent IDs. If any requested project is ambiguous or unavailable, ask for clarification before mutating anything.",
+    "3. Determine the coordination mode from the operator's request: lead means one main coordinator (President); council means every project Orchestrator contributes to one shared chat (Общество). If not specified, ask rather than silently choosing.",
+    "4. Create only genuinely missing roles with team_forge action=role. Assign the minimum tools each role needs: reviewers are read-only and do not get edit/shell; research roles get only relevant research tools; build roles receive write tools only when needed. Do not grant all tools by default. Never create duplicate roles or teams.",
+    "5. If a reusable team template is needed for future project sessions, add it with team_forge action=team using exact role IDs and a clear playbook. Do not edit or delete existing roles/templates.",
+    "6. Once the group name, exact project IDs and mode are confirmed, call federation action=set_group with those projects in the requested order and the selected mode. Do not call link_group unless the operator explicitly asks to enable cross-project links; linking affects communication policy.",
+    "7. Report the saved group, selected mode, projects, roles/templates added, and any limitations. Existing projects retain their own rules, permissions, and approvals. A group chat coordinates work; it does not gain permission to access project files or bypass member approvals.",
+    "",
+    "Do not create project records or directories unless the operator explicitly supplies the directories and asks for new projects. If required details are missing, ask before making changes.",
+  ].join("\\n")
 }
 
 function prompt(count: number, focus: string) {
