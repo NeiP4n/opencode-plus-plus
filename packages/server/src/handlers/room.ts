@@ -728,12 +728,13 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, undefined)
           const directory = joined.room.directory ?? session.location.directory
+          const rules = yield* effectiveRules(joined.room, directory)
           const held = yield* plots.list(directory)
           const passport = Passport.read(directory)
           return {
             ...passport,
             // A room that hides paths shows guests "<project>" where the host's directory would be.
-            project: joined.room.rules?.hidePaths
+            project: rules?.hidePaths
               ? { ...passport.project, directory: RoomRules.redactPath(passport.project.directory, directory) }
               : passport.project,
             plots: held.map((plot) => ({
@@ -996,12 +997,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const directory = joined.room.directory
+          const root = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
+          const ruleDirectory = directory ?? Option.getOrUndefined(root)?.location.directory
+          const rules = ruleDirectory ? yield* effectiveRules(joined.room, ruleDirectory) : joined.room.rules
           // A room whose session the host deleted lists nothing rather than failing the guest's screen.
           if (directory === undefined) {
             const data = Option.toArray(yield* sessions.get(joined.room.sessionID).pipe(Effect.option))
             const directories = [joined.room.directory ?? "", ...data.map((item) => item.location.directory)].filter(Boolean)
             return {
-              data: joined.room.rules?.hidePaths ? redactRoomValue(data, directories) : data,
+              data: rules?.hidePaths ? redactRoomValue(data, directories) : data,
             }
           }
           const all: Session.Info[] = []
@@ -1021,7 +1025,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           const data = all.filter((session) => Orchestra.contains(directory, session.location.directory))
           // The host's grouping, so a guest's tree shows the same categories as the host's.
-          const visible = joined.room.rules?.hidePaths ? redactRoomValue(data, [directory]) : data
+          const visible = rules?.hidePaths ? redactRoomValue(data, [directory]) : data
           return { data: visible, category: yield* orchestra.categories(data.map((session) => session.id)) }
         }),
       )
@@ -1033,6 +1037,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new InvalidRequestError({ message: "This room shares one session; the host starts others" })
           // A guest's new session runs on the room session's model, the one the host picked; left
           // unset it would fall to the first model in the host's catalog.
+          const rules = yield* effectiveRules(joined.room, joined.room.directory)
           const shared = yield* sessions.get(joined.room.sessionID).pipe(Effect.option)
           const data = yield* sessions
             .create({
@@ -1042,7 +1047,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             })
             .pipe(Effect.orDie)
           return {
-            data: joined.room.rules?.hidePaths ? redactRoomValue(data, [joined.room.directory]) : data,
+            data: rules?.hidePaths ? redactRoomValue(data, [joined.room.directory]) : data,
           }
         }),
       )
@@ -1050,8 +1055,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.model.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            data: yield* atRoom(
+          const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
+          const data = yield* atRoom(
               joined.room,
               Model.Service.use((models) => models.available()),
             ),
@@ -1062,8 +1068,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.agent.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            data: yield* atRoom(
+          const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
+          const data = yield* atRoom(
               joined.room,
               Agent.Service.use((agents) => agents.list()),
             ),
@@ -1085,8 +1092,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         "room.guest.command.list",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return {
-            data: yield* atRoom(
+          const directory = yield* roomDirectory(joined.room)
+          const rules = yield* effectiveRules(joined.room, directory)
+          const data = yield* atRoom(
               joined.room,
               Command.Service.use((commands) => commands.list()),
             ),
