@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: ${{ case(github.ref == 'refs/heads/dev', format('{0}-{1}', github.workflow, github.run_id), format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref)) }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_name != 'lan-rooms' && github.base_ref != 'lan-rooms' }}
 
 jobs:
   check:
