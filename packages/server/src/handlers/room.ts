@@ -51,6 +51,7 @@ const CHAT_LIMIT = 100
 function guestSessionMessage(
   message: SessionMessage.Info,
   hideExecution: boolean,
+  hideScreenshots: boolean,
 ): SessionMessage.Info | undefined {
   // Never expose model-facing system, synthetic, skill or compaction messages to room guests.
   if (message.type === "user") {
@@ -70,10 +71,13 @@ function guestSessionMessage(
             },
           }
         : undefined
-    return { ...message, files: [], agents: [], skills: [], metadata }
+    return RoomRules.sanitizeScreenshots(
+      { ...message, files: [], agents: [], skills: [], metadata },
+      hideScreenshots,
+    )
   }
   if (message.type === "assistant") {
-    return {
+    const visible = {
       id: message.id,
       type: message.type,
       agent: message.agent,
@@ -86,8 +90,11 @@ function guestSessionMessage(
         ? { error: { type: "provider.rate-limit", message: "Rate limit reached" } }
         : {}),
     }
+    return RoomRules.sanitizeScreenshots(visible as SessionMessage.Info, hideScreenshots)
   }
-  if (message.type === "shell") return hideExecution ? undefined : message
+  if (message.type === "shell") {
+    return hideExecution ? undefined : RoomRules.sanitizeScreenshots(message, hideScreenshots)
+  }
   return undefined
 }
 
@@ -744,7 +751,7 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const page = yield* messagePage(sessions, session.id, ctx.query)
           const rules = yield* effectiveRules(joined.room, session.location.directory)
           const data = page.data.flatMap((message) => {
-            const visible = guestSessionMessage(message, !!rules?.hideExecution)
+            const visible = guestSessionMessage(message, !!rules?.hideExecution, !!rules?.hideScreenshots)
             return visible ? [visible] : []
           })
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
@@ -794,7 +801,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
                 Effect.gen(function* () {
                   const current = yield* effectiveRules(joined.room, session.location.directory)
                   if (hiddenRoomEvent(event, !!current?.hideExecution)) return undefined
-                  return current?.hidePaths ? redactRoomValue(event, directories) : event
+                  const pathSafe = current?.hidePaths ? redactRoomValue(event, directories) : event
+                  return RoomRules.sanitizeScreenshots(pathSafe, !!current?.hideScreenshots)
                 }),
               ),
               Stream.filter((event) => event !== undefined),
