@@ -272,6 +272,54 @@ it.live("noOutbound refuses guest shell execution even for a cohost", () =>
   }).pipe(Effect.scoped),
 )
 
+it.live("denyGuestCommands blocks shell execution even for a cohost", () =>
+  Effect.gen(function* () {
+    const { call, room, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { denyGuestCommands: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { command: "echo should-not-run" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("does not allow guest command execution")
+  }).pipe(Effect.scoped),
+)
+
+it.live("denyGuestPrompts blocks guest messages before they reach the host AI", () =>
+  Effect.gen(function* () {
+    const { call, room, code, session } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { denyGuestPrompts: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const result = yield* call(`/api/room/${room.id}/guest/prompt`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${joined.body.token}` },
+      body: { sessionID: session.id, id: "msg_blocked_guest_prompt", text: "run this task" },
+    })
+    expect(result.status).toBe(403)
+    expect(result.body.message).toContain("does not allow guests to prompt")
+  }).pipe(Effect.scoped),
+)
+
 it.live("guest commands inherit stricter rules from another room sharing the session", () =>
   Effect.gen(function* () {
     const { call, session, room, code } = yield* setup
