@@ -21,25 +21,17 @@ const ZEN_REQUIRED_TOOLS = [
   ["grep", "Search file contents.", { type: "object", properties: { pattern: { type: "string" } }, required: ["pattern"] }],
 ] as const
 
-/**
- * Applies only transport-level compatibility required by a provider. Compatibility schemas do not
- * grant execution permission: the caller's real Tool.Snapshot remains the sole executor.
- */
+/** Provider transport compatibility only; it never grants tool execution permission. */
 export function prepare(input: CompatibilityInput): CompatibilityOutput {
   const existing = input.tools ?? []
   if (input.providerID !== "opencode") return { tools: existing, toolChoice: input.toolChoice }
-
   const names = new Set(existing.map((tool) => tool.name))
   const tools = [...existing]
   for (const [name, description, inputSchema] of ZEN_REQUIRED_TOOLS) {
-    if (names.has(name)) continue
-    tools.push({ name, description, inputSchema })
+    if (!names.has(name)) tools.push({ name, description, inputSchema })
   }
-
   return {
     tools,
-    // A stateless generation never has a local executor, so compatibility schemas are advertised
-    // without allowing the model to call them. Normal session requests preserve the real toolChoice.
     toolChoice: input.stateless ? "none" : input.toolChoice,
   }
 }
