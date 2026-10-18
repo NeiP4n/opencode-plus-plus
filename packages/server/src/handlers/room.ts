@@ -738,6 +738,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestWho(ctx.params.roomID, "member")
           const session = yield* inRoom(joined.room, ctx.payload.sessionID)
+          const rules = yield* effectiveRules(joined.room, session.location.directory)
+          if (rules?.denyGuestPrompts)
+            return yield* new ForbiddenError({ message: "This room does not allow guests to prompt the host's AI" })
           if (ctx.payload.text.trim() === "")
             return yield* new InvalidRequestError({ message: "Message is empty", field: "text" })
           const hostName = joined.room.hostName?.trim() || hostname()
@@ -852,6 +855,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
           let rules = yield* effectiveRules(joined.room, session.location.directory)
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
+          if (rules?.denyGuestCommands)
+            return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           // noOutbound is fail-closed: arbitrary shell commands can exfiltrate data even when
           // they do not match a configured blockCommands pattern.
           if (rules?.noOutbound)
@@ -881,6 +886,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           // Rules may have changed while the host was deciding whether to approve the command.
           rules = yield* effectiveRules(joined.room, session.location.directory)
+          if (rules?.denyGuestCommands)
+            return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           if (RoomRules.protectedFileInCommand(rules, command))
@@ -1029,6 +1036,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const owner = ownerOf(joined.member)
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
+          if (rules?.denyGuestCommands)
+            return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
@@ -1057,6 +1066,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           // Rules may have changed while the host was deciding whether to approve the check.
           rules = yield* effectiveRules(joined.room, directory)
+          if (rules?.denyGuestCommands)
+            return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           if (RoomRules.protectedFileInCommand(rules, command))
