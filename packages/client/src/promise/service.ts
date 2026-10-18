@@ -90,7 +90,6 @@ export async function ensure(options: EnsureOptions = {}): Promise<Endpoint> {
 
       if (service !== undefined) {
         pool.serviceAnswered()
-        const service = registration.service
         const decision = decide(service, options)
         if (decision._tag === "fail") throw decision.error
         if (decision._tag === "reuse") {
