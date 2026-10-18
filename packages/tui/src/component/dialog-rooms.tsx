@@ -1415,8 +1415,8 @@ export function DialogRoomRules(props: { roomID: string; name: string; onClose?:
           label={t("Sending out")}
           help={t("The room's AI cannot make web requests, control the desktop, launch playtest apps, or message other computers and projects.")}
         >
-          <Button onClick={() => save({ noOutbound: !rules().noOutbound })}>
-            {rules().noOutbound ? t("Forbidden") : t("Allowed")}
+          <Button onClick={() => save({ noOutbound: rules().noOutbound === false })}>
+            {rules().noOutbound === false ? t("Allowed") : t("Forbidden")}
           </Button>
         </Setting>
         <Section title={t("Guest permissions")} />
