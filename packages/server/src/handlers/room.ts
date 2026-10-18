@@ -581,10 +581,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             .messages({ sessionID: session.id, limit: CHAT_LIMIT, order: "desc" })
             .pipe(Effect.catchTag("Session.NotFoundError", missingSession), Effect.orDie)
           const note = yield* boundNote(session.id)
+          const directory = joined.room.directory ?? session.location.directory
+          const data = messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname()))
           return {
-            data: messages.toReversed().flatMap((message) => chatMessage(message, joined.room.hostName?.trim() || hostname())),
+            data: joined.room.rules?.hidePaths
+              ? data.map((message) => ({ ...message, text: RoomRules.redactPath(message.text, directory) }))
+              : data,
             running: (yield* sessions.active).has(session.id),
-            note: note && { name: note.name, title: note.frontmatter.title || note.name },
+            note: note && {
+              name: note.name,
+              title: joined.room.rules?.hidePaths ? RoomRules.redactPath(note.frontmatter.title || note.name, directory) : note.frontmatter.title || note.name,
+            },
           }
         }),
       )
@@ -704,6 +711,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           // The room's rules come before any role: not even a Trusted guest runs a forbidden command.
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
+          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          if (protectedFile) return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           // A host assigns Trusted per device when its commands should run unattended.
           // Everyone else, including ordinary cohosts, still gets the usual confirmation.
           if (joined.member.role !== "trusted") {
@@ -722,10 +731,17 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             )
           }
           codes.record(joined.room.id, { kind: "run", who: joined.member.name, detail: command })
-          return yield* Effect.tryPromise({
+          const directory = joined.room.directory ?? session.location.directory
+          const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, session.location.directory, signal),
-            catch: (error) => new InvalidRequestError({ message: `Could not run the command: ${String(error)}` }),
+            catch: (error) =>
+              new InvalidRequestError({
+                message: `Could not run the command: ${joined.room.rules?.hidePaths ? RoomRules.redactPath(String(error), directory) : String(error)}`,
+              }),
           })
+          return joined.room.rules?.hidePaths
+            ? { ...result, output: RoomRules.redactPath(result.output, directory) }
+            : result
         }),
       )
       .handle(
@@ -829,6 +845,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(invalidDod))
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
+          const protectedFile = RoomRules.protectedFileInCommand(joined.room.rules, command)
+          if (protectedFile) return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           // Normal guests need approval for each check because dod.yaml can change under the host.
           // Trusted members were explicitly admitted for unattended work.
@@ -863,20 +881,33 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }).pipe(Effect.mapError(invalidDod))
           const passed = result.exitCode === 0
           if (passed) yield* freeDodPlots(directory, id)
+          const visibleOutput = joined.room.rules?.hidePaths ? RoomRules.redactPath(result.output, directory) : result.output
           codes.record(joined.room.id, {
             kind: passed ? "pass" : "fail",
             who: owner.name,
             item: id,
-            ...(passed ? {} : { detail: outputSummary(result.output, result.exitCode).slice(0, 120) }),
+            ...(passed
+              ? {}
+              : {
+                  detail: outputSummary(visibleOutput, result.exitCode).slice(0, 120),
+                }),
           })
-          return { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output: result.output } }
+          return { ...forGuest(dod, joined.member), check: { exitCode: result.exitCode, output: visibleOutput } }
         }),
       )
       .handle(
         "room.guest.feed",
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
-          return yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          const feed = yield* codes.feed(joined.room.id, ctx.query.after ?? 0, ctx.query.wait)
+          if (!joined.room.rules?.hidePaths) return feed
+          const directory = yield* roomDirectory(joined.room)
+          return {
+            ...feed,
+            events: feed.events.map((event) =>
+              event.detail === undefined ? event : { ...event, detail: RoomRules.redactPath(event.detail, directory) },
+            ),
+          }
         }),
       )
       .handle(
