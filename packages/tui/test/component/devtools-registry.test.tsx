@@ -1,9 +1,15 @@
 /** @jsxImportSource @opentui/solid */
 import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
+import { createSignal } from "solid-js"
 import { Hub } from "@opencode/core/hub/index"
 import { HubState } from "@opencode/core/hub/state"
-import { RegistryPanel, type AiToolsAccess, type RegistryPanelOptions } from "../../src/component/devtools-registry"
+import {
+  RegistryPanel,
+  type AiToolsAccess,
+  type RegistryPanelOptions,
+  type RegistryPluginsAccess,
+} from "../../src/component/devtools-registry"
 import { ConfigProvider } from "../../src/config"
 import { Keymap } from "../../src/context/keymap"
 import { ThemeProvider } from "../../src/context/theme"
@@ -20,7 +26,11 @@ const registryManager: Hub.Manager =
   process.platform === "win32" ? "winget" : process.platform === "darwin" ? "brew" : "apt"
 
 async function render(
-  options: RegistryPanelOptions & { onShell?: (shell: string) => void; aiTools?: AiToolsAccess },
+  options: RegistryPanelOptions & {
+    onShell?: (shell: string) => void
+    aiTools?: AiToolsAccess
+    plugins?: RegistryPluginsAccess
+  },
 ) {
   const app = await testRender(
     () => (
@@ -29,7 +39,7 @@ async function render(
           <ThemeProvider mode="dark" source={emptyThemeSource}>
             <Keymap.Provider>
               <ToastProvider>
-                <RegistryPanel options={options} onShell={options.onShell} aiTools={options.aiTools} />
+                <RegistryPanel options={options} onShell={options.onShell} aiTools={options.aiTools} plugins={options.plugins} />
                 <Toast />
               </ToastProvider>
             </Keymap.Provider>
@@ -79,6 +89,43 @@ test("registry panel shows readiness, terminals and a paged tool list", async ()
     expect(frame).toContain(status.tools[0].tool)
     expect(app.captureCharFrame()).toContain("Install")
     expect(app.captureCharFrame()).toContain("Remove")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("Registry Plugins tab toggles built-ins through the plugin lifecycle", async () => {
+  await using tmp = await tmpdir()
+  const calls: string[] = []
+  const [active, setActive] = createSignal(true)
+  const plugins: RegistryPluginsAccess = {
+    registered: () => [
+      { id: "test.builtin", source: "builtin", active: active() },
+      { id: "opencode.plugins", source: "builtin", active: true },
+    ],
+    list: () => [{ id: "test.builtin", target: "test.builtin", status: active() ? "active" : "inactive" }],
+    activate: async (id) => {
+      calls.push(`enable:${id}`)
+      setActive(true)
+      return true
+    },
+    deactivate: async (id) => {
+      calls.push(`disable:${id}`)
+      setActive(false)
+      return true
+    },
+  }
+  const app = await render({ probe, manager: registryManager, directory: tmp.path, plugins })
+  try {
+    const tab = app.captureCharFrame().split("\n").map((line, y) => ({ line, y })).find((item) => item.line.includes("Plugins"))
+    expect(tab).toBeDefined()
+    await app.mockMouse.click(tab!.line.indexOf("Plugins"), tab!.y)
+    await app.waitForFrame((frame) => frame.includes("test.builtin") && frame.includes("Disable"))
+    expect(app.captureCharFrame()).not.toContain("opencode.plugins")
+    const { x, y } = cell(app, "test.builtin", "Disable")
+    await app.mockMouse.click(x, y)
+    await app.waitForFrame((frame) => frame.includes("test.builtin") && frame.includes("Enable"))
+    expect(calls).toEqual(["disable:test.builtin"])
   } finally {
     app.renderer.destroy()
   }
