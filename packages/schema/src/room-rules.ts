@@ -442,7 +442,10 @@ export function redactPaths<T>(value: T, directory: string): T {
     // Preserve Date/DateTime and other non-DTO values; API payloads are plain objects.
     if (prototype !== Object.prototype && prototype !== null) return value
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, redactPaths(item, directory)]),
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        redactPath(key, directory),
+        redactPaths(item, directory),
+      ]),
     ) as T
   }
   return value
