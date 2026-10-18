@@ -16,6 +16,8 @@ export interface PermissionEvaluation {
   message?: string
   // Internal-only controls used to offer a room-member-specific "Always allow" grant.
   save?: ReadonlyArray<string>
+  // Prevent permission decisions for this request from being persisted/shared as project grants.
+  scoped?: boolean
   onAlways?: () => Effect.Effect<void>
 }
 
