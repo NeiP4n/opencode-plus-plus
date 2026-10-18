@@ -237,6 +237,18 @@ export function protectedFile(rules: Rules | undefined, file: string) {
   })
 }
 
+// Environment and credential dumps are forbidden even when outbound access is explicitly enabled.
+// Remote commands must not be able to print the host's account tokens or process environment.
+export function commandLeaksCredentials(command: string) {
+  return (
+    /\b(env|printenv)\b/i.test(command) ||
+    /(?:^|[;&|()\s])set(?:\s|$)/i.test(command) ||
+    /\b(?:get-childitem|gci)\s+env:/i.test(command) ||
+    /\$env:[A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential|private[_-]?key)/i.test(command) ||
+    /\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i.test(command)
+  )
+}
+
 // Conservatively detect protected paths directly mentioned in shell commands.
 // This does not replace OS-level sandboxing for indirect access via scripts or aliases.
 export function protectedFileInCommand(rules: Rules | undefined, command: string) {
