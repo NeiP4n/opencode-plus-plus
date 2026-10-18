@@ -1335,11 +1335,15 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           }
           const all: Session.Info[] = []
           let anchor: { id: Session.ID; time: number; direction: "next" } | undefined
+          // Bound pagination to the room's project. Fetching every session on the server and
+          // filtering afterward grows with unrelated projects and can stall large room trees.
+          const projectID = Option.getOrUndefined(root)?.projectID
           for (;;) {
             const page = yield* sessions.list({
               parentID: null,
               limit: SESSION_LIMIT,
               order: "desc",
+              ...(projectID ? { project: projectID } : {}),
               ...(anchor ? { anchor } : {}),
             })
             all.push(...page.data)
