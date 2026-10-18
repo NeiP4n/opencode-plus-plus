@@ -888,7 +888,6 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new ForbiddenError({ message: "This room keeps that file off limits" })
           const blocked = RoomRules.blockedCommand(joined.room.rules, command)
           if (blocked) return yield* new ForbiddenError({ message: `This room forbids commands like "${blocked}"` })
-          if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           // Normal guests need approval for each check because dod.yaml can change under the host.
           // Trusted members were explicitly admitted for unattended work.
           const session = yield* inRoom(joined.room, undefined)
@@ -908,6 +907,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               Effect.mapError(() => new ForbiddenError({ message: "The host did not allow this check" })),
             )
           }
+          // A denied command must not leave guest-supplied content in the host's handover notes.
+          if (ctx.payload.handover?.trim()) yield* writeHandover(joined.room, id, owner.name, ctx.payload.handover)
           const result = yield* Effect.tryPromise({
             try: (signal) => Passport.run(command, directory, signal),
             catch: (error) =>
