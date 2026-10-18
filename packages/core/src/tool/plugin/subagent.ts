@@ -167,9 +167,6 @@ export const Plugin = {
                   message: `Session ${existing.id} is not a child of the current session`,
                 })
               const override = input.model === undefined ? undefined : yield* resolveModel(input.model)
-              // Agent configurations may contain old model defaults. Never let a
-              // background/agent switch silently replace the model selected by the
-              // current session. A model changes here only when explicitly requested.
               const configuredParentModel = parent.model
               if (existing !== undefined) {
                 const switched = existing.agent !== agent.id
