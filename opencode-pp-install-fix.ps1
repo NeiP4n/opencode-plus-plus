@@ -137,8 +137,7 @@ try {
   $ExistingTuiLink = Get-Item -LiteralPath $TuiLink -Force -ErrorAction SilentlyContinue
   if ($ExistingTuiLink) {
     if ($ExistingTuiLink.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-      & cmd.exe /d /c rmdir "`"$TuiLink`""
-      if ($LASTEXITCODE -ne 0) { throw "Could not remove the existing @opencode/tui link." }
+      Remove-Item -LiteralPath $TuiLink -Force -ErrorAction Stop
     } else {
       Remove-Item -LiteralPath $TuiLink -Force -Recurse -ErrorAction Stop
     }
@@ -151,7 +150,7 @@ try {
   }
 
   # The updater bootstrap must not import @opencode/tui at all.
-  $Preflight = Join-Path $Source "packages\\cli\\src\\services\\update-preflight.tsx"
+  $Preflight = Join-Path (Join-Path (Join-Path (Join-Path $Source "packages") "cli") "src") "services\\update-preflight.tsx"
   if ((Get-Content -Raw -LiteralPath $Preflight) -match '@opencode/tui') {
     throw "The checked-out update-preflight.tsx still imports @opencode/tui; refusing to install a known-broken bootstrap."
   }
