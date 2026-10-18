@@ -75,8 +75,8 @@ export const Plugin = define({
           event.effect = "deny"
           event.message = message
         }
-        if (rules.noOutbound && RoomRules.outboundAction(event.action))
-          return deny("This room does not let the AI send anything out")
+        if (rules.noOutbound && (RoomRules.outboundAction(event.action) || !RoomRules.localOnlyAction(event.action)))
+          return deny("This room blocks external, connected-account and unrecognized tools")
         if (event.action === "shell") {
           const command = event.resources.join("\\n")
           if (rules.noOutbound && RoomRules.commandSendsOutbound(command))
