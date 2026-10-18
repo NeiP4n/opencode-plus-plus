@@ -225,7 +225,21 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         }),
       guard: Effect.fn("Plot.guard")(function* (input) {
         if (input.files.length === 0) return
-        for (const { plot, folder } of yield* live(input.files)) {
+        const session = yield* root(input.sessionID)
+        if (!session) return
+        const directory = path.resolve(session.location.directory)
+        const files = input.files.map((file) => path.resolve(directory, file))
+        const outside = files.some((file) => {
+          const relative = path.relative(directory, file)
+          return relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)
+        })
+        const contained = !outside && (yield* Effect.tryPromise({
+          try: () => pathsInside(directory, files),
+          catch: () => false,
+        }))
+        if (!contained)
+          return yield* new TakenError({ message: "Plot paths must stay inside the project directory." })
+        for (const { plot, folder } of yield* live(files)) {
           const touched = input.files.some((file) => plot.paths.some((held) => covers(held, file)))
           if (!touched) continue
           if (!(yield* holds(plot, input.sessionID))) return yield* taken(plot)
