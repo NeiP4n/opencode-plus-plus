@@ -1,3 +1,4 @@
+import type { Effect } from "effect"
 import type { PermissionApi } from "@opencode/client/effect/api"
 import type { Agent } from "@opencode/schema/agent"
 import type { Permission } from "@opencode/schema/permission"
@@ -13,6 +14,9 @@ export interface PermissionEvaluation {
   readonly source?: Permission.Source
   effect: Permission.Effect
   message?: string
+  // Internal-only controls used to offer a room-member-specific "Always allow" grant.
+  save?: ReadonlyArray<string>
+  onAlways?: () => Effect.Effect<void>
 }
 
 export interface PermissionHooks {
