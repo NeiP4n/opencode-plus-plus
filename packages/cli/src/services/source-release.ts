@@ -37,19 +37,40 @@ export async function apply(release: string, root = checkout) {
 
 export type Kept = { readonly type: "restored" } | { readonly type: "stashed"; readonly files: readonly string[] }
 
+/**
+ * Preserve tracked source edits while updating, but never stash untracked runtime state.
+ * .opencode/index, caches, leases, failed batches and similar files are intentionally
+ * local runtime data and must survive an update in place rather than being replayed by
+ * `git stash pop`. Replaying those files is what caused /upgrade to report a huge list of
+ * conflicts after a successful update.
+ */
 export async function keepingEdits(root: string, move: () => Promise<void>): Promise<Kept | undefined> {
-  if (!(await $`git -C ${root} status --porcelain`.quiet().text()).trim()) {
+  // Only tracked modifications belong to the source checkout. Untracked files are left
+  // untouched; in particular this prevents runtime-generated .opencode files from entering
+  // the update stash.
+  const trackedChanges = (await $`git -C ${root} status --porcelain --untracked-files=no`.quiet().text()).trim()
+  if (!trackedChanges) {
     await move()
     return undefined
   }
+
   const label = `opencode-pp update ${new Date().toISOString()}`
-  await $`git -C ${root} stash push --include-untracked --message ${label}`.quiet()
-  await move().catch(async (error) => {
+  await $`git -C ${root} stash push --message ${label}`.quiet()
+  try {
+    await move()
+  } catch (error) {
     await $`git -C ${root} stash pop`.quiet().nothrow()
     throw error
-  })
+  }
+
   if ((await $`git -C ${root} stash pop`.quiet().nothrow()).exitCode === 0) return { type: "restored" }
-  const files = (await $`git -C ${root} stash show --include-untracked --name-only ${"stash@{0}"}`.quiet().nothrow().text()).split("\n").map((line) => line.trim()).filter(Boolean)
+
+  const files = (
+    await $`git -C ${root} stash show --name-only ${"stash@{0}"}`.quiet().nothrow().text()
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
   await $`git -C ${root} reset --hard --quiet`.quiet()
   return { type: "stashed", files }
 }
@@ -131,8 +152,6 @@ async function validateServer(root: string) {
   }
 }
 
-// A source update is transactional: never leave a checkout on new code whose dependencies
-// or server typecheck failed. This prevents /upgrade from starting a broken mixed-version server.
 export async function pull(root = checkout) {
   const previous = (await $`git -C ${root} rev-parse HEAD`.quiet().text()).trim()
   if (!previous) throw new Error("Cannot determine the current checkout revision")
