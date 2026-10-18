@@ -651,8 +651,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
         Effect.fn(function* (ctx) {
           const joined = yield* guestOf(ctx.params.roomID)
           const session = yield* inRoom(joined.room, ctx.query.sessionID)
-          const rules = yield* effectiveRules(joined.room, session.location.directory)
           const page = yield* messagePage(sessions, session.id, ctx.query)
+          const rules = yield* effectiveRules(joined.room, session.location.directory)
           const data = page.data.flatMap((message) => {
             const visible = guestSessionMessage(message, !!rules?.hideExecution)
             return visible ? [visible] : []
