@@ -51,10 +51,11 @@ describe("exit IP trace", () => {
 describe("OpenCode-only proxy", () => {
   test("only points at loopback and bypasses local endpoints", () => {
     const config = proxyConfig()
-    expect(config.http).toBe("http://127.0.0.1:40001")
+    expect(config.http).toBe("http://127.0.0.1:40000")
     expect(config.no_proxy).toEqual(["localhost", "127.0.0.1", "::1"])
     expect(isWarpProxy(config)).toBe(true)
-    expect(proxyConfig(40000).http).toBe("http://127.0.0.1:40000")
+    expect(proxyConfig(40001).http).toBe("http://127.0.0.1:40001")
+    expect(isWarpProxy(proxyConfig(40001), 40001)).toBe(true)
     expect(isWarpProxy({ http: "http://corp:8080", https: "http://corp:8080" })).toBe(false)
     expect(proxyUrl(1080)).toBe("http://127.0.0.1:1080")
   })
