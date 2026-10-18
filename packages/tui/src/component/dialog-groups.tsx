@@ -195,9 +195,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
                 </text>
               </box>
               <Button onClick={() => edit(group.name, group.projects, group.mode ?? "lead")}>{t("Edit")}</Button>
-              <Button onClick={() => void startSupervisor(group)}>
-                {opening() === group.name ? t("Creating...") : group.mode === "council" ? "Общество" : "President"}
-              </Button>
               <Button onClick={() => link(group.name)}>{t("Link all")}</Button>
               <Button onLeave={() => setArmed()} onClick={() => remove(group.name)}>{armed() === group.name ? t("Delete?") : t("Delete")}</Button>
             </box>
