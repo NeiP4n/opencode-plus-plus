@@ -8,6 +8,7 @@ import { useTheme } from "../context/theme"
 import { useToast } from "../ui/toast"
 import { errorMessage } from "../util/error"
 import { useGroupT } from "../util/i18n-groups"
+import { createTaskQueue } from "../util/task-queue"
 import { Button } from "./devtools-registry"
 import { Header } from "./dialog-rooms"
 
@@ -75,10 +76,14 @@ export function DialogGroups(props: { onClose?: () => void }) {
     act(() => client.api.orchestra.group.remove({ name }))
   }
 
-  const startSupervisor = async (
-    group: { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" },
-    openAfterCreate = true,
-  ) => {
+  type GroupToStart = { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }
+
+  // Multiple reactive paths can request the same group chat at once (Save and the
+  // auto-repair effect). Deduplicate per group and serialize creation so a transient
+  // "another group is opening" state never silently drops a chat-creation request.
+  const supervisorTasks = createTaskQueue<string>()
+
+  const createSupervisor = async (group: GroupToStart, openAfterCreate = true) => {
     const mode = group.mode ?? "lead"
     const existing = supervisorOf(group)
     if (existing) {
@@ -88,7 +93,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
       }
       return
     }
-    if (opening()) return
     const leaderID = group.projects[0]
     const leader = projects.list().find((project) => project.id === leaderID)
     if (!leaderID || !leader) {
@@ -145,6 +149,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
       setOpening(undefined)
     }
   }
+
+  const startSupervisor = (group: GroupToStart, openAfterCreate = true): Promise<void> =>
+    supervisorTasks.run(group.name, () => createSupervisor(group, openAfterCreate))
 
   // Groups created by the AI command or another client also get their
   // mode-specific chat automatically when this view is opened. Remember failed
