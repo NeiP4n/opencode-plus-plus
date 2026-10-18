@@ -33,6 +33,14 @@ export const all: readonly Entry[] = [
     config: local(["npx", "-y", "@upstash/context7-mcp"]),
   },
   {
+    id: "rea-anything",
+    name: "REA — Reverse Engineer Anything",
+    description: "Reverse-engineer applications, JavaScript/Electron apps, websites, Android APKs, .NET assemblies, and native binaries through an evidence-focused MCP toolset.",
+    usage: "Use REA when you need to understand how an application feature works without source code. Start with the narrowest relevant analysis command, inspect the returned evidence and limitations, and only use runtime capture when explicitly appropriate for the target.",
+    runtime: "npx",
+    config: local(["npx", "-y", "rea-agents@latest", "mcp"]),
+  },
+  {
     id: "playwright",
     name: "Playwright",
     description: "Drive a real browser: open pages, click, fill forms, read the accessibility tree, take screenshots.",
