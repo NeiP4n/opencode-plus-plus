@@ -306,6 +306,9 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
 
     // A member who left or was removed gives back what it held, and the room hears of it.
     const releaseMember = Effect.fnUntraced(function* (room: Room.Info, member: Room.Member) {
+      // Presence belongs to an active room membership. Drop it on explicit removal,
+      // bans, and guest disconnects so the process-wide map cannot retain departed guests.
+      codes.forgetGuest(member.id)
       const directory = yield* roomDirectory(room).pipe(Effect.orElseSucceed(() => undefined))
       if (directory === undefined) return
       const freed = yield* Dod.releaseOwner({ directory, ownerID: member.id }).pipe(Effect.orElseSucceed(() => []))
