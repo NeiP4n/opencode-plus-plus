@@ -1,0 +1,50 @@
+name: one-shot-warp-fix
+on:
+  push:
+    branches: [lan-rooms]
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[warp-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch WARP proxy endpoint selection
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('packages/tui/src/feature-plugins/system/warp.tsx')
+          text = path.read_text()
+          old = '''async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean) {\n  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig() : null })\n}'''
+          new = '''async function setOpenCodeProxy(context: Plugin.Context, enabled: boolean, port = Warp.HTTP_BRIDGE_PORT) {\n  await context.client.config.update({ proxy: enabled ? Warp.proxyConfig(port) : null })\n}'''
+          if old not in text:
+              raise SystemExit('setOpenCodeProxy block not found')
+          text = text.replace(old, new, 1)
+          old = '''    return Warp.isWarpProxy(found.info.proxy)'''
+          new = '''    return Warp.isWarpProxy(found.info.proxy, Warp.DEFAULT_PORT) || Warp.isWarpProxy(found.info.proxy, Warp.HTTP_BRIDGE_PORT)'''
+          if old not in text:
+              raise SystemExit('proxy detection line not found')
+          text = text.replace(old, new, 1)
+          old = '''  await setOpenCodeProxy(context, true)\n  return next'''
+          new = '''  // Current WARP exposes HTTP on its configured Local Proxy port (normally 40000).\n  // Older clients may expose SOCKS5 only; ensureProxy starts our HTTP bridge on 40001 then.\n  // Never point OpenCode at 40001 unless the bridge is actually required.\n  const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT\n  await setOpenCodeProxy(context, true, proxyPort)\n  return next'''
+          if old not in text:
+              raise SystemExit('proxy enable call not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+      - name: Verify patch
+        run: |
+          grep -n "setOpenCodeProxy(context" packages/tui/src/feature-plugins/system/warp.tsx
+          grep -n "proxyPort =" packages/tui/src/feature-plugins/system/warp.tsx
+      - name: Commit fix and remove one-shot workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packages/tui/src/feature-plugins/system/warp.tsx
+          git commit -m "fix(warp): use the actual OpenCode local proxy endpoint" || exit 0
+          git push
+          rm .github/workflows/one-shot-warp-fix.yml
+          git add .github/workflows/one-shot-warp-fix.yml
+          git commit -m "[warp-fix] remove one-shot workflow"
+          git push
