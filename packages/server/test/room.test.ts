@@ -350,6 +350,43 @@ it.live("guest commands inherit stricter rules from another room sharing the ses
   }).pipe(Effect.scoped),
 )
 
+it.live("guest prompt and command rules also block slash commands", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { defaultRole: "cohost", rules: { denyGuestPrompts: true } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Remote teammate" },
+    })
+    expect(joined.status).toBe(200)
+    const guest = { authorization: `Bearer ${joined.body.token}` }
+    const commandPath = `/api/room/${room.id}/guest/session/${session.id}/command`
+    const promptDenied = yield* call(commandPath, {
+      method: "POST",
+      headers: guest,
+      body: { name: "compact", text: "" },
+    })
+    expect(promptDenied.status).toBe(403)
+    const commandsBlocked = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { denyGuestCommands: true } },
+    })
+    expect(commandsBlocked.status).toBe(200)
+    const commandDenied = yield* call(commandPath, {
+      method: "POST",
+      headers: guest,
+      body: { name: "compact", text: "" },
+    })
+    expect(commandDenied.status).toBe(403)
+  }).pipe(Effect.scoped),
+)
+
 it.live("hideExecution hides shell history from room guests", () =>
   Effect.gen(function* () {
     const { call, room, session, code } = yield* setup
