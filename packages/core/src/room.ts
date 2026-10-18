@@ -45,7 +45,7 @@ export const UpdateInput = Schema.Struct({
   guestApprovals: Schema.Boolean.pipe(Schema.optional),
   defaultRole: Room.DefaultRole.pipe(Schema.optional),
   open: Schema.Boolean.pipe(Schema.optional),
-  // Replaces the room's rules whole; an empty object lifts them.
+  // Replaces optional room rules whole. Built-in secret protection and default outbound denial remain active.
   rules: RoomRules.Rules.pipe(Schema.optional),
 }).annotate({ identifier: "Room.UpdateInput" })
 export type UpdateInput = typeof UpdateInput.Type
