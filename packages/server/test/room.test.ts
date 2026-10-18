@@ -790,6 +790,7 @@ it.live("hidePaths redacts the host directory from trusted guest command output"
     ).body.data
     const code = (yield* call(`/api/room/${room.id}/code`, { method: "POST", headers: host })).body.code as string
     const joined = (yield* call("/api/room/join", { method: "POST", body: { code, name: "Trusted guest" } })).body
+    expect(joined.room.directory).toBe("<project>")
     const guest = { authorization: `Bearer ${joined.token}` }
     yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
       method: "PATCH",
