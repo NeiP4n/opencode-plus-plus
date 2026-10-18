@@ -990,6 +990,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
           if (!command) return yield* new InvalidRequestError({ message: "Command is empty", field: "command" })
           let rules = yield* effectiveRules(joined.room, session.location.directory)
           const directories = [joined.room.directory ?? "", session.location.directory].filter(Boolean)
+          if (RoomRules.commandLeaksCredentials(command))
+            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (rules?.denyGuestCommands)
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           // noOutbound is fail-closed: arbitrary shell commands can exfiltrate data even when
@@ -1169,6 +1171,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
             return yield* new ForbiddenError({ message: "This room does not allow guest command execution" })
           const id = ctx.payload.id.trim()
           const command = yield* Dod.command({ directory, id, owner }).pipe(Effect.mapError(dodError))
+          if (RoomRules.commandLeaksCredentials(command))
+            return yield* new ForbiddenError({ message: "Commands that print the host's environment or credentials are not allowed" })
           if (rules?.noOutbound)
             return yield* new ForbiddenError({ message: "This room does not allow commands that could send data out" })
           const protectedFile = RoomRules.protectedFileInCommand(rules, command)
