@@ -86,6 +86,20 @@ export function protectedFile(rules: Rules | undefined, file: string) {
   })
 }
 
+ // Shell commands can refer to protected files as positional arguments, redirections,
+ // quoted paths, or option values (for example `--config=.env`). Inspect each token
+ // conservatively; false positives are preferable to allowing a protected file through.
+export function protectedFileInCommand(rules: Rules | undefined, command: string) {
+  const candidates = segments(command).flatMap((part) =>
+    part
+      .split(/\s+/)
+      .flatMap((token) => token.split(/[=,:]/))
+      .map((token) => token.trim().replace(/^['"]|['"]$/g, ""))
+      .filter(Boolean),
+  )
+  return candidates.find((candidate) => protectedFile(rules, candidate))
+}
+
 // Replaces the project's directory in text a guest will read.
 export function redactPath(text: string, directory: string) {
   const forward = directory.replaceAll("\\", "/")
