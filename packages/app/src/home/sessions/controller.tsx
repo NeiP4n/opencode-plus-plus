@@ -366,8 +366,13 @@ export function createHomeSessionsController(home: HomeController) {
         await archiveHomeSession({
           server: ServerConnection.key(conn),
           session,
-          // TODO: Restore archiving when the V2 client exposes a session archive API.
-          archive: async (_sessionID) => Promise.reject(new Error("Session archiving is unavailable")),
+          archive: async (sessionID) => {
+            await ctx.sdk.api.session.update({ sessionID, archived: true })
+            queryClient.setQueryData<SessionInfo[]>(["home-sessions", conn], (current) =>
+              current?.filter((item) => item.id !== sessionID),
+            )
+            await queryClient.invalidateQueries({ queryKey: ["home-archived-sessions", conn] })
+          },
           remove() {},
           onError: (cause) =>
             showToast({
