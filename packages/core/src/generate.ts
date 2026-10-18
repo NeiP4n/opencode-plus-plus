@@ -77,8 +77,6 @@ export const layer = Layer.effect(
             prompt: input.prompt,
             tools: compatibility.tools,
             toolChoice: compatibility.toolChoice,
-            // Gateways require session attribution even for a stateless call; no Session is stored. OpenCode Zen's
-            // free tier also checks the client identity that Session requests send.
             http: {
               headers: {
                 "x-opencode-session": sessionID,
