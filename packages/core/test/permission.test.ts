@@ -28,7 +28,17 @@ const current = Layer.succeed(
 )
 const it = testEffect(
   AppNodeBuilder.build(
-    LayerNode.group([Database.node, Bus.node, SessionStore.node, PermissionSaved.node, Agent.node, PluginHooks.node, Room.node, Permission.node]),
+    LayerNode.group([
+      Database.node,
+      Bus.node,
+      SessionStore.node,
+      PermissionSaved.node,
+      Agent.node,
+      PluginHooks.node,
+      Room.node,
+      Permission.delegateNode,
+      Permission.node,
+    ]),
     [Location.node.replace(current)],
   ),
 )
@@ -100,6 +110,61 @@ function waitForRequest(input: Partial<Permission.AssertInput> = {}) {
 }
 
 describe("Permission", () => {
+  it.effect("delegates agent tool approvals before publishing a UI request", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const service = yield* Permission.Service
+      const delegates = yield* Permission.DelegateRegistryService
+      const bus = yield* Bus.Service
+      let asked = 0
+      const unsubscribe = yield* bus.listen((event) =>
+        event.type === Permission.Event.Asked.type ? Effect.sync(() => asked++) : Effect.void,
+      )
+      yield* Effect.addFinalizer(() => unsubscribe)
+      yield* delegates.set(() =>
+        Effect.succeed({ effect: "allow" as const, message: "Allowed for the project task." }),
+      )
+
+      yield* service.assert(
+        assertion({
+          source: { type: "tool", messageID: "msg_test", id: "call_test" },
+        }),
+      )
+
+      expect(asked).toBe(0)
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("blocks an agent tool request when the orchestrator denies it, without creating a UI request", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const service = yield* Permission.Service
+      const delegates = yield* Permission.DelegateRegistryService
+      const bus = yield* Bus.Service
+      let asked = 0
+      const unsubscribe = yield* bus.listen((event) =>
+        event.type === Permission.Event.Asked.type ? Effect.sync(() => asked++) : Effect.void,
+      )
+      yield* Effect.addFinalizer(() => unsubscribe)
+      yield* delegates.set(() =>
+        Effect.succeed({ effect: "deny" as const, message: "The orchestrator denied this operation." }),
+      )
+
+      const blocked = yield* service
+        .assert(
+          assertion({
+            source: { type: "tool", messageID: "msg_test", id: "call_test" },
+          }),
+        )
+        .pipe(Effect.flip)
+
+      expect(blocked).toBeInstanceOf(Permission.BlockedError)
+      expect(blocked.message).toContain("The orchestrator denied this operation.")
+      expect(asked).toBe(0)
+      expect(yield* service.list()).toEqual([])
+    }),
+  )
   it.effect("returns the evaluated effect and only queues prompts", () =>
     Effect.gen(function* () {
       yield* setup([{ action: "read", resource: "*", effect: "allow" }])

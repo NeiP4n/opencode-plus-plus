@@ -726,7 +726,12 @@ const layer = Layer.effect(
         state = { ...state, currentTerm: term, votedFor: state.nodeID, leaderID: undefined }
         yield* save(state)
         resetElection(state.clusterID)
+<<<<<<< HEAD
         // The callbacks below run after `state` was reassigned, so they read this snapshot instead.
+=======
+        // Capture the elected candidate snapshot before entering callbacks; state may change
+        // while remote vote requests are in flight.
+>>>>>>> origin/feat/orchestrator-permission-routing
         const candidate = state
         const requests = yield* Effect.all(
           candidate.members.filter((member) => member.id !== candidate.nodeID).map((member) =>

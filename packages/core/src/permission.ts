@@ -1,6 +1,6 @@
 export * as Permission from "./permission.js"
 
-import { makeLocationNode } from "@opencode/util/effect/app-node"
+import { makeGlobalNode, makeLocationNode } from "@opencode/util/effect/app-node"
 import { Context, Deferred, Effect, Layer, Schema } from "effect"
 import { Permission } from "@opencode/schema/permission"
 import { contains as containsDirectory } from "@opencode/schema/orchestra"
@@ -61,6 +61,39 @@ export const AskResult = Schema.Struct({
   effect: Permission.Effect,
 }).annotate({ identifier: "Permission.AskResult" })
 export type AskResult = typeof AskResult.Type
+
+export type DelegateDecision = {
+  readonly effect: "allow" | "deny"
+  readonly message?: string
+}
+export type Delegate = (request: Request) => Effect.Effect<DelegateDecision | undefined>
+
+export interface DelegateRegistry {
+  readonly get: Effect.Effect<Delegate | undefined>
+  readonly set: (delegate: Delegate) => Effect.Effect<void>
+}
+export class DelegateRegistryService extends Context.Service<DelegateRegistryService, DelegateRegistry>()(
+  "@opencode/PermissionDelegateRegistry",
+) {}
+
+const delegateRegistryLayer = Layer.effect(
+  DelegateRegistryService,
+  Effect.gen(function* () {
+    let current: Delegate | undefined
+    return DelegateRegistryService.of({
+      get: Effect.sync(() => current),
+      set: (delegate) =>
+        Effect.sync(() => {
+          current = delegate
+        }),
+    })
+  }),
+)
+export const delegateNode = makeGlobalNode({
+  service: DelegateRegistryService,
+  layer: delegateRegistryLayer,
+  deps: [],
+})
 
 export { Event } from "@opencode/schema/permission"
 
@@ -144,6 +177,7 @@ const layer = Layer.effect(
     const saved = yield* PermissionSaved.Service
     const hooks = yield* PluginHooks.Service
     const rooms = yield* Room.Service
+    const delegates = yield* DelegateRegistryService
     const pending = new Map<ID, Pending>()
     let closed = false
 
@@ -498,6 +532,36 @@ const layer = Layer.effect(
       Effect.gen(function* () {
         if (closed) return yield* Effect.die(new DeclinedError())
         const result = yield* evaluateInput(input)
+        const value = request(input, result.message)
+        const delegate = yield* delegates.get
+
+        if (result.effect === "ask" && delegate) {
+          const decision = yield* delegate(value).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Permission delegate failed; denying the agent request", {
+                sessionID: input.sessionID,
+                requestID: value.id,
+                action: input.action,
+                cause,
+              }).pipe(
+                Effect.as({
+                  effect: "deny" as const,
+                  message: "The project orchestrator could not safely evaluate this permission; denied by default.",
+                }),
+              ),
+            ),
+          )
+          if (decision?.effect === "allow") return
+          if (decision?.effect === "deny") {
+            return yield* new BlockedError({
+              rules: relevant(input, result.rules),
+              permission: input.action,
+              resources: input.resources,
+              reason: decision.message ?? "The project orchestrator denied this permission.",
+            })
+          }
+        }
+
         return yield* Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             if (result.effect === "deny") {
@@ -711,5 +775,14 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Bus.node, Location.node, Agent.node, SessionStore.node, PermissionSaved.node, PluginHooks.node, Room.node],
+  deps: [
+    Bus.node,
+    Location.node,
+    Agent.node,
+    SessionStore.node,
+    PermissionSaved.node,
+    PluginHooks.node,
+    Room.node,
+    delegateNode,
+  ],
 })
