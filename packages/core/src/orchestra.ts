@@ -2021,6 +2021,16 @@ function unique(values: ReadonlyArray<string> | undefined) {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))]
 }
 
+function uniqueMembers<T extends { agent: string; title: string; category: string }>(members: readonly T[]) {
+  const seen = new Set<string>()
+  return members.filter((member) => {
+    const key = JSON.stringify([member.agent, member.title, member.category])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
   const name = input.name.trim()
   if (!name) return Effect.fail(new TeamError({ message: "Enter the team's name", field: "name" }))
@@ -2033,14 +2043,16 @@ function requireTemplate(input: TemplateSpec, roles: ReadonlyArray<Role>) {
     name,
     description: input.description.trim(),
     ...(playbook ? { playbook } : {}),
-    members: input.members.map((member) => {
+    // Collapse exact duplicate rows while preserving legitimate parallel workers such as
+    // "Developer 1" and "Developer 2" (different titles are distinct roster entries).
+    members: uniqueMembers(input.members.map((member) => {
       const role = roles.find((item) => item.agent === member.agent)
       return {
         agent: member.agent,
         title: member.title.trim() || role?.name || member.agent,
         category: member.category.trim() || role?.category || "Team",
       }
-    }),
+    })),
   })
 }
 
