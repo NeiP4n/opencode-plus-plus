@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { parse } from "jsonc-parser"
-import { writeConfig } from "../src/commands/handlers/mcp/add"
+import { resolveConfigPath, writeConfig } from "../src/commands/handlers/mcp/add"
 
 async function temporary() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "opencode-mcp-add-"))
@@ -14,6 +14,37 @@ async function temporary() {
     },
   }
 }
+
+test("prefers root JSONC config over .opencode config when both exist", async () => {
+  const directory = await temporary()
+  try {
+    await mkdir(path.join(directory.path, ".opencode"))
+    await Bun.write(path.join(directory.path, "opencode.jsonc"), "{}")
+    await Bun.write(path.join(directory.path, ".opencode", "opencode.json"), "{}")
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "opencode.jsonc"))
+  } finally {
+    await directory.dispose()
+  }
+})
+
+test("uses root JSON config when it is the existing project config", async () => {
+  const directory = await temporary()
+  try {
+    await Bun.write(path.join(directory.path, "opencode.json"), "{}")
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "opencode.json"))
+  } finally {
+    await directory.dispose()
+  }
+})
+
+test("chooses conventional root config path when no config exists", async () => {
+  const directory = await temporary()
+  try {
+    expect(await resolveConfigPath(directory.path)).toBe(path.join(directory.path, "opencode.json"))
+  } finally {
+    await directory.dispose()
+  }
+})
 
 test("MCP config writes preserve existing JSONC comments and settings", async () => {
   const directory = await temporary()
