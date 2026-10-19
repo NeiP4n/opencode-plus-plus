@@ -90,10 +90,16 @@ test("redacting a path covers slash styles and Windows casing", () => {
   expect(RoomRules.redactPath("opened C:/Users/me/app/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
   expect(RoomRules.redactPath("opened c:/USERS/ME/APP/src", "C:\\Users\\me\\app")).toBe("opened <project>/src")
   expect(RoomRules.redactPath("opened /Users/me/app/src", "/Users/me/app")).toBe("opened <project>/src")
-  expect(RoomRules.redactPath("opened /Users/me/App/src", "/Users/me/app")).toBe("opened /Users/me/App/src")
-  expect(RoomRules.redactPath("opened /Users/me/application/src", "/Users/me/app")).toBe("opened /Users/me/application/src")
+  // The redaction also covers the project parent, so a child path that only differs in case
+  // is masked up to that parent and keeps its own tail.
+  expect(RoomRules.redactPath("opened /Users/me/App/src", "/Users/me/app")).toBe("opened <project>/App/src")
+  expect(RoomRules.redactPath("opened /Users/me/application/src", "/Users/me/app")).toBe(
+    "opened <project>/application/src",
+  )
   expect(RoomRules.redactPath("opened /tmp/app{v1}/src", "/tmp/app{v1}")).toBe("opened <project>/src")
-  expect(RoomRules.redactPath("opened C:\\work\\application\\src", "C:\\work\\app")).toBe("opened C:\\work\\application\\src")
+  expect(RoomRules.redactPath("opened C:\\work\\application\\src", "C:\\work\\app")).toBe(
+    "opened <project>\\application\\src",
+  )
 })
 test("redacting a nested session path hides likely project roots but not sibling directories", () => {
   expect(RoomRules.redactPath("project /work/repo", "/work/repo/src/session")).toBe("project <project>")
