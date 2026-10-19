@@ -417,3 +417,24 @@ export function describe(rules: Rules | undefined) {
   ].filter((line): line is string => line !== undefined)
   return lines.length > 0 ? lines.join("\n") : undefined
 }
+
+// A hard room-policy denial is evaluated after plugin permission hooks so another hook
+// cannot accidentally or deliberately turn a room restriction back into an allow.
+export function violation(
+  rules: Rules | undefined,
+  input: { action: string; resources: readonly string[]; metadata?: Readonly<Record<string, unknown>> },
+) {
+  if (!rules) return undefined
+  if (rules.noOutbound && (outbound.includes(input.action) || input.metadata?.transport === "mcp"))
+    return "This room does not let the AI send anything out"
+  const blocked = blockedCommandForAction(rules, input.action, input.resources)
+  if (blocked) return `This room forbids commands like "${blocked}"`
+  if (commandActions.includes(input.action)) {
+    if (input.resources.some((command) => protectedFileInCommand(rules, command)))
+      return "This room keeps that file off limits to the AI"
+  }
+  if (input.action === "read" || input.action === "edit") {
+    if (input.resources.some((resource) => protectedFile(rules, resource)))
+      return "This room keeps that file off limits to the AI"
+  }
+}
