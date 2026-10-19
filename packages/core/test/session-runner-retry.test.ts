@@ -108,9 +108,8 @@ describe("SessionRunnerRetry shared rate-limit gate", () => {
       })
       expect(Math.max(...retryAt)).toBeGreaterThan(now)
 
-      // The persisted provider gate caps the current pause; once it expires and a request
-      // succeeds, old 429s must not leave the provider stuck at the maximum backoff.
-      yield* TestClock.adjust(Duration.minutes(16))
+      // A request already in flight can succeed before a sibling's cooldown expires.
+      // That success must supersede earlier 429 deadlines instead of leaving a stale gate active.
       yield* retry.succeeded("provider")
       const recovered = yield* retry.decide(input(rateLimit))
       if (!recovered.retry) throw new Error("The provider should be eligible for another retry")

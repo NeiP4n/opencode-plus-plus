@@ -37,6 +37,18 @@ describe("createScopedCache", () => {
     expect(disposed).toEqual(["b"])
   })
 
+  test("prunes an empty-string key when the cache is over capacity", () => {
+    const disposed: string[] = []
+    const cache = createScopedCache((key) => ({ key }), {
+      maxEntries: 0,
+      dispose: (value) => disposed.push(value.key),
+    })
+
+    cache.get("")
+    expect(cache.peek("")).toBeUndefined()
+    expect(disposed).toEqual([""])
+  })
+
   test("disposes entries on delete and clear", () => {
     const disposed: string[] = []
 
