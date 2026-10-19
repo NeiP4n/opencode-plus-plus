@@ -705,6 +705,7 @@ export function make(options: ClientOptions) {
               order: input?.["order"],
               search: input?.["search"],
               parentID: input?.["parentID"],
+              archived: input?.["archived"],
               directory: input?.["directory"],
               project: input?.["project"],
               subpath: input?.["subpath"],
@@ -853,7 +854,12 @@ export function make(options: ClientOptions) {
           {
             method: "PATCH",
             path: `/api/session/${encodeURIComponent(input.sessionID)}`,
-            body: { title: input["title"], metadata: input["metadata"], permissions: input["permissions"] },
+            body: {
+              title: input["title"],
+              archived: input["archived"],
+              metadata: input["metadata"],
+              permissions: input["permissions"],
+            },
             successStatus: 204,
             declaredStatuses: [400, 401, 404],
             empty: true,
@@ -3473,7 +3479,12 @@ export function make(options: ClientOptions) {
             {
               method: "PUT",
               path: `/api/orchestra/group`,
-              body: { name: input["name"], projects: input["projects"] },
+              body: {
+                name: input["name"],
+                projects: input["projects"],
+                mode: input["mode"],
+                supervisor: input["supervisor"],
+              },
               successStatus: 204,
               declaredStatuses: [400, 401],
               empty: true,

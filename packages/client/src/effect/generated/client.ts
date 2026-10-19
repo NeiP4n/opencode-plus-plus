@@ -528,6 +528,7 @@ const EndpointSessionList = (raw: RawClient["server.session"]) => (input?: Sessi
         order: input?.["order"],
         search: input?.["search"],
         parentID: input?.["parentID"],
+        archived: input?.["archived"],
         directory: input?.["directory"],
         project: input?.["project"],
         subpath: input?.["subpath"],
@@ -636,7 +637,12 @@ const EndpointSessionUpdate = (raw: RawClient["server.session"]) => (input: Sess
   preserveEffect<SessionUpdateOutput>()(
     raw["session.update"]({
       params: { sessionID: input["sessionID"] },
-      payload: { title: input["title"], metadata: input["metadata"], permissions: input["permissions"] },
+      payload: {
+        title: input["title"],
+        archived: input["archived"],
+        metadata: input["metadata"],
+        permissions: input["permissions"],
+      },
     }).pipe(Effect.mapError(mapClientError)),
   )
 
@@ -2498,9 +2504,14 @@ const EndpointOrchestraGroupList = (raw: RawClient["server.orchestra"]) => () =>
 
 const EndpointOrchestraGroupSave = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupSaveInput) =>
   preserveEffect<OrchestraGroupSaveOutput>()(
-    raw["orchestra.group.save"]({ payload: { name: input["name"], projects: input["projects"] } }).pipe(
-      Effect.mapError(mapClientError),
-    ),
+    raw["orchestra.group.save"]({
+      payload: {
+        name: input["name"],
+        projects: input["projects"],
+        mode: input["mode"],
+        supervisor: input["supervisor"],
+      },
+    }).pipe(Effect.mapError(mapClientError)),
   )
 
 const EndpointOrchestraGroupRemove = (raw: RawClient["server.orchestra"]) => (input: OrchestraGroupRemoveInput) =>
