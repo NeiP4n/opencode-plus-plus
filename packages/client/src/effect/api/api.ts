@@ -40,7 +40,6 @@ import type { Note } from "@opencode/schema/note"
 import type { WebSearch } from "@opencode/schema/websearch"
 import type { Config } from "@opencode/schema/config"
 import type { Room } from "@opencode/schema/room"
-import type { RoomMesh } from "@opencode/schema/room-mesh"
 import type { Orchestra } from "@opencode/schema/orchestra"
 
 export type ServerInfoOutput = {
@@ -4345,15 +4344,6 @@ export interface RoomApi<E = never> {
   readonly code: RoomCodeOperation<E>
   readonly public: RoomPublicOperation<E>
   readonly join: RoomJoinOperation<E>
-  readonly mesh: {
-    readonly status: RoomMeshStatusOperation<E>
-    readonly create: RoomMeshCreateOperation<E>
-    readonly join: RoomMeshJoinOperation<E>
-    readonly activate: RoomMeshActivateOperation<E>
-    readonly append: RoomMeshAppendOperation<E>
-    readonly feed: RoomMeshFeedOperation<E>
-    readonly rpc: RoomMeshRpcOperation<E>
-  }
   readonly guest: {
     readonly get: RoomGuestGetOperation<E>
     readonly session: {
@@ -4410,26 +4400,6 @@ export interface RoomApi<E = never> {
     readonly rpc: RoomMeshRpcOperation<E>
   }
 }
-
-export type RoomMeshStatusOutput = RoomMesh.Snapshot
-export type RoomMeshStatusOperation<E = never> = () => Effect.Effect<RoomMeshStatusOutput, E>
-export type RoomMeshCreateInput = RoomMesh.CreateInput
-export type RoomMeshCreateOutput = { readonly data: RoomMesh.Snapshot; readonly token: string }
-export type RoomMeshCreateOperation<E = never> = (input: RoomMeshCreateInput) => Effect.Effect<RoomMeshCreateOutput, E>
-export type RoomMeshJoinInput = RoomMesh.JoinInput
-export type RoomMeshJoinOutput = RoomMesh.Snapshot
-export type RoomMeshJoinOperation<E = never> = (input: RoomMeshJoinInput) => Effect.Effect<RoomMeshJoinOutput, E>
-export type RoomMeshActivateOutput = RoomMesh.Snapshot
-export type RoomMeshActivateOperation<E = never> = () => Effect.Effect<RoomMeshActivateOutput, E>
-export type RoomMeshAppendInput = RoomMesh.AppendInput
-export type RoomMeshAppendOutput = RoomMesh.Entry
-export type RoomMeshAppendOperation<E = never> = (input: RoomMeshAppendInput) => Effect.Effect<RoomMeshAppendOutput, E>
-export type RoomMeshFeedInput = { readonly after?: number | undefined }
-export type RoomMeshFeedOutput = RoomMesh.Feed
-export type RoomMeshFeedOperation<E = never> = (input: RoomMeshFeedInput) => Effect.Effect<RoomMeshFeedOutput, E>
-export type RoomMeshRpcInput = RoomMesh.RpcRequest
-export type RoomMeshRpcOutput = RoomMesh.RpcResponse
-export type RoomMeshRpcOperation<E = never> = (input: RoomMeshRpcInput) => Effect.Effect<RoomMeshRpcOutput, E>
 
 export type OrchestraProjectListOutput = ReadonlyArray<Orchestra.Project>
 export type OrchestraProjectListOperation<E = never> = () => Effect.Effect<OrchestraProjectListOutput, E>
