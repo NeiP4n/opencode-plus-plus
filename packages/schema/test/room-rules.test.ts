@@ -47,7 +47,7 @@ test("harmless commands pass, and no rules block nothing", () => {
 
 test("protected files match by name or folder, with either slash", () => {
   expect(RoomRules.protectedFile(rules, "C:\\work\\app\\.env.local")).toBe(".env*")
-  expect(RoomRules.protectedFile(rules, "/work/app/secrets/key.pem")).toBe("secrets/*")
+  expect(RoomRules.protectedFile(rules, "/work/app/secrets/key.pem")).toBe("**/secrets/**")
   expect(RoomRules.protectedFile(rules, "/work/app/environment.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(rules, "/work/app/src/index.ts")).toBeUndefined()
   expect(RoomRules.protectedFile(undefined, "/home/alice/.ssh/id_ed25519")).toContain(".ssh")
@@ -66,22 +66,23 @@ test("built-in credential globs protect root-level and nested credential files",
 test("protected files are detected when directly referenced in shell commands", () => {
   expect(RoomRules.protectedFileInCommand(rules, "cat .env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, 'cat ".env.local"')).toBe(".env*")
-  expect(RoomRules.protectedFileInCommand(rules, "cat ./secrets/key.pem")).toBe("secrets/*")
-  const exactRules: RoomRules.Rules = { protectedFiles: ["secrets/key.pem"] }
-  expect(RoomRules.protectedFileInCommand(exactRules, "cat secrets/key.pem")).toBe("secrets/key.pem")
-  expect(RoomRules.protectedFileInCommand(exactRules, "cat 'secrets/key.pem'")).toBe("secrets/key.pem")
-  expect(RoomRules.protectedFileInCommand(exactRules, 'cat "secrets/key.pem"')).toBe("secrets/key.pem")
-  expect(RoomRules.protectedFileInCommand(exactRules, "tool --config='secrets/key.pem'")).toBe("secrets/key.pem")
+  expect(RoomRules.protectedFileInCommand(rules, "cat ./secrets/key.pem")).toBe("**/secrets/**")
+  // A custom path outside the built-in credential globs, so the exact match is what gets reported.
+  const exactRules: RoomRules.Rules = { protectedFiles: ["vault/private.md"] }
+  expect(RoomRules.protectedFileInCommand(exactRules, "cat vault/private.md")).toBe("vault/private.md")
+  expect(RoomRules.protectedFileInCommand(exactRules, "cat 'vault/private.md'")).toBe("vault/private.md")
+  expect(RoomRules.protectedFileInCommand(exactRules, 'cat "vault/private.md"')).toBe("vault/private.md")
+  expect(RoomRules.protectedFileInCommand(exactRules, "tool --config='vault/private.md'")).toBe("vault/private.md")
   expect(RoomRules.protectedFileInCommand(rules, "cat C:\\work\\app\\.env")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "tool --config=.env.local")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "echo secret > .env.local")).toBe(".env*")
-  expect(RoomRules.protectedFileInCommand(rules, "tool --key-file=secrets/key.pem")).toBe("secrets/*")
+  expect(RoomRules.protectedFileInCommand(rules, "tool --key-file=secrets/key.pem")).toBe("**/secrets/**")
   expect(RoomRules.protectedFileInCommand(rules, "bash -c 'cat .env'")).toBe(".env*")
   expect(RoomRules.protectedFileInCommand(rules, "git status")).toBeUndefined()
   expect(RoomRules.protectedFileInCommand(rules, "cat src/index.ts")).toBeUndefined()
   expect(RoomRules.protectedFileInCommand(undefined, "cat auth.json")).toBe("**/auth.json")
-  expect(RoomRules.protectedFileInCommand(undefined, "cat .ssh/id_ed25519")).toBe("**/.ssh/**")
-  expect(RoomRules.protectedFileInCommand(undefined, "cat /home/user/.ssh/id_ed25519")).toBe("**/.ssh/**")
+  expect(RoomRules.protectedFileInCommand(undefined, "cat .ssh/id_ed25519")).toBe("**/.ssh")
+  expect(RoomRules.protectedFileInCommand(undefined, "cat /home/user/.ssh/id_ed25519")).toBe("**/.ssh")
 })
 
 test("redacting a path covers slash styles and Windows casing", () => {
@@ -96,7 +97,7 @@ test("redacting a nested session path hides likely project roots but not sibling
   expect(RoomRules.redactPath("unrelated /work/repository-other", "/work/repo/src/session")).toBe("unrelated /work/repository-other")
   expect(RoomRules.redactPath("embedded x/work/repo/src", "/work/repo/src/session")).toBe("embedded x/work/repo/src")
   expect(RoomRules.redactPath("unrelated /work/Repo/src", "/work/repo/src/session")).toBe("unrelated /work/Repo/src")
-  expect(RoomRules.redactPath("unrelated c:/USERS/ALICE/REPO/src", "C:/Users/alice/repo/src/session")).toBe("unrelated <project>/src")
+  expect(RoomRules.redactPath("unrelated c:/USERS/ALICE/REPO/src", "C:/Users/alice/repo/src/session")).toBe("unrelated <project>")
 })
 
 test("a session in several rooms gets the strictest rules", () => {
@@ -108,6 +109,7 @@ test("a session in several rooms gets the strictest rules", () => {
   expect(merged).toEqual({
     hidePaths: true,
     hideExecution: true,
+    hideScreenshots: false,
     noOutbound: true,
     denyGuestPrompts: true,
     denyGuestCommands: true,
@@ -210,7 +212,14 @@ test("screenshot privacy merges restrictively across all rooms", () => {
 })
 
 test("screenshot privacy removes nested image payloads while retaining text", () => {
-  const payload = {
+  // The sanitizer removes the screenshot field, so the payload type keeps it optional.
+  const payload: {
+    files: { mime: string; data: string }[]
+    content: { type: string; text?: string; url?: string }[]
+    screenshot?: { uri: string }
+    caption: string
+    text: string
+  } = {
     files: [
       { mime: "image/png", data: "YWJj" },
       { mime: "text/plain", data: "visible notes" },
