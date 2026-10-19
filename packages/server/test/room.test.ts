@@ -142,6 +142,13 @@ const setup = Effect.gen(function* () {
   return { call, handler, session, room, code, directory: tmp.path }
 })
 
+test("room guest event policy never exposes private model reasoning or synthetic context", () => {
+  expect(hiddenRoomEvent({ type: "session.reasoning.delta", data: { delta: "private reasoning" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.reasoning.ended", data: { text: "private reasoning" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.synthetic", data: { text: "private context" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.text.ended", data: { text: "public assistant answer" } }, false)).toBe(false)
+})
+
 it.live("isRoomGuestURL admits every registered guest route", () =>
   Effect.sync(() => {
     for (const path of GUEST_PATHS) expect(`${path} -> ${guestURL(path)}`).toBe(`${path} -> true`)
@@ -805,6 +812,13 @@ it.live("a following guest log carries the session's permission requests as they
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
+    const synthetic = yield* call(`/api/session/${session.id}/synthetic`, {
+      method: "POST",
+      headers: host,
+      body: { id: "msg_syntheticprivate01", text: "PRIVATE_SYNTHETIC_CONTEXT" },
+    })
+    expect(synthetic.status).toBe(200)
+
     const room = (yield* call("/api/room", {
       method: "POST",
       headers: host,
@@ -843,6 +857,9 @@ it.live("a following guest log carries the session's permission requests as they
       }).pipe(Effect.timeout("5 seconds"))
 
     yield* until("log.synced")
+    // Synthetic inputs are model-facing context, never part of the room transcript.
+    expect(seen.join("\n")).not.toContain("session.synthetic")
+    expect(seen.join("\n")).not.toContain("PRIVATE_SYNTHETIC_CONTEXT")
     const pending = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
       headers: guest,
