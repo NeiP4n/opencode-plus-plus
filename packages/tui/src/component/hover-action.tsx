@@ -44,11 +44,11 @@ export function HoverAction(props: Props) {
       flexDirection={props.flexDirection ?? "row"}
       justifyContent={props.justifyContent}
       backgroundColor={hovered() && !props.disabled ? hoverBackground(theme) : undefined}
-      onMouseEnter={() => {
+      onMouseOver={() => {
         setHovered(true)
         props.onMouseEnter?.()
       }}
-      onMouseLeave={() => {
+      onMouseOut={() => {
         setHovered(false)
         props.onMouseLeave?.()
       }}

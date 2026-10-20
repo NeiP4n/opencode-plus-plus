@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { SessionMessageInfo } from "@opencode/client"
 import { isRateLimitedTurnPending, lastAssistantWithUsage, sessionFamily } from "../../src/util/session"
 
-const assistant = (id: string, input: number): SessionMessageInfo => ({
+const assistant = (id: string, input: number): Extract<SessionMessageInfo, { type: "assistant" }> => ({
   id,
   type: "assistant",
   agent: "build",

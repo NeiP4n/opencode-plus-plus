@@ -223,7 +223,8 @@ test("screenshot privacy removes nested image payloads while retaining text", ()
     caption: "before data:image/png;base64,YWJj after",
     text: "ordinary text",
   }
-  expect(RoomRules.sanitizeScreenshots(payload, true)).toEqual({
+  const sanitized: Partial<typeof payload> = RoomRules.sanitizeScreenshots(payload, true)
+  expect(sanitized).toEqual({
     files: [{ mime: "text/plain", data: "visible notes" }],
     content: [{ type: "text", text: "capture complete" }],
     caption: "before [image hidden by room rules] after",
