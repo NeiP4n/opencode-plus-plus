@@ -23,6 +23,9 @@ test("prompt footer separates simultaneous subagent, shell, and usage status", a
         id === "session.child.first" ? ["ctrl+j"] : id === "command.palette.show" ? ["ctrl+p"] : [],
       dispatch: (id: string) => dispatched.push(id),
     },
+    // The footer follows the composer's selected model to know whether a Freebuff
+    // account is in use; without a selection there is nothing to show.
+    ui: { model: { current: () => undefined } },
     data: {
       session: {
         family: () => ["session", "child"],
@@ -81,6 +84,7 @@ test("prompt footer can hide details", async () => {
         return []
       },
     },
+    ui: { model: { current: () => undefined } },
     data: {
       session: {
         family: () => ["session"],
@@ -138,6 +142,107 @@ test("prompt footer can hide details", async () => {
     setSessionID(undefined)
     await app.renderOnce()
     expect(app.captureCharFrame()).not.toContain("shift+tab agents")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+// The Freebuff account the live API answered with on 2026-10-20: 10 freebucks left of a
+// daily limit of 25, 15 already spent.
+const freebuffStatus = {
+  loggedIn: true,
+  balance: 10,
+  spent: 15,
+  limit: 25,
+  resetIn: 8 * 60 * 60 * 1000 + 46 * 60 * 1000,
+}
+
+function freebuffContext(
+  selected: { providerID: string; modelID: string } | undefined,
+  committed: { providerID: string; id: string } = { providerID: "freebuff", id: "m-096e75164d" },
+) {
+  const color = RGBA.fromInts(200, 200, 200)
+  return {
+    location: { directory: "/workspace" },
+    theme: {
+      text: {
+        base: color,
+        muted: color,
+        feedback: { warning: { base: color } },
+      },
+    },
+    keymap: { shortcuts: () => [] },
+    ui: { model: { current: () => selected } },
+    client: {
+      rpc: {
+        call: async () => ({ output: freebuffStatus }),
+      },
+    },
+    data: {
+      session: {
+        family: () => ["session"],
+        status: () => "idle",
+        get: () => ({
+          id: "session",
+          location: { directory: "/workspace" },
+          model: committed,
+        }),
+        cost: () => 0,
+        message: { list: () => [] },
+      },
+      shell: { list: () => [] },
+      location: {
+        model: {
+          list: () => [
+            { providerID: "freebuff", id: "m-096e75164d", name: "DeepSeek V4.1 Flash 10/17" },
+            { providerID: "demo", id: "first", name: "Demo model" },
+          ],
+        },
+      },
+    },
+  } as unknown as Context
+}
+
+test("the footer shows the Freebuff balance for a Freebuff model", async () => {
+  const app = await testRender(
+    () => <PromptFooter context={freebuffContext({ providerID: "freebuff", modelID: "m-096e75164d" })} sessionID="session" mode="normal" showDetails={true} />,
+    { width: 140, height: 4 },
+  )
+
+  try {
+    const frame = await app.waitForFrame((frame) => frame.includes("10 freebucks"))
+    expect(frame).toContain("DeepSeek V4.1 Flash 10/17")
+    expect(frame).toContain("10 freebucks")
+    expect(frame).toContain("15/25")
+    expect(frame).toContain("reset in")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the footer keeps the Freebuff balance away for another model", async () => {
+  const app = await testRender(
+    () => (
+      <PromptFooter
+        context={freebuffContext(
+          { providerID: "demo", modelID: "first" },
+          { providerID: "demo", id: "first" },
+        )}
+        sessionID="session"
+        mode="normal"
+        showDetails={true}
+      />
+    ),
+    { width: 140, height: 4 },
+  )
+
+  try {
+    await app.renderOnce()
+    await Bun.sleep(50)
+    await app.renderOnce()
+    const frame = app.captureCharFrame()
+    expect(frame).not.toContain("freebucks")
+    expect(frame).not.toContain("Freebuff")
   } finally {
     app.renderer.destroy()
   }

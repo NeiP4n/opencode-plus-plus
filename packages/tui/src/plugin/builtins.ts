@@ -45,4 +45,5 @@ export const builtins = [
   // normal launches and register it only for OPENCODE_STORY runs.
   ...(process.env.OPENCODE_STORY ? [lazy("opencode.storybook", () => import("../feature-plugins/system/storybook"))] : []),
   lazy("opencode.diffs", () => import("../feature-plugins/system/diff-viewer")),
+  lazy("opencode.freebuff", () => import("../feature-plugins/system/freebuff")),
 ]

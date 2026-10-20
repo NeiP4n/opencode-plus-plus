@@ -1088,6 +1088,27 @@ const ru: Record<string, string> = {
   "enter or space to go": "enter или пробел — перейти",
   "Go to the marked topic": "Перейти к отмеченной теме",
   "The model did not return a table of contents": "Модель не вернула содержание",
+  // Freebuff footer strip
+  freebucks: "фрибаксов",
+  "reset in": "сброс через",
+  "session ends in": "сессия истекает через",
+  // Freebuff prices in the model picker and the /freebuff dialog
+  Prices: "Цены",
+  Balance: "Баланс",
+  Today: "Сегодня",
+  "Daily reset": "Сброс за сутки",
+  Tier: "Уровень",
+  in: "через",
+  "ends in": "истекает через",
+  "not logged in — press a to sign in": "нет входа — нажми a, чтобы войти",
+  "c accounts · a add account · r refresh · esc close": "c аккаунты · a добавить · r обновить · esc закрыть",
+  "Price unknown": "Цена неизвестна",
+  "Price unknown · {balance} left": "Цена неизвестна · осталось {balance}",
+  "{price} freebucks": "{price} фрибакков",
+  "{price} freebucks · {balance} left": "{price} фрибакков · осталось {balance}",
+  "{price} freebucks · not enough ({balance} left)": "{price} фрибакков · не хватит (осталось {balance})",
+  "not enough": "не хватит",
+  "paid plan": "платный план",
 }
 
 export function translate(language: Language | undefined, text: string, values?: Record<string, string | number>) {
