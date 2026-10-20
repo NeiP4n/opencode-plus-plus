@@ -8,6 +8,7 @@ import { sessionLocationMissingStory } from "./session-location-missing"
 import { oneCellSpinnerStory } from "./one-cell-spinner"
 import { notesCanvasStory } from "./notes-canvas"
 import { compatStory } from "./compat"
+import { warpSidebarStory } from "./warp-sidebar"
 
 /**
  * A story is a full-screen, fixture-driven simulation of a real production component. Stories own
@@ -26,6 +27,7 @@ const stories: Story[] = [
   oneCellSpinnerStory,
   notesCanvasStory,
   compatStory,
+  warpSidebarStory,
 ]
 
 function Commands(props: { context: Plugin.Context }) {

@@ -13,6 +13,7 @@ import { Provider } from "@opencode/core/provider"
 import { Effect } from "effect"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
+import PROMPT_DEEPSEEK from "../../src/plugin/system-prompt/deepseek.txt"
 import PROMPT_META from "../../src/plugin/system-prompt/meta.txt"
 import PROMPT_GPT from "../../src/plugin/system-prompt/gpt.txt"
 import PROMPT_ASTRA from "../../src/plugin/system-prompt/gpt-astra.txt"
@@ -50,6 +51,7 @@ describe("OptimizePlugin", () => {
     expect(OptimizePlugin.Plugins.map((plugin) => plugin.id)).toEqual([
       "opencode.prompt.openai",
       "opencode.prompt.anthropic",
+      "opencode.prompt.deepseek",
       "opencode.prompt.kimi",
       "opencode.prompt.arcee",
       "opencode.prompt.meta",
@@ -256,6 +258,62 @@ describe("OptimizePlugin", () => {
         },
         { discard: true },
       )
+    }),
+  )
+
+  it.effect("selects the DeepSeek prompt and renders the catalog model name", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Provider.Service
+      const hooks = yield* PluginHooks.Service
+      const pluginHost = yield* makeHost
+      const cases = [
+        ["deepseek-v4-flash", "DeepSeek V4 Flash"],
+        ["openrouter/deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"],
+      ] as const
+      yield* catalog.transform((editor) => {
+        for (const [id, name] of cases)
+          editor.models.update(Provider.ID.make("test"), Model.ID.make(id), (model) => {
+            model.name = name
+          })
+      })
+      yield* Effect.forEach(OptimizePlugin.Plugins, (plugin) => plugin.effect(pluginHost), {
+        discard: true,
+      })
+
+      yield* Effect.forEach(
+        cases,
+        ([id, name]) => {
+          const event = context(id)
+          return hooks.trigger("session", "context", event).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                expect(event.system[0]?.text).toBe(
+                  SessionSystemPrompt.render(PROMPT_DEEPSEEK.replaceAll("{{MODEL_NAME}}", name), Object.keys(event.tools)),
+                )
+                expect(event.system[0]?.text).not.toContain("{{MODEL_NAME}}")
+                expect(event.system[0]?.text).not.toContain("${OPENCODE_TOOL_GUIDANCE}")
+                expect(event.system[0]?.text).toContain("# Research")
+                expect(event.system[0]?.text).toContain("official documentation")
+                expect(event.system[0]?.text).toContain("Never invent a function name")
+              }),
+            ),
+          )
+        },
+        { discard: true },
+      )
+    }),
+  )
+
+  it.effect("leaves non-DeepSeek models on the fallback prompt", () =>
+    Effect.gen(function* () {
+      const hooks = yield* PluginHooks.Service
+      const pluginHost = yield* makeHost
+      yield* OptimizePlugin.DeepSeekPlugin.effect(pluginHost)
+      const event = context("gemini-2.5-pro")
+
+      yield* hooks.trigger("session", "context", event)
+
+      expect(event.system.map((part) => part.text)).toEqual([fallback])
     }),
   )
 

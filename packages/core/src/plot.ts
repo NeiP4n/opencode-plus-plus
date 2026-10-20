@@ -221,7 +221,7 @@ const layer: Layer.Layer<Service, never, Session.Service | Orchestra.Service> = 
         const safeStorage = yield* Effect.tryPromise({
           try: () => pathsInside(directory, [folder]),
           catch: () => new Error("Unable to verify plot storage path."),
-        }).pipe(Effect.catchAll(() => Effect.succeed(false)))
+        }).pipe(Effect.catch(() => Effect.succeed(false)))
         if (!safeStorage) return 0
         const plots = (yield* read(folder)).map((entry) => entry.plot)
         const mine = yield* Effect.filter(plots, (plot) =>

@@ -6,6 +6,7 @@ import { Model } from "@opencode/schema/model"
 import { Effect } from "effect"
 import { SessionSystemPrompt } from "../session/system-prompt.js"
 
+import PROMPT_DEEPSEEK from "./system-prompt/deepseek.txt"
 import PROMPT_GPT from "./system-prompt/gpt.txt"
 import PROMPT_ASTRA from "./system-prompt/gpt-astra.txt"
 import PROMPT_KIMI from "./system-prompt/kimi.txt"
@@ -49,6 +50,11 @@ export const AnthropicToolsPlugin = make("opencode.optimize.anthropic.tools", (m
   return undefined
 })
 
+export const DeepSeekPlugin = make("opencode.prompt.deepseek", (model) => {
+  const ids = [model.id, model.modelID, model.family].join(" ").toLowerCase()
+  if (!ids.includes("deepseek")) return undefined
+  return PROMPT_DEEPSEEK.replaceAll("{{MODEL_NAME}}", model.name)
+})
 export const KimiPlugin = make("opencode.prompt.kimi", (model) =>
   model.id.toLowerCase().includes("kimi") ? PROMPT_KIMI : undefined,
 )
@@ -76,7 +82,14 @@ export const WorkstylePlugin = define({
   }),
 })
 
-export const Plugins = [OpenAIPlugin, AnthropicPlugin, KimiPlugin, ArceePlugin, MetaPlugin] as const
+export const Plugins = [
+  OpenAIPlugin,
+  AnthropicPlugin,
+  DeepSeekPlugin,
+  KimiPlugin,
+  ArceePlugin,
+  MetaPlugin,
+] as const
 
 function make(
   id: string,

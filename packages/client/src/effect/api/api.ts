@@ -4577,6 +4577,16 @@ export type OrchestraGroupLinkOperation<E = never> = (
   input: OrchestraGroupLinkInput,
 ) => Effect.Effect<OrchestraGroupLinkOutput, E>
 
+export type OrchestraGroupChatInput = { readonly name: string; readonly mode?: ("lead" | "council") | undefined }
+export type OrchestraGroupChatOutput = {
+  readonly sessionID: Session.ID
+  readonly title: string
+  readonly directory: string
+}
+export type OrchestraGroupChatOperation<E = never> = (
+  input: OrchestraGroupChatInput,
+) => Effect.Effect<OrchestraGroupChatOutput, E>
+
 export type OrchestraLinkSetInput = {
   readonly a: Orchestra.ProjectID
   readonly b: Orchestra.ProjectID
@@ -4622,6 +4632,7 @@ export interface OrchestraApi<E = never> {
     readonly save: OrchestraGroupSaveOperation<E>
     readonly remove: OrchestraGroupRemoveOperation<E>
     readonly link: OrchestraGroupLinkOperation<E>
+    readonly chat: OrchestraGroupChatOperation<E>
   }
   readonly link: { readonly set: OrchestraLinkSetOperation<E>; readonly list: OrchestraLinkListOperation<E> }
 }

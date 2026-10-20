@@ -5,6 +5,7 @@ import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
 import { Dod } from "@opencode/core/dod"
+import { Orchestra } from "@opencode/core/orchestra"
 import { Location } from "@opencode/core/location"
 import { DodTool } from "@opencode/core/tool/plugin/dod"
 import { Permission } from "@opencode/core/permission"
@@ -14,6 +15,7 @@ import { AbsolutePath } from "@opencode/core/schema"
 import { location } from "./fixture/location"
 import { withTempDir } from "./fixture/tmpdir"
 import { it } from "./lib/effect"
+import { orchestraLayer } from "./lib/orchestra"
 import { permissionLayer } from "./lib/permission"
 import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
 
@@ -22,11 +24,11 @@ const sessionID = Session.ID.make("ses_dod_tool_test")
 const pluginNode = makeLocationNode({
   name: "test/dod-tool-plugin",
   layer: Layer.effectDiscard(registerToolPlugin(DodTool.Plugin)),
-  deps: [Tool.node, Permission.node, Location.node],
+  deps: [Tool.node, Permission.node, Location.node, Orchestra.node],
 })
 
 function harness(directory: string, seen: string[]) {
-  return AppNodeBuilder.build(LayerNode.group([Tool.node, pluginNode]), [
+  return AppNodeBuilder.build(LayerNode.group([Tool.node, pluginNode, Orchestra.node]), [
     Location.node.replace(
       Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
     ),
@@ -38,6 +40,8 @@ function harness(directory: string, seen: string[]) {
         },
       }),
     ),
+    // DodTool asks the Orchestrator who holds an item; a tool test has no team.
+    Orchestra.node.replace(orchestraLayer()),
   ])
 }
 

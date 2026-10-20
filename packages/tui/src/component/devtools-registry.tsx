@@ -1,5 +1,6 @@
-import { TextAttributes, type InputRenderable } from "@opentui/core"
-import { createEffect, createMemo, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
+import { TextAttributes, type InputRenderable, type ScrollBoxRenderable } from "@opentui/core"
+import { useTerminalDimensions } from "@opentui/solid"
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Hub } from "@opencode/core/hub/index"
 import { HubState } from "@opencode/core/hub/state"
 import { McpCatalog } from "@opencode/core/mcp/catalog"
@@ -48,6 +49,7 @@ export function RegistryPanel(props: {
   const theme = useTheme().surface("dialog")
   const t = useT()
   const toast = useToast()
+  const dimensions = useTerminalDimensions()
   const options = props.options ?? {}
   const install = options.install ?? Hub.HubActions.installTool
   const remove = options.remove ?? Hub.HubActions.removeTool
@@ -62,6 +64,14 @@ export function RegistryPanel(props: {
   const [query, setQuery] = createSignal("")
   const [terminal, setTerminal] = createSignal<Hub.Backend>()
   const [stale, setStale] = createSignal(false)
+  // The panel opens as a centered dialog, so its body has to fit the terminal: the
+  // header and the tab row stay outside the scroll area and the tab content scrolls.
+  let scroll: ScrollBoxRenderable | undefined
+  // The scrollbox is destroyed with the panel; a stale ref would scroll a dead node.
+  onCleanup(() => {
+    scroll = undefined
+  })
+  const scrollIntoView = (id: string) => scroll?.scrollChildIntoView(id)
   // AI tools, programs and the AI's terminal are separate jobs, so each gets its own tab.
   const [tab, setTab] = createSignal<Tab>(props.aiTools ? "ai" : "programs")
   const [aiCount, setAiCount] = createSignal<string>()
@@ -200,6 +210,17 @@ export function RegistryPanel(props: {
     setPage((value) => Math.max(0, Math.min(pages() - 1, value + delta)))
     setCursor(0)
   }
+  scrollCursorIntoView(
+    cursor,
+    (index) => {
+      const row = rows()[Math.min(index, rows().length - 1)]
+      return row ? `registry-tool-${row.tool}` : undefined
+    },
+    scrollIntoView,
+  )
+  // One scroll area serves every tab, so a tab change starts the new tab at its top.
+  // The first render is left alone: on the first render the layout is not settled yet.
+  createEffect(on(tab, () => scroll?.scrollTo(0), { defer: true }))
 
   const programs = () => tab() === "programs"
   const ai = () => tab() === "ai"
@@ -242,7 +263,18 @@ export function RegistryPanel(props: {
   }))
 
   return (
-    <box paddingLeft={2} paddingRight={2} paddingBottom={1} gap={1}>
+    <box
+      paddingLeft={2}
+      paddingRight={2}
+      paddingBottom={1}
+      gap={1}
+      // Three rows of the terminal stay outside the panel: the centered dialog
+      // puts one row of paddingTop above the content (src/ui/dialog.tsx:84), and
+      // the header row and the tab row have to stay visible. The bound follows
+      // the terminal alone - a floor would push the panel past the bottom of a
+      // short frame instead of shrinking it.
+      maxHeight={Math.max(1, dimensions().height - 3)}
+    >
       <box flexDirection="row" justifyContent="space-between">
         <text fg={theme.text.base} attributes={TextAttributes.BOLD}>
           {t("Registry")}
@@ -268,150 +300,168 @@ export function RegistryPanel(props: {
         </For>
       </box>
 
-      <Switch>
-        <Match when={tab() === "ai" && props.aiTools}>
-          {(_) => (
-            <AiTools
-              tools={props.aiTools!}
-              active={tab() === "ai"}
-              pending={busy()}
-              present={(runtime) => {
-                revision()
-                return (options.probe ?? ((tool: string) => Hub.HubHost.has(tool)))(runtime === "uvx" ? "uv" : runtime)
-              }}
-              onInstallRuntime={(tool) => onInstall(tool)}
-              onCount={setAiCount}
-              keys={(keys) => (aiKeys = keys)}
-            />
-          )}
-        </Match>
+      <scrollbox
+        flexGrow={1}
+        flexShrink={1}
+        minHeight={0}
+        ref={(value: ScrollBoxRenderable) => {
+          scroll = value
+        }}
+      >
+        <Switch>
+          <Match when={tab() === "ai" && props.aiTools}>
+            {(_) => (
+              <AiTools
+                tools={props.aiTools!}
+                active={tab() === "ai"}
+                pending={busy()}
+                present={(runtime) => {
+                  revision()
+                  return (options.probe ?? ((tool: string) => Hub.HubHost.has(tool)))(runtime === "uvx" ? "uv" : runtime)
+                }}
+                onInstallRuntime={(tool) => onInstall(tool)}
+                onCount={setAiCount}
+                keys={(keys) => (aiKeys = keys)}
+                scrollIntoView={scrollIntoView}
+              />
+            )}
+          </Match>
 
-        <Match when={tab() === "plugins"}>
-          <Show when={props.plugins} fallback={<text fg={theme.text.muted}>{t("Plugin management is unavailable.")}</text>}>
-            {(access) => <PluginTools plugins={access()} onCount={setPluginCount} keys={(keys) => (pluginKeys = keys)} />}
-          </Show>
-        </Match>
-
-        <Match when={tab() === "terminal"}>
-          <text fg={theme.text.muted} wrapMode="word">
-            {t("The shell the AI runs its commands and hub commands in.")}
-          </text>
-          <box flexDirection="row" gap={1} flexWrap="wrap">
-            <For each={status().terminals}>
-              {(item) => (
-                <Switch>
-                  <Match when={item.present}>
-                    <Button
-                      variant={aiTerminal() === item.name ? "primary" : "secondary"}
-                      disabled={busy() !== undefined}
-                      onClick={() => chooseTerminal(item.name)}
-                    >
-                      {`${aiTerminal() === item.name ? "●" : "○"} ${item.name}`}
-                    </Button>
-                  </Match>
-                  <Match when={busy() === item.name}>
-                    <text fg={theme.text.muted}>{`${item.name} …`}</text>
-                  </Match>
-                  <Match when={item.installable}>
-                    <Button disabled={busy() !== undefined} onClick={() => onInstall(item.name)}>
-                      {t("Install {name}", { name: item.name })}
-                    </Button>
-                  </Match>
-                  <Match when={true}>
-                    <text fg={theme.text.muted}>{`${item.name}: ${t(item.manual ?? "no installer here")}`}</text>
-                  </Match>
-                </Switch>
-              )}
-            </For>
-          </box>
-          <Show when={aiTerminal() === "nu"}>
-            <text fg={theme.text.muted} wrapMode="word">
-              {t(
-                "The AI's shell commands and hub commands run in nu. Nushell has no grammar the permission check understands, so each nu command is approved as a whole; each command shows the shell that ran it.",
-              )}
-            </text>
-          </Show>
-        </Match>
-
-        <Match when={tab() === "programs"}>
-          <text fg={theme.text.muted} wrapMode="word">
-            {t("Command-line programs the AI runs through the hub tool. Installed ones are available to every session; Teams → role → Programs narrows them per role.")}
-          </text>
-          <box flexDirection="row" gap={3}>
-            <Stat label={t("Ready")} value={`${status().ready}/${status().total}`} />
-            <Stat label={t("Installed")} value={counts().programs} />
-            <box flexGrow={1} />
-            <Button
-              variant="primary"
-              disabled={busy() !== undefined || missing().length === 0}
-              onClick={() => void onInstallMissing()}
-            >
-              {t("Install missing ({count})", { count: missing().length })}
-            </Button>
-          </box>
-
-          <text fg={theme.text.muted} wrapMode="word">
-            {status()
-              .categories.map((entry) => `${entry.name} ${entry.ready}/${entry.total}`)
-              .join("  ")}
-          </text>
-
-          <box flexDirection="row" gap={1}>
-            <text fg={theme.text.muted} flexShrink={0}>
-              {t("Search")}
-            </text>
-            <input
-              flexGrow={1}
-              flexShrink={1}
-              minWidth={0}
-              onInput={(value) => {
-                setQuery(value)
-                setPage(0)
-                setCursor(0)
-                setArmed()
-              }}
-              focusedBackgroundColor={theme.background.formfield.focused}
-              cursorColor={theme.text.formfield.focused}
-              cursorStyle={config.cursor}
-              focusedTextColor={theme.text.formfield.focused}
-              placeholder={t("tool, category or task: yaml, ports, docker logs")}
-              placeholderColor={theme.text.muted}
-              ref={(input: InputRenderable) => {
-                setTimeout(() => {
-                  if (!input.isDestroyed) input.focus()
-                }, 1)
-              }}
-            />
-            <text fg={theme.text.muted} flexShrink={0}>{`${visible().length}/${status().tools.length}`}</text>
-            <Button onClick={() => turn(-1)}>‹</Button>
-            <text fg={theme.text.muted} flexShrink={0}>{`${current() + 1}/${pages()}`}</text>
-            <Button onClick={() => turn(1)}>›</Button>
-          </box>
-
-          <box>
-            <For each={rows()}>
-              {(row, index) => (
-                <ToolRow
-                  tool={row}
-                  active={index() === cursor()}
-                  pending={busy() !== undefined}
-                  working={busy() === row.tool}
-                  armed={armed() === row.tool}
-                  onHover={() => setCursor(index())}
-                  onInstall={() => onInstall(row.tool)}
-                  onRemove={() => onRemove(row.tool)}
-                  onDisarm={() => setArmed()}
+          <Match when={tab() === "plugins"}>
+            <Show when={props.plugins} fallback={<text fg={theme.text.muted}>{t("Plugin management is unavailable.")}</text>}>
+              {(access) => (
+                <PluginTools
+                  plugins={access()}
+                  onCount={setPluginCount}
+                  keys={(keys) => (pluginKeys = keys)}
+                  scrollIntoView={scrollIntoView}
                 />
               )}
-            </For>
-            <Show when={rows().length === 0}>
-              <text fg={theme.text.muted}>
-                {query() ? t('Nothing matches "{query}".', { query: query() }) : t("No catalog tools on this platform.")}
+            </Show>
+          </Match>
+
+          <Match when={tab() === "terminal"}>
+            <text fg={theme.text.muted} wrapMode="word">
+              {t("The shell the AI runs its commands and hub commands in.")}
+            </text>
+            <box flexDirection="row" gap={1} flexWrap="wrap">
+              <For each={status().terminals}>
+                {(item) => (
+                  <Switch>
+                    <Match when={item.present}>
+                      <Button
+                        variant={aiTerminal() === item.name ? "primary" : "secondary"}
+                        disabled={busy() !== undefined}
+                        onClick={() => chooseTerminal(item.name)}
+                      >
+                        {`${aiTerminal() === item.name ? "●" : "○"} ${item.name}`}
+                      </Button>
+                    </Match>
+                    <Match when={busy() === item.name}>
+                      <text fg={theme.text.muted}>{`${item.name} …`}</text>
+                    </Match>
+                    <Match when={item.installable}>
+                      <Button disabled={busy() !== undefined} onClick={() => onInstall(item.name)}>
+                        {t("Install {name}", { name: item.name })}
+                      </Button>
+                    </Match>
+                    <Match when={true}>
+                      <text fg={theme.text.muted}>{`${item.name}: ${t(item.manual ?? "no installer here")}`}</text>
+                    </Match>
+                  </Switch>
+                )}
+              </For>
+            </box>
+            <Show when={aiTerminal() === "nu"}>
+              <text fg={theme.text.muted} wrapMode="word">
+                {t(
+                  "The AI's shell commands and hub commands run in nu. Nushell has no grammar the permission check understands, so each nu command is approved as a whole; each command shows the shell that ran it.",
+                )}
               </text>
             </Show>
-          </box>
-        </Match>
-      </Switch>
+          </Match>
+
+          <Match when={tab() === "programs"}>
+            <text fg={theme.text.muted} wrapMode="word">
+              {t("Command-line programs the AI runs through the hub tool. Installed ones are available to every session; Teams → role → Programs narrows them per role.")}
+            </text>
+            <box flexDirection="row" gap={3}>
+              <Stat label={t("Ready")} value={`${status().ready}/${status().total}`} />
+              <Stat label={t("Installed")} value={counts().programs} />
+              <box flexGrow={1} />
+              <Button
+                variant="primary"
+                disabled={busy() !== undefined || missing().length === 0}
+                onClick={() => void onInstallMissing()}
+              >
+                {t("Install missing ({count})", { count: missing().length })}
+              </Button>
+            </box>
+
+            <text fg={theme.text.muted} wrapMode="word">
+              {status()
+                .categories.map((entry) => `${entry.name} ${entry.ready}/${entry.total}`)
+                .join("  ")}
+            </text>
+
+            <box flexDirection="row" gap={1}>
+              <text fg={theme.text.muted} flexShrink={0}>
+                {t("Search")}
+              </text>
+              <input
+                flexGrow={1}
+                flexShrink={1}
+                minWidth={0}
+                onInput={(value) => {
+                  setQuery(value)
+                  setPage(0)
+                  setCursor(0)
+                  setArmed()
+                }}
+                focusedBackgroundColor={theme.background.formfield.focused}
+                cursorColor={theme.text.formfield.focused}
+                cursorStyle={config.cursor}
+                focusedTextColor={theme.text.formfield.focused}
+                placeholder={t("tool, category or task: yaml, ports, docker logs")}
+                placeholderColor={theme.text.muted}
+                ref={(input: InputRenderable) => {
+                  setTimeout(() => {
+                    if (!input.isDestroyed) input.focus()
+                  }, 1)
+                }}
+              />
+              <text fg={theme.text.muted} flexShrink={0}>{`${visible().length}/${status().tools.length}`}</text>
+              <Button onClick={() => turn(-1)}>‹</Button>
+              <text fg={theme.text.muted} flexShrink={0}>{`${current() + 1}/${pages()}`}</text>
+              <Button onClick={() => turn(1)}>›</Button>
+            </box>
+
+            <box>
+              <For each={rows()}>
+                {(row, index) => (
+                  <ToolRow
+                    id={`registry-tool-${row.tool}`}
+                    tool={row}
+                    active={index() === cursor()}
+                    pending={busy() !== undefined}
+                    working={busy() === row.tool}
+                    armed={armed() === row.tool}
+                    onHover={() => setCursor(index())}
+                    onInstall={() => onInstall(row.tool)}
+                    onRemove={() => onRemove(row.tool)}
+                    onDisarm={() => setArmed()}
+                  />
+                )}
+              </For>
+              <Show when={rows().length === 0}>
+                <text fg={theme.text.muted}>
+                  {query() ? t('Nothing matches "{query}".', { query: query() }) : t("No catalog tools on this platform.")}
+                </text>
+              </Show>
+            </box>
+          </Match>
+        </Switch>
+      </scrollbox>
 
       <Show when={stale()}>
         <text fg={theme.text.feedback.warning.base} wrapMode="word">
@@ -437,7 +487,9 @@ export function RegistryPanel(props: {
       <text fg={theme.text.muted}>
         {tab() === "programs"
           ? t("tab next tab · ↑↓ select · enter install/remove · ←→ page · esc close")
-          : t("tab next tab · ↑↓ select · enter install/remove · esc close")}
+          : tab() === "plugins"
+            ? t("tab next tab · ↑↓ select · enter enable/disable · esc close")
+            : t("tab next tab · ↑↓ select · enter install/remove · esc close")}
       </text>
     </box>
   )
@@ -447,6 +499,27 @@ type Tab = "ai" | "plugins" | "programs" | "terminal"
 
 type AiToolsKeys = { move: (delta: number) => void; activate: () => void }
 type PluginToolsKeys = { move: (delta: number) => void; activate: () => void }
+
+// The list scrolls under the fixed header, so the cursor has to be brought into
+// view. Only a cursor move scrolls: on the first render the layout is not
+// settled yet.
+function scrollCursorIntoView(
+  cursor: () => number,
+  idOf: (index: number) => string | undefined,
+  scrollIntoView: ((id: string) => void) | undefined,
+) {
+  createEffect(
+    on(
+      cursor,
+      () => {
+        const id = idOf(cursor())
+        if (!id) return
+        scrollIntoView?.(id)
+      },
+      { defer: true },
+    ),
+  )
+}
 
 type RegistryPluginRegistration = { readonly id: string; readonly source: "builtin" | "external"; readonly active: boolean }
 type RegistryPluginStatus = {
@@ -487,6 +560,8 @@ function PluginTools(props: {
   plugins: RegistryPluginsAccess
   onCount: (count: string) => void
   keys: (keys: PluginToolsKeys) => void
+  // Brings the row under the cursor into the visible part of the scrolling list.
+  scrollIntoView?: (id: string) => void
 }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
@@ -494,6 +569,7 @@ function PluginTools(props: {
   const [query, setQuery] = createSignal("")
   const [page, setPage] = createSignal(0)
   const [cursor, setCursor] = createSignal(0)
+  const [hovered, setHovered] = createSignal<number>()
   const [busy, setBusy] = createSignal<string>()
 
   const entries = createMemo<RegistryPluginRow[]>(() => {
@@ -564,6 +640,14 @@ function PluginTools(props: {
     }
   }
   props.keys({ move, activate: () => void toggle(selected()) })
+  scrollCursorIntoView(
+    cursor,
+    (index) => {
+      const entry = rows()[Math.max(0, Math.min(index, rows().length - 1))]
+      return entry ? `registry-plugin-${entry.id}` : undefined
+    },
+    props.scrollIntoView,
+  )
 
   return (
     <box gap={1}>
@@ -599,14 +683,31 @@ function PluginTools(props: {
       <For each={rows()}>
         {(entry, index) => (
           <box
+            id={`registry-plugin-${entry.id}`}
             gap={0}
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={index() === cursor() ? theme.background.action.primary.focused : undefined}
-            onMouseOver={() => setCursor(index())}
+            backgroundColor={
+              index() === cursor()
+                ? theme.background.formfield.focused
+                : hovered() === index()
+                  ? theme.background.formfield.hovered
+                  : undefined
+            }
+            onMouseOver={() => {
+              setHovered(index())
+              setCursor(index())
+            }}
+            onMouseOut={() => setHovered((value) => (value === index() ? undefined : value))}
           >
             <box flexDirection="row" gap={1}>
-              <text fg={theme.text.base} attributes={TextAttributes.BOLD} flexShrink={0}>{entry.id}</text>
+              <text
+                fg={index() === cursor() ? theme.text.formfield.focused : theme.text.base}
+                attributes={TextAttributes.BOLD}
+                flexShrink={0}
+              >
+                {entry.id}
+              </text>
               <text fg={theme.text.muted} flexShrink={0}>{entry.source === "builtin" ? t("built-in") : t("external")}</text>
               <text fg={entry.active ? theme.text.feedback.success.base : theme.text.muted} flexShrink={0}>
                 {entry.active ? t("active") : entry.status === "failed" ? t("failed") : t("inactive")}
@@ -625,7 +726,6 @@ function PluginTools(props: {
       <Show when={rows().length === 0}>
         <text fg={theme.text.muted}>{t("No plugins match this search.")}</text>
       </Show>
-      <text fg={theme.text.muted}>{t("tab next tab · ↑↓ select · enter enable/disable · esc close")}</text>
     </box>
   )
 }
@@ -640,12 +740,15 @@ function AiTools(props: {
   onCount: (count: string) => void
   // Gives the panel this tab's keyboard actions: one modal key layer serves the whole panel.
   keys: (keys: AiToolsKeys) => void
+  // Brings the row under the cursor into the visible part of the scrolling list.
+  scrollIntoView?: (id: string) => void
 }) {
   const theme = useTheme().surface("dialog")
   const t = useT()
   const toast = useToast()
   const [busy, setBusy] = createSignal<string>()
   const [cursor, setCursor] = createSignal(0)
+  const [hovered, setHovered] = createSignal<number>()
   // Optimistic until the server list catches up with the config change.
   const [local, setLocal] = createSignal<Record<string, boolean>>({})
   const entries = McpCatalog.forPlatform()
@@ -678,6 +781,14 @@ function AiTools(props: {
     move: (delta) => setCursor((value) => Math.max(0, Math.min(entries.length - 1, value + delta))),
     activate: () => activate(entries[cursor()]),
   })
+  scrollCursorIntoView(
+    cursor,
+    (index) => {
+      const entry = entries[index]
+      return entry ? `registry-ai-${entry.id}` : undefined
+    },
+    props.scrollIntoView,
+  )
 
   return (
     <box gap={0}>
@@ -688,14 +799,29 @@ function AiTools(props: {
       <For each={entries}>
         {(entry, index) => (
           <box
+            id={`registry-ai-${entry.id}`}
             gap={0}
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={index() === cursor() ? theme.background.action.primary.focused : undefined}
-            onMouseOver={() => setCursor(index())}
+            backgroundColor={
+              index() === cursor()
+                ? theme.background.formfield.focused
+                : hovered() === index()
+                  ? theme.background.formfield.hovered
+                  : undefined
+            }
+            onMouseOver={() => {
+              setHovered(index())
+              setCursor(index())
+            }}
+            onMouseOut={() => setHovered((value) => (value === index() ? undefined : value))}
           >
             <box flexDirection="row" gap={1}>
-              <text fg={theme.text.base} attributes={TextAttributes.BOLD} flexShrink={0}>
+              <text
+                fg={index() === cursor() ? theme.text.formfield.focused : theme.text.base}
+                attributes={TextAttributes.BOLD}
+                flexShrink={0}
+              >
                 {entry.name}
               </text>
               <Show when={entry.runtime}>
@@ -755,6 +881,8 @@ function ToolRow(props: {
   pending: boolean
   working: boolean
   armed: boolean
+  // Lets the panel scroll this row into view when the cursor moves onto it.
+  id: string
   onHover: () => void
   onInstall: () => void
   onRemove: () => void
@@ -762,15 +890,37 @@ function ToolRow(props: {
 }) {
   const t = useT()
   const theme = useTheme().surface("dialog")
+  const [hovered, setHovered] = createSignal(false)
   return (
     <box
+      id={props.id}
       flexDirection="row"
       gap={1}
-      backgroundColor={props.active ? theme.background.action.primary.focused : undefined}
-      onMouseOver={props.onHover}
+      backgroundColor={
+        props.active
+          ? theme.background.formfield.focused
+          : hovered()
+            ? theme.background.formfield.hovered
+            : undefined
+      }
+      onMouseOver={() => {
+        setHovered(true)
+        props.onHover()
+      }}
+      onMouseOut={() => setHovered(false)}
     >
       <box width={TOOL_COLUMN}>
-        <text fg={props.tool.installed ? theme.text.base : theme.text.muted} wrapMode="none" truncate>
+        <text
+          fg={
+            props.active
+              ? theme.text.formfield.focused
+              : props.tool.installed
+                ? theme.text.base
+                : theme.text.muted
+          }
+          wrapMode="none"
+          truncate
+        >
           {props.tool.tool}
         </text>
       </box>

@@ -1933,7 +1933,9 @@ export function Prompt(props: PromptProps) {
             }
           />
         </box>
-        <box width="100%" flexDirection="row" justifyContent="space-between" gap={2}>
+        {/* `gap` would also add a row gap once the Freebuff strip (width 100%) wraps to its
+            own line; columnGap keeps the one-line footer's spacing unchanged. */}
+        <box width="100%" flexDirection="row" justifyContent="space-between" columnGap={2} flexWrap="wrap">
           <Slot path="prompt.footer" input={footerInput()}>
             <Slot path="prompt.footer.status" input={footerInput()}>
               <box

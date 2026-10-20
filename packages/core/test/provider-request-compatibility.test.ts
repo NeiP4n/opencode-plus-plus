@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { prepare, zenRequiredToolNames } from "@opencode/core/provider-request-compatibility"
 
 const tool = (name: string) => ({
+  type: "tool" as const,
   name,
   description: name,
   inputSchema: { type: "object", properties: {} },

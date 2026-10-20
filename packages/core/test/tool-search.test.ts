@@ -10,6 +10,7 @@ import { FileSystem } from "@opencode/core/filesystem"
 import { Location } from "@opencode/core/location"
 import { FileAccess } from "@opencode/core/file-access"
 import { Permission } from "@opencode/core/permission"
+import { Room } from "@opencode/core/room"
 import { Ripgrep } from "@opencode/core/ripgrep"
 import { Entry, Match } from "@opencode/schema/filesystem"
 import { AbsolutePath, RelativePath } from "@opencode/core/schema"
@@ -21,17 +22,18 @@ import { location } from "./fixture/location"
 import { tmpdir, tmpdirScoped } from "./fixture/tmpdir"
 import { it } from "./lib/effect"
 import { permissionLayer } from "./lib/permission"
+import { roomLayer } from "./lib/room"
 import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
 
 const globToolNode = makeLocationNode({
   name: "test/glob-tool-plugin",
   layer: Layer.effectDiscard(registerToolPlugin(GlobTool.Plugin)),
-  deps: [Tool.node, Environment.node, Ripgrep.node, Location.node, FileAccess.node, Permission.node],
+  deps: [Tool.node, Environment.node, Ripgrep.node, Location.node, FileAccess.node, Permission.node, Room.node],
 })
 const grepToolNode = makeLocationNode({
   name: "test/grep-tool-plugin",
   layer: Layer.effectDiscard(registerToolPlugin(GrepTool.Plugin)),
-  deps: [Tool.node, Environment.node, Ripgrep.node, Location.node, FileAccess.node, Permission.node],
+  deps: [Tool.node, Environment.node, Ripgrep.node, Location.node, FileAccess.node, Permission.node, Room.node],
 })
 const sessionID = Session.ID.make("ses_search_tool_test")
 
@@ -169,6 +171,7 @@ const withTools = <A, E, R>(
           Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
         ),
         Ripgrep.node.replace(fakeRipgrep),
+        Room.node.replace(roomLayer()),
         Permission.node.replace(
           permissionLayer({
             assert: (input) =>

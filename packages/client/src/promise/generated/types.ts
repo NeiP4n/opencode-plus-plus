@@ -9108,6 +9108,13 @@ export type OrchestraGroupLinkInput = { readonly name: { readonly name: string }
 
 export type OrchestraGroupLinkOutput = { pairs: number }
 
+export type OrchestraGroupChatInput = {
+  readonly name: { readonly name: string }["name"]
+  readonly mode?: { readonly mode?: ("lead" | "council") | undefined }["mode"]
+}
+
+export type OrchestraGroupChatOutput = { sessionID: string; title: string; directory: string }
+
 export type OrchestraLinkSetInput = {
   readonly a: { readonly a: string; readonly b: string; readonly linked: boolean }["a"]
   readonly b: { readonly a: string; readonly b: string; readonly linked: boolean }["b"]

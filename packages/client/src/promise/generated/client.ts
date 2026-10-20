@@ -423,6 +423,8 @@ import type {
   OrchestraGroupRemoveOutput,
   OrchestraGroupLinkInput,
   OrchestraGroupLinkOutput,
+  OrchestraGroupChatInput,
+  OrchestraGroupChatOutput,
   OrchestraLinkSetInput,
   OrchestraLinkSetOutput,
   OrchestraLinkListInput,
@@ -3507,6 +3509,18 @@ export function make(options: ClientOptions) {
             {
               method: "POST",
               path: `/api/orchestra/group/${encodeURIComponent(input.name)}/link`,
+              successStatus: 200,
+              declaredStatuses: [400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        chat: (input: OrchestraGroupChatInput, requestOptions?: RequestOptions) =>
+          request<OrchestraGroupChatOutput>(
+            {
+              method: "POST",
+              path: `/api/orchestra/group/${encodeURIComponent(input.name)}/chat`,
+              body: { mode: input["mode"] },
               successStatus: 200,
               declaredStatuses: [400, 401],
               empty: false,

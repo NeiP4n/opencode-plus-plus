@@ -34,7 +34,9 @@
     "prepare": "husky",
     "random": "echo 'Random script'",
     "sso": "aws sso login --sso-session=opencode --no-browser",
-    "test": "echo 'do not run tests from root' && exit 1"
+    "test": "echo 'do not run tests from root' && exit 1",
+    "check:cycles": "dependency-cruiser --config .dependency-cruiser.cjs packages",
+    "check:size": "find packages -name \"*.ts\" -not -path \"*/node_modules/*\" -not -path \"*/dist/*\" -size +500k 2>&1 | grep -v \".d.ts\" | head -20"
   },
   "workspaces": {
     "packages": [
@@ -125,6 +127,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@typescript/native-preview": "catalog:",
+    "dependency-cruiser": "18.6.0",
     "glob": "13.0.5",
     "husky": "9.1.7",
     "oxlint": "1.60.0",

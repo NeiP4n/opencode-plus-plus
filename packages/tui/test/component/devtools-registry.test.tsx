@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { testRender } from "@opentui/solid"
 import { expect, test } from "bun:test"
-import { createSignal } from "solid-js"
+import { createSignal, onMount } from "solid-js"
 import { Hub } from "@opencode/core/hub/index"
 import { HubState } from "@opencode/core/hub/state"
 import {
@@ -14,6 +14,7 @@ import { ConfigProvider } from "../../src/config"
 import { Keymap } from "../../src/context/keymap"
 import { ThemeProvider } from "../../src/context/theme"
 import { Toast, ToastProvider } from "../../src/ui/toast"
+import { DialogProvider, useDialog } from "../../src/ui/dialog"
 import { hubRegistryStatus } from "../../src/util/hub-registry"
 import { emptyThemeSource, tmpdir } from "../fixture/fixture"
 import { TestTuiContexts } from "../fixture/tui-environment"
@@ -31,7 +32,23 @@ async function render(
     aiTools?: AiToolsAccess
     plugins?: RegistryPluginsAccess
   },
+  size: { width: number; height: number } = { width: 90, height: 44 },
+  // The panel is opened as a centered dialog, and that centering is what clips it
+  // on a terminal shorter than the panel.
+  centered = false,
 ) {
+  const panel = () => (
+    <RegistryPanel options={options} onShell={options.onShell} aiTools={options.aiTools} plugins={options.plugins} />
+  )
+  // The app opens the panel through the dialog, so the test opens it the same way.
+  function OpenRegistry() {
+    const dialog = useDialog()
+    onMount(() => {
+      dialog.replace(panel(), undefined, { size: "large" })
+      dialog.setCentered(true)
+    })
+    return null
+  }
   const app = await testRender(
     () => (
       <TestTuiContexts>
@@ -39,7 +56,13 @@ async function render(
           <ThemeProvider mode="dark" source={emptyThemeSource}>
             <Keymap.Provider>
               <ToastProvider>
-                <RegistryPanel options={options} onShell={options.onShell} aiTools={options.aiTools} plugins={options.plugins} />
+                {centered ? (
+                  <DialogProvider>
+                    <OpenRegistry />
+                  </DialogProvider>
+                ) : (
+                  panel()
+                )}
                 <Toast />
               </ToastProvider>
             </Keymap.Provider>
@@ -47,7 +70,7 @@ async function render(
         </ConfigProvider>
       </TestTuiContexts>
     ),
-    { width: 90, height: 44, kittyKeyboard: true },
+    { width: size.width, height: size.height, kittyKeyboard: true },
   )
   app.renderer.start()
   // The programs tab carries the search; the AI tools tab, first when offered, has none.
@@ -64,6 +87,25 @@ function cell(app: Awaited<ReturnType<typeof render>>, tool: string, needle: str
   const column = lines[row].indexOf(needle)
   if (column < 0) throw new Error(`no ${needle} on the ${tool} row`)
   return { x: column, y: row }
+}
+
+// Names every row that breaks the frame instead of reporting a bare boolean, so
+// a failing run points at the row that was drawn outside the terminal.
+function frameOffenders(lines: string[], size: { width: number; height: number }) {
+  return lines.flatMap((line, y) => {
+    if (line.trim().length === 0) return []
+    const problems: string[] = []
+    if (y >= size.height) problems.push(`row ${y} is below the ${size.height}-row frame`)
+    if (line.length > size.width) problems.push(`row ${y} is ${line.length} cells wide, over the ${size.width}-cell frame`)
+    return problems.map((problem) => `${problem}: ${JSON.stringify(line)}`)
+  })
+}
+
+// The pinned hint under the list: the one line that names the panel's keys.
+function hintLine(app: Awaited<ReturnType<typeof render>>) {
+  const line = app.captureCharFrame().split("\n").find((item) => item.includes("tab next tab"))
+  if (!line) throw new Error("no pinned hint in the frame")
+  return line
 }
 
 test("registry panel shows readiness, terminals and a paged tool list", async () => {
@@ -89,6 +131,128 @@ test("registry panel shows readiness, terminals and a paged tool list", async ()
     expect(frame).toContain(status.tools[0].tool)
     expect(app.captureCharFrame()).toContain("Install")
     expect(app.captureCharFrame()).toContain("Remove")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the panel keeps its header, tabs and hint on screen in a short terminal", async () => {
+  await using tmp = await tmpdir()
+  const size = { width: 90, height: 20 }
+  const app = await render(
+    {
+      probe,
+      terminalProbe: () => true,
+      manager: registryManager,
+      directory: tmp.path,
+      aiTools: { installed: () => [], set: async () => {} },
+    },
+    size,
+    true,
+  )
+  try {
+    const lines = app.captureCharFrame().split("\n")
+    // The title used to sit above the screen: the centered dialog cut the top off.
+    const header = lines.findIndex((line) => line.includes("Registry"))
+    expect(header).toBeGreaterThanOrEqual(0)
+    // The tab row has to stay on screen right under the title.
+    const tabs = lines.findIndex((line) => line.includes("AI tools (MCP)") && line.includes("Programs"))
+    expect(tabs).toBeGreaterThan(header)
+    // The hint under the list used to be cut off together with the bottom of the dialog.
+    const hint = lines.findIndex((line) => line.includes("tab next tab"))
+    expect(hint).toBeGreaterThan(tabs)
+    expect(hint).toBeLessThan(size.height)
+    // Nothing reaches past the terminal: the offenders name the row that does.
+    const drawn = lines.filter((line) => line.trim().length > 0)
+    expect(drawn.length).toBeGreaterThan(0)
+    expect(frameOffenders(lines, size)).toEqual([])
+
+    // The list itself scrolls, so the cursor walks down into the part that was hidden.
+    for (let index = 0; index < 8; index++) app.mockInput.pressArrow("down")
+    await app.waitForFrame((frame) => !frame.includes("Context7"))
+    const scrolled = app.captureCharFrame().split("\n")
+    expect(scrolled.findIndex((line) => line.includes("Registry"))).toBe(header)
+    expect(scrolled.findIndex((line) => line.includes("tab next tab"))).toBe(hint)
+
+    // The programs tab scrolls the same way: its tool rows sit below the fold.
+    await openTab(app, "Programs")
+    await app.waitForFrame((frame) => frame.includes("Search"))
+    const status = hubRegistryStatus({ probe, manager: registryManager })
+    expect(status.tools.length).toBeGreaterThan(8)
+    // The cursor walks down the tool rows and the list follows it.
+    for (let index = 0; index < 8; index++) app.mockInput.pressArrow("down")
+    await app.waitForFrame((frame) => frame.includes(status.tools[8]!.tool))
+    const programs = app.captureCharFrame().split("\n")
+    expect(programs.findIndex((line) => line.includes("Registry"))).toBe(header)
+    expect(programs.findIndex((line) => line.includes("tab next tab"))).toBe(hint)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the panel keeps its header, tabs and hint on screen in a very short terminal", async () => {
+  await using tmp = await tmpdir()
+  // Ten rows are fewer than the twelve a floor on the panel height would claim,
+  // so a panel that ignores the terminal height is cut off at both ends.
+  const size = { width: 90, height: 10 }
+  const app = await render(
+    {
+      probe,
+      terminalProbe: () => true,
+      manager: registryManager,
+      directory: tmp.path,
+      aiTools: { installed: () => [], set: async () => {} },
+    },
+    size,
+    true,
+  )
+  try {
+    const lines = app.captureCharFrame().split("\n")
+    const rows = {
+      header: lines.findIndex((line) => line.includes("Registry")),
+      tabs: lines.findIndex((line) => line.includes("AI tools (MCP)") && line.includes("Programs")),
+      hint: lines.findIndex((line) => line.includes("tab next tab")),
+    }
+    // A missing row reports itself by name instead of comparing two indexes.
+    expect(Object.entries(rows).filter(([, y]) => y < 0).map(([name]) => name)).toEqual([])
+    expect(rows.tabs).toBeGreaterThan(rows.header)
+    expect(rows.hint).toBeGreaterThan(rows.tabs)
+    expect(rows.hint).toBeLessThan(size.height)
+    // Nothing reaches past the terminal: the offenders name the row that does.
+    expect(frameOffenders(lines, size)).toEqual([])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the pinned hint names the action of the tab it sits under", async () => {
+  await using tmp = await tmpdir()
+  const plugins: RegistryPluginsAccess = {
+    registered: () => [{ id: "test.builtin", source: "builtin", active: true }],
+    list: () => [{ id: "test.builtin", target: "test.builtin", status: "active" }],
+    activate: async () => true,
+    deactivate: async () => true,
+  }
+  const app = await render({
+    probe,
+    terminalProbe: () => true,
+    manager: registryManager,
+    directory: tmp.path,
+    plugins,
+    aiTools: { installed: () => [], set: async () => {} },
+  })
+  try {
+    // The programs tab installs and removes programs, and pages the list.
+    await openTab(app, "Programs")
+    await app.waitForFrame((frame) => frame.includes("tab next tab"))
+    expect(hintLine(app)).toContain("enter install/remove")
+    expect(hintLine(app)).toContain("←→ page")
+    // The plugins tab enables and disables plugins, so the same pinned hint must
+    // not promise an install there.
+    await openTab(app, "Plugins")
+    await app.waitForFrame((frame) => frame.includes("test.builtin"))
+    expect(hintLine(app)).toContain("enter enable/disable")
+    expect(hintLine(app)).not.toContain("install/remove")
   } finally {
     app.renderer.destroy()
   }

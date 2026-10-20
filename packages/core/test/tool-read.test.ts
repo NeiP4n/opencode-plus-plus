@@ -10,6 +10,7 @@ import { Location } from "@opencode/core/location"
 import { Image } from "@opencode/core/image"
 import { Permission } from "@opencode/core/permission"
 import { Session } from "@opencode/core/session"
+import { Room } from "@opencode/core/room"
 import { AbsolutePath, RelativePath } from "@opencode/core/schema"
 import { Global } from "@opencode/util/global"
 import { FileAccess } from "@opencode/core/file-access"
@@ -23,6 +24,7 @@ import { Environment } from "@opencode/core/environment/index"
 import { testEffect } from "./lib/effect"
 import { permissionLayer } from "./lib/permission"
 import { toolIdentity, executeTool, registerToolPlugin, toolDefinitions } from "./lib/tool"
+import { roomLayer } from "./lib/room"
 
 const readToolNode = makeLocationNode({
   name: "test/read-tool-plugin",
@@ -36,6 +38,8 @@ const readToolNode = makeLocationNode({
     SessionInstructions.node,
     FSUtil.node,
     Location.node,
+    Room.node,
+    Session.node,
   ],
 })
 
@@ -118,7 +122,7 @@ const unavailableImage = Layer.mock(Image.Service, {
 })
 const readLayer = (imageLayer: Layer.Layer<Image.Service>) =>
   Layer.mergeAll(
-    AppNodeBuilder.build(LayerNode.group([Tool.node, readToolNode]), [
+    AppNodeBuilder.build(LayerNode.group([Tool.node, readToolNode, Session.node]), [
       ReadToolFileSystem.node.replace(reader),
       Permission.node.replace(permission),
       Config.node.replace(config),
@@ -126,6 +130,7 @@ const readLayer = (imageLayer: Layer.Layer<Image.Service>) =>
       FSUtil.node.replace(testFileSystem),
       Location.node.replace(locationLayer),
       Global.node.replace(Global.layerWith({ data: Global.Path.data })),
+      Room.node.replace(roomLayer()),
     ]),
     // Merge by reference so Config.Test and Image.Service resolve to the memoized instances.
     config,
