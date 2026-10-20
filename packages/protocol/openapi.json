@@ -894,6 +894,23 @@
             "required": false
           },
           {
+            "name": "archived",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["true", "false"]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When true, list archived sessions instead of active sessions."
+            },
+            "required": false
+          },
+          {
             "name": "directory",
             "in": "query",
             "schema": {
@@ -1738,6 +1755,16 @@
                     "anyOf": [
                       {
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "archived": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
                       },
                       {
                         "type": "null"
@@ -15199,7 +15226,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
                 }
               }
             }
@@ -15247,6 +15281,16 @@
                       }
                     ]
                   },
+                  "hostName": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "ai": {
                     "anyOf": [
                       {
@@ -15283,6 +15327,16 @@
                     "anyOf": [
                       {
                         "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rules": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Room.Rules"
                       },
                       {
                         "type": "null"
@@ -15348,7 +15402,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
                 }
               }
             }
@@ -15374,7 +15435,7 @@
             }
           }
         },
-        "description": "Rename a room or change what guests and the host model may do in it.",
+        "description": "Rename a room, set the host nickname, or change what guests and the host model may do in it.",
         "summary": "Update room",
         "requestBody": {
           "content": {
@@ -15383,6 +15444,16 @@
                 "type": "object",
                 "properties": {
                   "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "hostName": {
                     "anyOf": [
                       {
                         "type": "string"
@@ -15428,6 +15499,16 @@
                     "anyOf": [
                       {
                         "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "rules": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Room.Rules"
                       },
                       {
                         "type": "null"
@@ -15855,6 +15936,39 @@
                         "required": ["id", "open"],
                         "additionalProperties": false
                       }
+                    },
+                    "mesh": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "clusterID": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": ["forming", "active"]
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "ownerURL": {
+                              "type": "string"
+                            },
+                            "isOwner": {
+                              "type": "boolean"
+                            },
+                            "memberCount": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": ["clusterID", "status", "name", "ownerURL", "isOwner", "memberCount"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": ["host", "rooms"],
@@ -16040,7 +16154,7 @@
                     },
                     "role": {
                       "type": "string",
-                      "enum": ["viewer", "member", "helper", "cohost"]
+                      "enum": ["viewer", "member", "helper", "cohost", "trusted"]
                     },
                     "session": {
                       "$ref": "#/components/schemas/Session.Info_1"
@@ -17223,6 +17337,19 @@
                       "items": {
                         "$ref": "#/components/schemas/Session.Info_1"
                       }
+                    },
+                    "category": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": ["data"],
@@ -17557,6 +17684,103 @@
         },
         "description": "The agents the host can run in this room's sessions.",
         "summary": "List the host's agents"
+      }
+    },
+    "/api/room/{roomID}/guest/mcp": {
+      "get": {
+        "tags": ["room"],
+        "operationId": "room.guest.mcp.list",
+        "parameters": [
+          {
+            "name": "roomID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^room"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["connected", "pending", "disabled", "failed", "needs_auth"]
+                          }
+                        },
+                        "required": ["name", "status"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["data"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RoomNotFoundError | SessionNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RoomNotFoundErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionNotFoundErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "The MCP servers the host's model can use in this room's sessions, with their state.",
+        "summary": "List the host's MCP servers"
       }
     },
     "/api/room/{roomID}/guest/command": {
@@ -18141,7 +18365,7 @@
                 "properties": {
                   "role": {
                     "type": "string",
-                    "enum": ["viewer", "member", "helper", "cohost"]
+                    "enum": ["viewer", "member", "helper", "cohost", "trusted"]
                   }
                 },
                 "required": ["role"],
@@ -19241,6 +19465,761 @@
                 },
                 "required": ["decision"],
                 "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/room/mesh": {
+      "get": {
+        "tags": ["room"],
+        "operationId": "room.mesh.status",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.Snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read this device's view of its replicated Mesh room, elected coordinator and quorum health.",
+        "summary": "Read the local Mesh status"
+      },
+      "post": {
+        "tags": ["room"],
+        "operationId": "room.mesh.create",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/RoomMesh.Snapshot"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["data", "token"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a forming Mesh and return its enrollment secret for the other devices.",
+        "summary": "Create a Mesh room",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomMesh.CreateInput"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/room/mesh/invite": {
+      "get": {
+        "tags": ["room"],
+        "operationId": "room.mesh.invite",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["token"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Return the existing Mesh invitation token only to the original owner so it can invite additional learner devices after activation.",
+        "summary": "Read the owner's Mesh invitation token"
+      }
+    },
+    "/api/room/mesh/join": {
+      "post": {
+        "tags": ["room"],
+        "operationId": "room.mesh.join",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.Snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Join a forming Mesh through a reachable seed device and its enrollment secret.",
+        "summary": "Enroll this device in a Mesh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomMesh.JoinInput"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/room/mesh/leave": {
+      "post": {
+        "tags": ["room"],
+        "operationId": "room.mesh.leave",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.Snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Forget the Mesh state stored on this device so it can join another room. Remaining peers keep their current fixed membership.",
+        "summary": "Disconnect this device from its local Mesh"
+      }
+    },
+    "/api/room/mesh/activate": {
+      "post": {
+        "tags": ["room"],
+        "operationId": "room.mesh.activate",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.Snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prepare the same voter set on all enrolled devices before starting coordinator elections.",
+        "summary": "Activate a Mesh room"
+      }
+    },
+    "/api/room/mesh/append": {
+      "post": {
+        "tags": ["room"],
+        "operationId": "room.mesh.append",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.Entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.Entry"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Propose a message or task; the event is accepted only after majority commit.",
+        "summary": "Append a shared Mesh event",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomMesh.AppendInput"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/room/mesh/feed": {
+      "get": {
+        "tags": ["room"],
+        "operationId": "room.mesh.feed",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.Feed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.Feed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read committed room events from a cursor. Uncommitted entries are not exposed.",
+        "summary": "Read committed Mesh events"
+      }
+    },
+    "/api/room/mesh/rpc": {
+      "post": {
+        "tags": ["room"],
+        "operationId": "room.mesh.rpc",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "RoomMesh.RpcResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomMesh.RpcResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ForbiddenError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForbiddenErrorEncoded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailableError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailableErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Internal peer transport for enrollment, elections and log replication. Requires the Mesh bearer secret.",
+        "summary": "Exchange authenticated Mesh protocol messages",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomMesh.RpcRequest"
               }
             }
           },
@@ -20388,6 +21367,446 @@
           "required": true
         }
       }
+    },
+    "/api/orchestra/group": {
+      "get": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.list",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Federation.Group"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Named sets of projects the operator keeps together.",
+        "summary": "List project groups"
+      },
+      "put": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.save",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a group of projects or replace the one with the same name.",
+        "summary": "Save project group",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Federation.Group"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/orchestra/group/{name}": {
+      "delete": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.remove",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a group. The projects and their links stay.",
+        "summary": "Remove project group"
+      }
+    },
+    "/api/orchestra/group/{name}/link": {
+      "post": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.link",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pairs": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity", "-Infinity", "NaN"]
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["pairs"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Link every pair of projects in the group so each knows the others and may ask them questions.",
+        "summary": "Link a group"
+      }
+    },
+    "/api/orchestra/group/{name}/chat": {
+      "post": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.group.chat",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessionID": {
+                      "type": "string",
+                      "pattern": "^ses"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "directory": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["sessionID", "title", "directory"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create the group's own chat, or return the one it already has. The chat lives in the group's directory, outside every member project's tree. The mode is the group's saved one; it is changed in the group dialog, not here.",
+        "summary": "Open group chat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/Federation.CoordinationMode"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/orchestra/link": {
+      "post": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.link.set",
+        "parameters": [],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "Tie two projects together so each knows the other and may ask it questions, or undo it.",
+        "summary": "Link or unlink projects",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "pattern": "^prj"
+                  },
+                  "b": {
+                    "type": "string",
+                    "pattern": "^prj"
+                  },
+                  "linked": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["a", "b", "linked"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/orchestra/link/{projectID}": {
+      "get": {
+        "tags": ["orchestra"],
+        "operationId": "orchestra.link.list",
+        "parameters": [
+          {
+            "name": "projectID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^prj"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^prj"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "name"],
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestErrorEncoded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UnauthorizedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnauthorizedErrorEncoded"
+                }
+              }
+            }
+          }
+        },
+        "description": "The projects linked to this one.",
+        "summary": "List linked projects"
+      }
     }
   },
   "components": {
@@ -20745,6 +22164,17 @@
             "items": {
               "$ref": "#/components/schemas/Config.Compatibility.Skipped"
             }
+          },
+          "awaitingTrust": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
           }
         },
         "required": ["id", "label", "enabled", "decidedBy", "trusted", "folders", "markers"],
@@ -20967,6 +22397,9 @@
           },
           "default_agent": {
             "type": "string"
+          },
+          "proxy": {
+            "$ref": "#/components/schemas/Config.Proxy"
           },
           "update": {
             "type": "string",
@@ -21520,6 +22953,16 @@
             },
             "description": "MCP servers to add or replace under mcp.servers by name; null removes one"
           },
+          "proxy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Config.Proxy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "compatibilityEnabled": {
             "anyOf": [
               {
@@ -21638,6 +23081,24 @@
             "type": "object",
             "additionalProperties": {
               "$ref": "#/components/schemas/Config.ModelEncoded"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "Config.Proxy": {
+        "type": "object",
+        "properties": {
+          "http": {
+            "type": "string"
+          },
+          "https": {
+            "type": "string"
+          },
+          "no_proxy": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },
@@ -21954,6 +23415,48 @@
             "$ref": "#/components/schemas/Credential.External"
           }
         ]
+      },
+      "Federation.CoordinationMode": {
+        "type": "string",
+        "enum": ["lead", "council"]
+      },
+      "Federation.Group": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^prj"
+            }
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Federation.CoordinationMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supervisor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["name", "projects"],
+        "additionalProperties": false
       },
       "FileDiff.Info": {
         "type": "object",
@@ -26031,6 +27534,16 @@
           "name": {
             "type": "string"
           },
+          "hostName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "ai": {
             "type": "string",
             "enum": ["linked", "discovered"]
@@ -26063,6 +27576,16 @@
             "anyOf": [
               {
                 "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Room.Rules"
               },
               {
                 "type": "null"
@@ -26109,7 +27632,7 @@
           },
           "role": {
             "type": "string",
-            "enum": ["viewer", "member", "helper", "cohost"]
+            "enum": ["viewer", "member", "helper", "cohost", "trusted"]
           },
           "room": {
             "$ref": "#/components/schemas/Room.Info"
@@ -26151,12 +27674,25 @@
           },
           "role": {
             "type": "string",
-            "enum": ["viewer", "member", "helper", "cohost"]
+            "enum": ["viewer", "member", "helper", "cohost", "trusted"]
           },
           "device": {
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvedPrograms": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               {
                 "type": "null"
@@ -26199,12 +27735,25 @@
           },
           "role": {
             "type": "string",
-            "enum": ["viewer", "member", "helper", "cohost"]
+            "enum": ["viewer", "member", "helper", "cohost", "trusted"]
           },
           "device": {
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvedPrograms": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               {
                 "type": "null"
@@ -26410,6 +27959,98 @@
         "required": ["machine", "os", "release", "arch", "shells", "tools", "project", "plots"],
         "additionalProperties": false
       },
+      "Room.Rules": {
+        "type": "object",
+        "properties": {
+          "hidePaths": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hideExecution": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hideScreenshots": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "blockCommands": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protectedFiles": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noOutbound": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "denyGuestPrompts": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "denyGuestCommands": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "Room.RunResult": {
         "type": "object",
         "properties": {
@@ -26447,6 +28088,836 @@
       "RoomLogItemEncoded": {
         "type": "string",
         "contentMediaType": "application/json"
+      },
+      "RoomMesh.AppendInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["message", "task"]
+          },
+          "payload": {}
+        },
+        "required": ["kind", "payload"],
+        "additionalProperties": false
+      },
+      "RoomMesh.CreateInput": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "RoomMesh.Entry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "term": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["message", "task"]
+          },
+          "payload": {},
+          "originID": {
+            "type": "string"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
+        "required": ["id", "index", "term", "kind", "payload", "originID", "created"],
+        "additionalProperties": false
+      },
+      "RoomMesh.Feed": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoomMesh.Entry"
+            }
+          },
+          "commitIndex": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          }
+        },
+        "required": ["data", "commitIndex"],
+        "additionalProperties": false
+      },
+      "RoomMesh.JoinInput": {
+        "type": "object",
+        "properties": {
+          "seedURL": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["seedURL", "token", "url"],
+        "additionalProperties": false
+      },
+      "RoomMesh.Node": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "joined": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["id", "url", "name", "joined"],
+        "additionalProperties": false
+      },
+      "RoomMesh.RpcRequest": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["enroll"]
+              },
+              "node": {
+                "$ref": "#/components/schemas/RoomMesh.Node"
+              }
+            },
+            "required": ["type", "node"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["add-learner"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "node": {
+                "$ref": "#/components/schemas/RoomMesh.Node"
+              }
+            },
+            "required": ["type", "clusterID", "fromNodeID", "node"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["remove-learner"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "nodeID": {
+                "type": "string"
+              }
+            },
+            "required": ["type", "clusterID", "fromNodeID", "nodeID"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["prepare"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoomMesh.Node"
+                }
+              }
+            },
+            "required": ["type", "clusterID", "fromNodeID", "members"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["activate"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "members": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoomMesh.Node"
+                }
+              }
+            },
+            "required": ["type", "clusterID", "fromNodeID", "members"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["request-vote"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "term": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "lastLogIndex": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "lastLogTerm": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              }
+            },
+            "required": ["type", "clusterID", "fromNodeID", "term", "lastLogIndex", "lastLogTerm"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["append-entries"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "term": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "leaderID": {
+                "type": "string"
+              },
+              "prevLogIndex": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "prevLogTerm": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoomMesh.Entry"
+                }
+              },
+              "leaderCommit": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "clusterID",
+              "fromNodeID",
+              "term",
+              "leaderID",
+              "prevLogIndex",
+              "prevLogTerm",
+              "entries",
+              "leaderCommit"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["propose"]
+              },
+              "clusterID": {
+                "type": "string"
+              },
+              "fromNodeID": {
+                "type": "string"
+              },
+              "entry": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["message", "task"]
+                  },
+                  "payload": {}
+                },
+                "required": ["id", "kind", "payload"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["type", "clusterID", "fromNodeID", "entry"],
+            "additionalProperties": false
+          },
+          {
+            "$ref": "#/components/schemas/RoomMesh.RunAI"
+          }
+        ]
+      },
+      "RoomMesh.RpcResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "currentTerm": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "granted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matchIndex": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clusterID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ownerNodeID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaderID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["unconfigured", "forming", "active"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "voters": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "members": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RoomMesh.Node"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoomMesh.Entry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commitIndex": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["ok"],
+        "additionalProperties": false
+      },
+      "RoomMesh.RunAI": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["run-ai"]
+          },
+          "clusterID": {
+            "type": "string"
+          },
+          "fromNodeID": {
+            "type": "string"
+          },
+          "targetNodeID": {
+            "type": "string"
+          },
+          "requestID": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "directory": {
+            "type": "string"
+          },
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "providerID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "modelID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["type", "clusterID", "fromNodeID", "targetNodeID", "requestID", "prompt", "directory"],
+        "additionalProperties": false
+      },
+      "RoomMesh.Snapshot": {
+        "type": "object",
+        "properties": {
+          "nodeID": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["unconfigured", "forming", "active"]
+          },
+          "clusterID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ownerNodeID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currentTerm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "leaderID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoomMesh.Node"
+            }
+          },
+          "voters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "voter": {
+            "type": "boolean"
+          },
+          "logIndex": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "commitIndex": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "quorum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "leader": {
+            "type": "boolean"
+          },
+          "writable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "nodeID",
+          "status",
+          "currentTerm",
+          "members",
+          "voters",
+          "voter",
+          "logIndex",
+          "commitIndex",
+          "quorum",
+          "leader",
+          "writable"
+        ],
+        "additionalProperties": false
       },
       "RoomNotFoundErrorEncoded": {
         "type": "object",
