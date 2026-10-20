@@ -7,7 +7,6 @@ import { Permission } from "./permission.js"
 import { statics } from "./schema.js"
 import { SessionID } from "./session-id.js"
 import type { SessionMetadata } from "./session-metadata.js"
-import { Permission } from "./permission.js"
 
 // What a project's main session may do with another session of the project.
 // Each level includes the ones before it: hidden < read < write < full.
@@ -25,14 +24,6 @@ export function allows(access: Access, required: Access) {
 }
 
 export const defaultAccess: Access = "read"
-
-/** Tool permissions for the cross-project Group Orchestrator. It can coordinate only via federation. */
-export function groupSupervisorPermissions(): Permission.Ruleset {
-  return [
-    { action: "*", resource: "*", effect: "deny" },
-    { action: "federation", resource: "*", effect: "ask" },
-  ]
-}
 
 // The agent of every project's main session. A session running it keeps it:
 // switching it to another agent is ignored, so the orchestrator stays one.

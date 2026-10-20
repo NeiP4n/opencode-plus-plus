@@ -1,4 +1,4 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
@@ -261,7 +261,7 @@ describe("QuestionTool", () => {
     }),
   )
 
-  it("supports presets for varied interactive answer styles", () => {
+  test("supports presets for varied interactive answer styles", () => {
     const base = { question: "Choose", header: "Choice", options: [] }
     expect(toField({ ...base, kind: "yes-no" }, 0)).toMatchObject({
       type: "string",
