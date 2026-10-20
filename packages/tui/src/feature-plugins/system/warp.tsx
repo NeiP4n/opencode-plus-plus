@@ -10,6 +10,11 @@ type WarpAction = "refresh" | "connect" | "disconnect" | "reconnect" | "reset" |
 type SharedBusy = { action: WarpAction | null }
 
 const STATUS_REFRESH_MS = 30_000
+// The sidebar's label column, so the values of the WARP block line up.
+const LABEL_WIDTH = 12
+// The exit IP only changes on a rotation or a reconnect, so probing Cloudflare's trace endpoint
+// on every status tick was constant outbound traffic for information nothing displays in between.
+const EXIT_IP_REFRESH_MS = 10 * 60_000
 
 function language(context: Plugin.Context) {
   return context.ui.language() === "ru" ? "ru" : "en"
@@ -307,7 +312,7 @@ async function setupLocalProxy(context: Plugin.Context): Promise<WarpStatus> {
   return next
 }
 
-function ActionButton(props: { context: Plugin.Context; id: string; label: string; run: () => void; disabled?: boolean; emphasized?: boolean; block?: boolean }) {
+function ActionButton(props: { context: Plugin.Context; id: string; label: string; run: () => void; disabled?: boolean; emphasized?: boolean; block?: boolean; accent?: boolean }) {
   const [hovered, setHovered] = createSignal(false)
   const theme = () => props.context.theme
   const base = () => theme().text.action?.primary?.base ?? theme().text.base
@@ -318,29 +323,51 @@ function ActionButton(props: { context: Plugin.Context; id: string; label: strin
     if (props.emphasized) return theme().background.raised?.base ?? theme().background.base
     return undefined
   }
+  const color = () =>
+    props.disabled ? theme().text.muted : hovered() ? hover() : props.emphasized || props.accent ? base() : theme().text.muted
   return (
     <box id={props.id} width={props.block ? "100%" : undefined} paddingLeft={1} paddingRight={1} backgroundColor={background()} onMouseOver={() => setHovered(!props.disabled)} onMouseOut={() => setHovered(false)} onMouseUp={(event) => { event.stopPropagation(); if (!props.disabled) props.run() }}>
-      <text fg={props.disabled ? theme().text.muted : hovered() ? hover() : props.emphasized ? base() : theme().text.muted} wrapMode="none">{props.emphasized ? <b>{props.label}</b> : props.label}</text>
+      <text fg={color()} wrapMode="none" truncate>{props.emphasized ? <b>{props.label}</b> : props.label}</text>
     </box>
   )
 }
 
-function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; exitIp: string; directIp: string; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void }) {
+export function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy: SharedBusy; proxyEnabled: boolean; autoRotateEnabled: boolean; exitIp: string; directIp: string; open: () => void; toggleProxy: () => void; toggleAutoRotate: () => void }) {
   const theme = () => props.context.theme
   const ru = () => language(props.context) === "ru"
+  // The session sidebar is a narrow column, so the labels form a fixed-width column and the
+  // values sit right next to it. A value too long for the panel is cut with an ellipsis
+  // instead of running past the edge.
+  const row = (label: string, value: string, color: ReturnType<typeof theme>["text"]["base"]) => (
+    <text wrapMode="none" truncate>
+      <span style={{ fg: theme().text.muted }}>{label.padEnd(LABEL_WIDTH)}</span>
+      <span style={{ fg: color }}>{value}</span>
+    </text>
+  )
   return (
     <box gap={1}>
       <box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
-        <text fg={theme().text.base}><b>WARP</b></text>
-        <text fg={statusColor(props.context, props.status.state)} wrapMode="none">{statusLabel(props.context, props.status.state)}</text>
+        <text fg={theme().text.base} flexShrink={0}><b>WARP</b></text>
+        <text fg={statusColor(props.context, props.status.state)} wrapMode="none" truncate>
+          {"● " + statusLabel(props.context, props.status.state)}
+        </text>
       </box>
-      <text fg={props.proxyEnabled ? theme().text.feedback.success.base : theme().text.muted} wrapMode="none">
-        {ru()
-          ? props.proxyEnabled ? "Маршрут OpenCode: только через WARP" : "Маршрут OpenCode: напрямую"
-          : props.proxyEnabled ? "OpenCode routing: WARP only" : "OpenCode routing: direct"}
-      </text>
-      <text fg={theme().text.muted} wrapMode="none">{(ru() ? "Ваш IP: " : "Your IP: ") + (props.directIp || "…")}</text>
-      {props.proxyEnabled && <text fg={theme().text.feedback.success.base} wrapMode="none">{(ru() ? "IP OpenCode: " : "OpenCode IP: ") + (props.exitIp || "…")}</text>}
+      <box>
+        {row(
+          ru() ? "Маршрут" : "Route",
+          props.proxyEnabled ? (ru() ? "только через WARP" : "WARP only") : (ru() ? "напрямую" : "direct"),
+          props.proxyEnabled ? theme().text.feedback.success.base : theme().text.base,
+        )}
+        {row(ru() ? "Ваш IP" : "Your IP", props.directIp || "…", theme().text.muted)}
+        {props.proxyEnabled &&
+          row(
+            ru() ? "IP OpenCode" : "OpenCode IP",
+            // The route row above already says the traffic goes through WARP, so the
+            // "· WARP" tag on the address only repeats it.
+            (props.exitIp || "…").replace(" · WARP", ""),
+            theme().text.feedback.success.base,
+          )}
+      </box>
       <ActionButton
         context={props.context}
         id="warp.sidebar.proxy"
@@ -353,8 +380,8 @@ function WarpSidebar(props: { context: Plugin.Context; status: WarpStatus; busy:
         block
       />
       <box flexDirection="row" gap={1} flexWrap="wrap">
-        <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? "⚙ Управление" : "⚙ Manage"} run={props.open} />
-        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? `⚑ Авто IP · ${props.autoRotateEnabled ? "ВКЛ" : "ВЫКЛ"}` : `⚑ Auto IP · ${props.autoRotateEnabled ? "ON" : "OFF"}`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} />
+        <ActionButton context={props.context} id="warp.sidebar.open" label={ru() ? "Управление ↗" : "Manage ↗"} run={props.open} accent />
+        <ActionButton context={props.context} id="warp.sidebar.autoRotate" label={ru() ? `Авто IP: ${props.autoRotateEnabled ? "ВКЛ" : "ВЫКЛ"}` : `Auto IP: ${props.autoRotateEnabled ? "ON" : "OFF"}`} run={props.toggleAutoRotate} disabled={props.busy.action !== null} emphasized={props.autoRotateEnabled} accent />
       </box>
     </box>
   )
@@ -434,7 +461,9 @@ export default Plugin.define({
     const [exit, updateExit] = context.storage.memory<{ ip: string; direct: string }>("exit", { initial: { ip: "", direct: "" } })
 
     const describeIp = (seen: Warp.ExitIp | undefined) => seen ? seen.ip + (seen.warp ? " · WARP" : "") + (seen.loc ? " · " + seen.loc : "") : ""
-    const refreshExitIp = async () => {
+    const refreshExitIp = async (options: { readonly force?: boolean } = {}) => {
+      if (!options.force && Date.now() - lastExitIpRefresh < EXIT_IP_REFRESH_MS) return
+      lastExitIpRefresh = Date.now()
       const proxyPort = proxy.enabled ? await readOpenCodeProxyPort(context) : null
       const [direct, viaWarp] = await Promise.all([
         Warp.exitIp(),
@@ -446,6 +475,9 @@ export default Plugin.define({
     let offReads = 0
     let trustUntil = 0
     let leaving = false
+    let lastProxyRead = "unknown"
+    let lastExitIpRefresh = 0
+    let healedRoute = false
     const leave = () => {
       if (leaving) return
       leaving = true
@@ -460,7 +492,13 @@ export default Plugin.define({
 
     const refreshProxy = async () => {
       const enabled = await readOpenCodeProxyEnabled(context)
-      if (enabled !== proxy.enabled) Warp.log(`opencode proxy flag: stored=${proxy.enabled} read=${String(enabled)} offReads=${offReads} ${await describeProxyEntries(context)}`)
+      // A read that fails because the server is restarting is not a state change; logging it on
+      // every tick buried the diagnostic trail in identical lines.
+      const read = String(enabled)
+      if (read !== lastProxyRead && (enabled === undefined || enabled !== proxy.enabled)) {
+        lastProxyRead = read
+        Warp.log(`opencode proxy flag: stored=${proxy.enabled} read=${read} offReads=${offReads} ${await describeProxyEntries(context)}`)
+      }
       if (enabled === undefined) return
       if (Date.now() < trustUntil && enabled !== proxy.enabled) return
       offReads = enabled ? 0 : offReads + 1
@@ -469,13 +507,17 @@ export default Plugin.define({
         leaving = false
         Warp.markInUse()
         // Heal configurations saved by older builds that always pointed at 40001, even when
-        // the current WARP client serves HTTP directly on 40000.
-        const configuredPort = await readOpenCodeProxyPort(context)
-        if (configuredPort === Warp.HTTP_BRIDGE_PORT && await Warp.portOpen(Warp.DEFAULT_PORT)) {
-          const expectedPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
-          if (expectedPort !== configuredPort) {
-            await setOpenCodeProxy(context, true, expectedPort)
-            Warp.log(`repaired stale OpenCode WARP proxy port ${configuredPort} -> ${expectedPort}`)
+        // the current WARP client serves HTTP directly on 40000. Once per session is enough:
+        // the repair either sticks in the config or the user changes it again.
+        if (!healedRoute) {
+          healedRoute = true
+          const configuredPort = await readOpenCodeProxyPort(context)
+          if (configuredPort === Warp.HTTP_BRIDGE_PORT && await Warp.portOpen(Warp.DEFAULT_PORT)) {
+            const expectedPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
+            if (expectedPort !== configuredPort) {
+              await setOpenCodeProxy(context, true, expectedPort)
+              Warp.log(`repaired stale OpenCode WARP proxy port ${configuredPort} -> ${expectedPort}`)
+            }
           }
         }
       }
@@ -529,7 +571,7 @@ export default Plugin.define({
         const rotation = await Warp.rotate()
         setSharedStatus(updateStatus, rotation.status)
         await refreshProxy()
-        await refreshExitIp()
+        await refreshExitIp({ force: true })
         context.ui.toast.show({
           title: text(context, "Automatic IP change finished", "Автоматическая смена IP завершена"),
           message: rotation.changed
@@ -550,11 +592,15 @@ export default Plugin.define({
       }
     }
 
-    const disposeRateLimit = context.data.on("session.execution.failed", (event) => {
-      if (!isAutoRotationFailure(event.data.error) || !autoRotate.enabled) return
+    const queueAutoRotation = (error: unknown) => {
+      if (!isAutoRotationFailure(error) || !autoRotate.enabled) return
       rateLimitRotationRequested = true
       void runQueuedRateLimitRotation()
-    })
+    }
+    // Both failure signals share one queue and one cooldown: retry.scheduled fires per retry and
+    // execution.failed per terminal failure, so separate handlers rotated twice for one incident.
+    const disposeRateLimit = context.data.on("session.execution.failed", (event) => queueAutoRotation(event.data.error))
+    const disposeRetry = context.data.on("session.retry.scheduled", (event) => queueAutoRotation(event.data.error))
 
     const perform = async (action: WarpAction) => {
       if (busy.action !== null) return
@@ -587,7 +633,7 @@ export default Plugin.define({
             ? text(context, "OpenCode now uses a different WARP exit IP.", "OpenCode теперь использует другой внешний IP WARP.")
             : text(context, "WARP reconnected, but a new IP could not be confirmed.", "WARP переподключён, но новый IP подтвердить не удалось.")
           await refreshProxy()
-          await refreshExitIp()
+          await refreshExitIp({ force: true })
         } else {
           next = await performWarpAction(action, context)
         }
@@ -644,11 +690,42 @@ export default Plugin.define({
     void Warp.hideGui()
     void refresh()
     void refreshProxy()
+    // The stored proxy setting is the user's standing intent: after a reboot or a warp-svc
+    // restart the tunnel is down while OpenCode still routes through 127.0.0.1:40000, so every
+    // request fails with ECONNREFUSED until someone presses the button. Bring it back once per
+    // session. Never touches a device-wide tunnel (ensureProxy refuses that) and never starts
+    // the background service itself, so no surprise UAC prompt appears.
+    const healSavedRoute = async () => {
+      if (busy.action !== null) return
+      if ((await readOpenCodeProxyEnabled(context)) !== true) return
+      if (!Warp.resolveCli()) return
+      setSharedBusy(updateBusy, "proxy")
+      try {
+        await Warp.ensureProxy(Warp.DEFAULT_PORT)
+        const proxyPort = (await Warp.isSocksOnly(Warp.DEFAULT_PORT)) ? Warp.HTTP_BRIDGE_PORT : Warp.DEFAULT_PORT
+        await setOpenCodeProxy(context, true, proxyPort)
+        setSharedStatus(updateStatus, await Warp.status())
+        updateProxy((draft) => { draft.enabled = true })
+        await refreshExitIp({ force: true })
+        context.ui.toast.show({
+          title: text(context, "WARP route restored", "Маршрут WARP восстановлен"),
+          message: text(context, "OpenCode is routed through WARP again. Other apps are unchanged.", "OpenCode снова идёт через WARP. Настройки остальных приложений не изменены."),
+          variant: "success",
+        })
+      } catch (cause) {
+        Warp.log(`startup route restore skipped: ${messageOf(cause).slice(0, 200)}`)
+        setSharedStatus(updateStatus, warpStatusError(describe(context, cause)))
+      } finally {
+        setSharedBusy(updateBusy, null)
+      }
+    }
+    void healSavedRoute()
     const timer = setInterval(() => void refresh(), STATUS_REFRESH_MS)
 
     return () => {
       clearInterval(timer)
       disposeRateLimit()
+      disposeRetry()
       process.off("exit", leave)
       process.off("SIGHUP", onHup)
       process.off("SIGTERM", onTerm)
