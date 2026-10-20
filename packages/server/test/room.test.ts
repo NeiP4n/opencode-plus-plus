@@ -142,6 +142,13 @@ const setup = Effect.gen(function* () {
   return { call, handler, session, room, code, directory: tmp.path }
 })
 
+test("room guest event policy never exposes private model reasoning or synthetic context", () => {
+  expect(hiddenRoomEvent({ type: "session.reasoning.delta", data: { delta: "private reasoning" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.reasoning.ended", data: { text: "private reasoning" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.synthetic", data: { text: "private context" } }, false)).toBe(true)
+  expect(hiddenRoomEvent({ type: "session.text.ended", data: { text: "public assistant answer" } }, false)).toBe(false)
+})
+
 it.live("isRoomGuestURL admits every registered guest route", () =>
   Effect.sync(() => {
     for (const path of GUEST_PATHS) expect(`${path} -> ${guestURL(path)}`).toBe(`${path} -> true`)
@@ -805,6 +812,13 @@ it.live("a following guest log carries the session's permission requests as they
       headers: host,
       body: { title: "Work", location: { directory }, agent: "build" },
     })).body.data
+    const synthetic = yield* call(`/api/session/${session.id}/synthetic`, {
+      method: "POST",
+      headers: host,
+      body: { id: "msg_syntheticprivate01", text: "PRIVATE_SYNTHETIC_CONTEXT" },
+    })
+    expect(synthetic.status).toBe(200)
+
     const room = (yield* call("/api/room", {
       method: "POST",
       headers: host,
@@ -843,6 +857,9 @@ it.live("a following guest log carries the session's permission requests as they
       }).pipe(Effect.timeout("5 seconds"))
 
     yield* until("log.synced")
+    // Synthetic inputs are model-facing context, never part of the room transcript.
+    expect(seen.join("\n")).not.toContain("session.synthetic")
+    expect(seen.join("\n")).not.toContain("PRIVATE_SYNTHETIC_CONTEXT")
     const pending = yield* call(`/api/room/${room.id}/guest/run`, {
       method: "POST",
       headers: guest,
@@ -1234,6 +1251,214 @@ it.live("a guest reads the host's passport, and a cohost runs a command once the
     expect(unattended.status).toBe(200)
     expect(unattended.body.exitCode).toBe(0)
     expect(unattended.body.output).toContain("trusted-auto-run")
+  }).pipe(Effect.scoped),
+)
+
+it.live("demotion during program approval prevents a guest command from starting", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code, directory } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false, blockCommands: ["echo*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = (yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Approval race" },
+    })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
+    const command = "echo must-not-run > role-revoked.txt"
+
+    const pending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guest,
+      body: { sessionID: session.id, command },
+    }).pipe(Effect.forkScoped)
+    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.command === command),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("5 seconds"),
+      Effect.map((requests) => requests.find(
+        (item) => item.action === "room.program" && item.metadata?.command === command,
+      )!),
+    )
+
+    // Revoke command execution while the per-program approval is still awaiting the host.
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "member" },
+    })
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(yield* Effect.promise(() => Bun.file(path.join(directory, "role-revoked.txt")).exists())).toBe(false)
+  }).pipe(Effect.scoped),
+)
+
+it.live("revoking a guest while a command runs withholds its output", () =>
+  Effect.gen(function* () {
+    const { call, room, session, code } = yield* setup
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false, blockCommands: ["node*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = (yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "Long runner" },
+    })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const promoted = yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "cohost" },
+    })
+    expect(promoted.status).toBe(200)
+    const command = 'node -e "setTimeout(() => console.log(\'private-output\'), 1200)"'
+    const pending = yield* call(`/api/room/${room.id}/guest/run`, {
+      method: "POST",
+      headers: guest,
+      body: { sessionID: session.id, command },
+    }).pipe(Effect.forkScoped)
+
+    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.command === command),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("3 seconds"),
+      Effect.map((requests) => requests.find(
+        (item) => item.action === "room.program" && item.metadata?.command === command,
+      )!),
+    )
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+
+    // Wait until the server has recorded that execution started, then revoke access before it exits.
+    yield* call(`/api/room/${room.id}/guest/feed`, { headers: guest }).pipe(
+      Effect.map((response) => response.body.events as { kind: string; who: string }[]),
+      Effect.filterOrFail((events) => events.some((event) => event.kind === "run" && event.who === "Long runner")),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("2 seconds"),
+    )
+    yield* call(`/api/room/${room.id}/member/${joined.guest.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { role: "member" },
+    })
+
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(JSON.stringify(result.body)).not.toContain("private-output")
+  }).pipe(Effect.scoped),
+)
+
+it.live("a DoD check is discarded if its assigned command changes during approval", () =>
+  Effect.gen(function* () {
+    const { call, room, code, directory, session } = yield* setup
+    yield* Effect.promise(() =>
+      Bun.write(
+        path.join(directory, ".opencode", "dod.yaml"),
+        [
+          "leaves:",
+          "  - id: L-001",
+          '    what: "Verify the output"',
+          "    task_state: NOT_STARTED",
+          "    verification:",
+          "      state: NOT_CHECKED",
+          '      command: "echo old-check > stale-check.txt"',
+          "",
+        ].join("\n"),
+      ),
+    )
+    const configured = yield* call(`/api/room/${room.id}`, {
+      method: "PATCH",
+      headers: host,
+      body: { rules: { noOutbound: false, blockCommands: ["echo*"] } },
+    })
+    expect(configured.status).toBe(200)
+    const joined = (yield* call("/api/room/join", {
+      method: "POST",
+      body: { code, name: "DoD checker" },
+    })).body
+    const guest = { authorization: `Bearer ${joined.token}` }
+    const claimed = yield* call(`/api/room/${room.id}/guest/dod`, {
+      method: "POST",
+      headers: guest,
+      body: { id: "L-001", take: true },
+    })
+    expect(claimed.status).toBe(200)
+
+    const oldCommand = "echo old-check > stale-check.txt"
+    const pending = yield* call(`/api/room/${room.id}/guest/dod/submit`, {
+      method: "POST",
+      headers: guest,
+      body: { id: "L-001" },
+    }).pipe(Effect.forkScoped)
+    const request = yield* call(`/api/session/${session.id}/permission`, { headers: host }).pipe(
+      Effect.map((response) => response.body.data as {
+        id: string
+        action: string
+        metadata?: Record<string, unknown>
+      }[]),
+      Effect.filterOrFail((requests) =>
+        requests.some((item) => item.action === "room.program" && item.metadata?.command === oldCommand),
+      ),
+      Effect.retry(Schedule.spaced("20 millis")),
+      Effect.timeout("3 seconds"),
+      Effect.map((requests) => requests.find(
+        (item) => item.action === "room.program" && item.metadata?.command === oldCommand,
+      )!),
+    )
+
+    // Keep the task's real claimed/owned state, changing only the assigned command while
+    // the host approval is pending.
+    yield* Effect.promise(async () => {
+      const board = path.join(directory, ".opencode", "dod.yaml")
+      const contents = await Bun.file(board).text()
+      expect(contents).toContain("echo old-check > stale-check.txt")
+      const updated = contents.replace("echo old-check > stale-check.txt", "echo replacement-check > stale-check.txt")
+      expect(updated).not.toBe(contents)
+      await Bun.write(board, updated)
+    })
+    yield* call(`/api/session/${session.id}/permission/${request.id}/reply`, {
+      method: "POST",
+      headers: host,
+      body: { decision: "once" },
+    })
+
+    const result = yield* Fiber.join(pending)
+    expect(result.status).toBe(403)
+    expect(yield* Effect.promise(() => Bun.file(path.join(directory, "stale-check.txt")).exists())).toBe(false)
   }).pipe(Effect.scoped),
 )
 

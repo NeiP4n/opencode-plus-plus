@@ -122,6 +122,8 @@ export interface Interface extends State.Transformable<Editor> {
     readonly name: string
     readonly args?: Record<string, unknown>
     readonly sessionID?: Session.ID
+    /** Retry only when the caller confirms a read-only MCP tool annotation. */
+    readonly readOnly?: boolean
   }) => Effect.Effect<ToolResult, NotFoundError | ToolCallError>
   readonly instructions: () => Effect.Effect<ServerInstructions[]>
   readonly prompts: () => Effect.Effect<Prompt[]>
@@ -676,7 +678,7 @@ export const layer = (options?: Options) =>
               message: unavailable(target.name, target.entry.status),
             })
           const result = yield* recovering(target.name, target.entry, target.entry.client, (connection) =>
-            connection.callTool({ name: input.name, args: input.args, sessionID: input.sessionID }),
+            connection.callTool({ name: input.name, args: input.args, sessionID: input.sessionID, readOnly: input.readOnly }),
           ).pipe(
             Effect.mapError(
               (error) =>

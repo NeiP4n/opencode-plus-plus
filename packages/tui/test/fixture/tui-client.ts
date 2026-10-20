@@ -179,6 +179,7 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/api/note" && request.method === "GET")
       return json({ location: { directory, project: { id: "proj_test", directory: worktree } }, data: [] })
     if (url.pathname === "/api/orchestra/project") return json([])
+    if (url.pathname === "/api/orchestra/group") return json([])
     if (url.pathname === "/api/orchestra/owner") return json({})
     // Other agent tools' folders (/compat): none in the test project.
     if (url.pathname === "/api/config/compatibility" && request.method === "GET")

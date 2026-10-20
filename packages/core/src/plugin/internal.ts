@@ -77,6 +77,7 @@ import { McpResourceTools } from "../tool/plugin/mcp-resource.js"
 import { OpenCodeTools } from "../tool/plugin/opencode.js"
 import { HubTool } from "../tool/plugin/hub.js"
 import { OrchestraTool } from "../tool/plugin/orchestra.js"
+import { WorkspaceForgeTool } from "../tool/plugin/workspace-forge.js"
 import { TeamForgeTool } from "../tool/plugin/team-forge.js"
 import { CommandForgeTool } from "../tool/plugin/command-forge.js"
 import { DesktopTool } from "../tool/plugin/desktop.js"
@@ -293,6 +294,7 @@ const pre = [
   ReadTool.Plugin,
   HubTool.Plugin,
   OrchestraTool.Plugin,
+  WorkspaceForgeTool.Plugin,
   TeamForgeTool.Plugin,
   CommandForgeTool.Plugin,
   DesktopTool.Plugin,

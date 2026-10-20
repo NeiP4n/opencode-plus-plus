@@ -45,8 +45,16 @@ const description = (shell?: string) =>
     ...(shell ? [`Commands run on ${OS} using ${shell}.`] : []),
     ...(shell === "nu"
       ? [
-          "Write Nushell syntax, not POSIX: `;` or `and` instead of `&&`, `$env.NAME` instead of `$NAME`, `| save file` instead of `> file`, `^cmd` to force an external program.",
-          "A command that is not valid Nushell is rejected before it runs, with the parser's reason; rewrite it in Nushell.",
+          "Write Nushell syntax, not POSIX. Use `;` or `and` instead of `&&`; `$env.NAME` instead of `$NAME`; `^command | save --force path` instead of `> file`; and `^command | complete` instead of `2>&1` or `2>/dev/null`.",
+          "Nushell examples: `mkdir path` (no `-p` flag), use `print` with a quoted string instead of `echo ---`, and prefix external utilities such as `^rg`, `^git`, `^head`, and `^sed` when their native flags are needed.",
+          "For temporary paths, use `$nu.temp-path` with `path join`; do not assume `/tmp` or `/dev/null` exists on Windows.",
+          "A command that is not valid Nushell is rejected before it runs. Use the parser diagnostic and the syntax examples above to rewrite it; never retry the same invalid command unchanged.",
+        ]
+      : []),
+    ...(shell === "pwsh" || shell === "powershell"
+      ? [
+          "Use PowerShell syntax, not Bash redirection or heredocs. For stdout/stderr and exit status use native PowerShell streams and $LASTEXITCODE for external programs.",
+          "Prefer cross-platform paths from the environment or Join-Path; avoid hard-coded /tmp and /dev/null paths.",
         ]
       : []),
     "Quote file paths containing spaces or special characters.",
@@ -228,7 +236,7 @@ export const Plugin = {
               const invalid = yield* nushellError(processes, shellPath, input.command)
               if (invalid)
                 return yield* new ToolFailure({
-                  message: `Not valid Nushell: ${invalid}. The configured shell is nu; rewrite the command in Nushell syntax.`,
+                  message: `Not valid Nushell: ${invalid}.${nushellHints(input.command)} The configured shell is nu; rewrite the command in Nushell syntax before retrying.`,
                 })
               const used = ShellSelect.name(shellPath)
               const info = yield* shell.create(
@@ -255,9 +263,10 @@ export const Plugin = {
                 const result = yield* shell.result(info)
                 if (!result.capture) return yield* new Shell.NotFoundError({ id: info.id })
                 const output = ShellResult.output(result)
+                const commandHints = used === "nu" && output.exit !== undefined && output.exit !== 0 ? nushellHints(input.command) : ""
                 const ran = output.timeout
                   ? `${output.output}\n\nCommand exceeded timeout of ${finalTimeout} ms. Retry with a larger timeout if the command is expected to take longer.`
-                  : output.output
+                  : `${output.output}${commandHints ? `\n\n${commandHints.trim()}` : ""}`
                 return {
                   ...output,
                   output: ran,
@@ -323,6 +332,24 @@ export const Plugin = {
     yield* ctx.session.hook("compaction", hook)
     yield* ctx.session.hook("generate", hook)
   }),
+}
+
+// Translate common POSIX mistakes into concrete alternatives without mutating the command.
+// Commands still run in the selected shell under the existing permission checks.
+const nushellHints = (command: string) => {
+  const hints: string[] = []
+  if (/\bmkdir\s+-p\b/.test(command)) hints.push("Nushell mkdir creates parent directories; remove the POSIX -p flag.")
+  if (command.includes("2>&1") || /2>\s*\/dev\/null/.test(command))
+    hints.push("POSIX stderr redirection is unsupported; use `^command | complete` to inspect stdout, stderr, and exit_code.")
+  if (/(^|\s)>>?\s*(?![=])\S+/.test(command))
+    hints.push("Use `^command | save --force path` (or `save --append path`) instead of POSIX output redirection.")
+  if (/\becho\s+---(?:\s|$)/.test(command))
+    hints.push("Use print with a quoted string; an unquoted leading dash is parsed as a flag.")
+  if (/\b(?:rg|git|head|sed|grep|cat)\b/.test(command))
+    hints.push("Prefix external utilities with ^ when their native flags are needed, for example ^rg, ^git, ^head, and ^sed.")
+  if (process.platform === "win32" && /\/tmp\/|\/dev\/null/.test(command))
+    hints.push("This is Windows: replace Unix-only paths with a path built from $nu.temp-path and path join.")
+  return hints.length ? ` Suggested fixes: ${Array.from(new Set(hints)).join(" ")}` : ""
 }
 
 // Models write POSIX shell from habit. Nushell parses a whole command before running any of

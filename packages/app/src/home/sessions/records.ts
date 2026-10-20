@@ -38,7 +38,7 @@ export function buildHomeSessionRecords(input: {
     if (!byDirectory.has(key)) byDirectory.set(key, project)
   }
   for (const project of projects) {
-    if (!byID.has(project.id)) byID.set(project.id, project)
+    if (project.id && !byID.has(project.id)) byID.set(project.id, project)
     indexDirectory(project.worktree, project)
     for (const sandbox of project.sandboxes ?? []) indexDirectory(sandbox, project)
   }

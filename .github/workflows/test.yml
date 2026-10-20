@@ -82,7 +82,7 @@ jobs:
           node-version: "24"
 
       - name: Setup Bun
-        uses: ./.github/actions/setup-bun
+        uses: $/.github/actions/setup-bun
 
       - name: Configure git identity
         run: |
@@ -97,6 +97,9 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json') }}-
             turbo-${{ runner.os }}-
+
+      - name: Test anonymous FREE model catalog
+        run: bun test packages/core/test/models-dev-free-models.test.ts
 
       - name: Run full unit suite
         if: ${{ success() && (github.event_name == 'workflow_dispatch' || github.ref_name == 'lan-rooms' || github.base_ref == 'lan-rooms') }}
@@ -203,7 +206,7 @@ jobs:
 
       - name: Setup Bun
         if: env.E2E_ENABLED == 'true'
-        uses: ./.github/actions/setup-bun
+        uses: $/.github/actions/setup-bun
 
       - name: Read Playwright version
         if: env.E2E_ENABLED == 'true'

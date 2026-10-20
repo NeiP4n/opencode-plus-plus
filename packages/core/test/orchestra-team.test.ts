@@ -1556,6 +1556,20 @@ describe("Orchestra team", () => {
       expect(template).toMatchObject({ id: "audit", origin: "custom" })
       expect(template.members).toEqual([{ agent: auditor.agent, title: "Code Auditor", category: "Team" }])
 
+      const deduplicated = yield* orchestra.saveTemplate(undefined, {
+        name: "Duplicate roster",
+        description: "",
+        members: [
+          { agent: auditor.agent, title: "President", category: "Team" },
+          { agent: auditor.agent, title: "President", category: "Team" },
+          { agent: auditor.agent, title: "President 2", category: "Team" },
+        ],
+      })
+      expect(deduplicated.members).toEqual([
+        { agent: auditor.agent, title: "President", category: "Team" },
+        { agent: auditor.agent, title: "President 2", category: "Team" },
+      ])
+
       const project = yield* orchestra.create({ name: "Audit", directory: tmp.path, template: "audit" })
       const [member] = yield* orchestra.sessions(project.id)
       expect(member.agent).toBe(auditor.agent)
