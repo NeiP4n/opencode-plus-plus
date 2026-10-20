@@ -83,13 +83,20 @@ const slash = (value: string) => value.replaceAll("\\", "/")
 // Location or worktree. For prospective files, resolve the nearest existing
 // ancestor and append the missing suffix so a symlinked directory cannot make
 // an external target look like an internal lexical path.
+/**
+ * `fs.realpath` reports a Windows drive root as a bare `C:`. Resolving that suffix against
+ * `path.resolve` would treat `C:` as the current directory on that drive, so a target directly
+ * under a drive root would silently resolve into the process cwd instead of the root.
+ */
+const driveRoot = (resolved: string) => (/^[a-zA-Z]:$/.test(resolved) ? `${resolved}${path.sep}` : resolved)
+
 async function canonicalPath(input: string) {
   const original = path.resolve(input)
   let current = original
   const suffix: string[] = []
   for (let depth = 0; depth < 40; depth++) {
     try {
-      return path.resolve(await realpath(current), ...suffix.toReversed())
+      return path.resolve(driveRoot(await realpath(current)), ...suffix.toReversed())
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== "ENOENT" && code !== "ENOTDIR") throw error

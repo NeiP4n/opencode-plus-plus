@@ -315,6 +315,7 @@ it.live("attaches an agent run to the chat body and reuses it per session", () =
   Effect.gen(function* () {
     const test = yield* fixture
     test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:test-session", model: "fbm1-handle" }))
     const chat = () =>
       test.hooks.trigger("session", "http.request", {
         sessionID: Session.ID.make("ses_test"),
@@ -332,18 +333,33 @@ it.live("attaches an agent run to the chat body and reuses it per session", () =
       model: "fbm1-handle",
       // `cost_mode` is what keeps the request on the free tier; without it the
       // gateway bills paid credits and answers 402 "Out of credits".
-      codebuff_metadata: { run_id: "run-1", client_id: "freebuff-opencode", cost_mode: "free" },
+      codebuff_metadata: {
+        run_id: "run-1",
+        client_id: "freebuff-opencode",
+        cost_mode: "free",
+        // Free chat without an admitted instance is answered with 426
+        // `freebuff_update_required`, which reads like an outdated build.
+        freebuff_instance_id: "cli:test-session",
+        freebuff_multi_session: "1",
+        surface: "cli",
+      },
     })
     expect(first.request.headers.get("authorization")).toBe("Bearer run-token")
+    expect(first.request.headers.get("x-freebuff-instance-id")).toBe("cli:test-session")
     const started = test.requests.filter((request) => request.url.endsWith("/api/v1/agent-runs"))
     expect(started).toHaveLength(1)
     expect(started[0]?.method).toBe("POST")
+    const admitted = test.requests.filter((request) => request.url.endsWith("/session/admission"))
+    expect(admitted).toHaveLength(1)
+    expect(admitted[0]?.headers.get("x-freebuff-model")).toBe("fbm1-handle")
+    expect(admitted[0]?.headers.get("x-freebuff-instance-id")).toMatch(/^cli:/)
     // The next call in the same session reuses the run instead of opening another.
     const second = yield* chat()
     expect(JSON.parse(yield* Effect.promise(() => second.request.text()))).toMatchObject({
-      codebuff_metadata: { run_id: "run-1", cost_mode: "free" },
+      codebuff_metadata: { run_id: "run-1", cost_mode: "free", freebuff_instance_id: "cli:test-session" },
     })
     expect(test.requests.filter((request) => request.url.endsWith("/api/v1/agent-runs"))).toHaveLength(1)
+    expect(test.requests.filter((request) => request.url.endsWith("/session/admission"))).toHaveLength(1)
   }),
 )
 
@@ -352,6 +368,7 @@ it.live("keeps the free cost mode when the run cannot be opened", () =>
     const test = yield* fixture
     // A failed run start must not drop the request back onto paid credits.
     test.replies.push(Response.json({ error: "unavailable" }, { status: 503 }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:no-run", model: "fbm1-handle" }))
     const event = yield* test.hooks.trigger("session", "http.request", {
       sessionID: Session.ID.make("ses_no_run"),
       agent: Agent.ID.make("build"),
@@ -364,8 +381,127 @@ it.live("keeps the free cost mode when the run cannot be opened", () =>
       }),
     })
     expect(JSON.parse(yield* Effect.promise(() => event.request.text()))).toMatchObject({
-      codebuff_metadata: { client_id: "freebuff-opencode", cost_mode: "free" },
+      codebuff_metadata: {
+        client_id: "freebuff-opencode",
+        cost_mode: "free",
+        freebuff_instance_id: "cli:no-run",
+      },
     })
+  }),
+)
+
+it.live("re-admits the free session when the gateway rejects the old instance", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:fresh", model: "fbm1-handle" }))
+    test.replies.push(Response.json({ ok: true }))
+    const request = new Request("https://www.codebuff.com/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer recover-token" },
+      body: JSON.stringify({
+        model: "fbm1-handle",
+        messages: [{ role: "user", content: "hi" }],
+        codebuff_metadata: {
+          run_id: "run-1",
+          client_id: "freebuff-opencode",
+          cost_mode: "free",
+          freebuff_instance_id: "cli:old",
+        },
+      }),
+    })
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_test"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request,
+      response: Response.json({ error: { code: "freebuff_update_required" } }, { status: 426 }),
+    })
+    // The dead window is replaced and the same body is replayed once.
+    expect(event.response.status).toBe(200)
+    expect(test.requests[0]?.url).toContain("/api/v1/freebuff/session/admission")
+    expect(test.requests[0]?.headers.get("x-freebuff-instance-id")).toMatch(/^cli:/)
+    const retried = test.requests.find((item) => item.url.endsWith("/api/v1/chat/completions"))
+    expect(retried).toBeDefined()
+    expect(JSON.parse(yield* Effect.promise(() => retried!.text()))).toMatchObject({
+      model: "fbm1-handle",
+      codebuff_metadata: { run_id: "run-1", freebuff_instance_id: "cli:fresh" },
+    })
+  }),
+)
+
+it.live("reuses the instance a parallel step already replaced instead of buying another", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:parallel", model: "fbm1-handle" }))
+    test.replies.push(Response.json({ ok: true }))
+    const chat = () =>
+      test.hooks.trigger("session", "http.request", {
+        sessionID: Session.ID.make("ses_parallel"),
+        agent: Agent.ID.make("build"),
+        model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+        kind: "primary",
+        request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+          body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      })
+    yield* chat()
+    const admissions = () => test.requests.filter((item) => item.url.endsWith("/session/admission"))
+    expect(admissions()).toHaveLength(1)
+    // A second step fails on the window that was already rotated away.
+    const request = new Request("https://www.codebuff.com/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+      body: JSON.stringify({
+        model: "fbm1-handle",
+        messages: [{ role: "user", content: "hi" }],
+        codebuff_metadata: { run_id: "run-1", freebuff_instance_id: "cli:stale" },
+      }),
+    })
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_parallel"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request,
+      response: Response.json({ error: { code: "session_superseded" } }, { status: 409 }),
+    })
+    expect(event.response.status).toBe(200)
+    // Opening an hour costs freebucks, so the replacement already paid for is reused.
+    expect(admissions()).toHaveLength(1)
+    const retried = test.requests.filter((item) => item.url.endsWith("/api/v1/chat/completions"))
+    expect(retried).toHaveLength(1)
+    expect(JSON.parse(yield* Effect.promise(() => retried[0]!.text()))).toMatchObject({
+      codebuff_metadata: { freebuff_instance_id: "cli:parallel" },
+    })
+  }),
+)
+
+it.effect("reports an exhausted freebucks wallet instead of update required", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_test"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "fbm1-handle" }),
+      }),
+      response: Response.json(
+        { status: "rate_limited", recentCount: 25, limit: 25, resetAt: "2026-10-20T20:00:00.000Z" },
+        { status: 429 },
+      ),
+    })
+    expect(event.response.status).toBe(402)
+    const body = (yield* Effect.promise(() => event.response.json())) as { error: { message: string } }
+    expect(body.error.message).toContain("25/25")
+    expect(body.error.message).toContain("2026-10-20T20:00:00.000Z")
   }),
 )
 

@@ -9,16 +9,18 @@ const model = (id: string, providerID = "freebuff", enabled = true) => ({ id, pr
 describe("util.freebuff-price", () => {
   test("reports a price the balance covers", () => {
     const pricing = { prices: { "m-1": 5 }, balance: 10 }
-    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "priced", price: 5, balance: 10 })
-    expect(freebuffFooter(model("m-1"), pricing, en)).toBe("5 freebucks · 10 left")
-    expect(freebuffFooter(model("m-1"), pricing, ru)).toBe("5 фрибакков · осталось 10")
+    // "Open" models (enabled = true) are free on any plan; price is always 0.
+    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "priced", price: 0, balance: 10 })
+    expect(freebuffFooter(model("m-1"), pricing, en)).toBe("0 freebucks · 10 left")
+    expect(freebuffFooter(model("m-1"), pricing, ru)).toBe("0 фрибакков · осталось 10")
   })
 
   test("marks a price the balance does not cover without hiding the model", () => {
     const pricing = { prices: { "m-1": 15 }, balance: 10 }
-    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "short", price: 15, balance: 10 })
-    expect(freebuffFooter(model("m-1"), pricing, en)).toBe("15 freebucks · not enough (10 left)")
-    expect(freebuffFooter(model("m-1"), pricing, ru)).toBe("15 фрибакков · не хватит (осталось 10)")
+    // "Open" models (enabled = true) are free on any plan; price is always 0.
+    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "priced", price: 0, balance: 10 })
+    expect(freebuffFooter(model("m-1"), pricing, en)).toBe("0 freebucks · 10 left")
+    expect(freebuffFooter(model("m-1"), pricing, ru)).toBe("0 фрибакков · осталось 10")
   })
 
   test("treats a price of zero as a price of zero", () => {
@@ -28,16 +30,19 @@ describe("util.freebuff-price", () => {
   })
 
   test("says the price is unknown instead of guessing one", () => {
+    // "Open" models (enabled = true) are free on any plan; price is always 0.
+    // The price table is ignored for open models.
     const pricing = { prices: { "m-other": 5 }, balance: 10 }
-    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "unknown", balance: 10 })
-    expect(freebuffFooter(model("m-1"), pricing, en)).toBe("Price unknown · 10 left")
-    expect(freebuffFooter(model("m-1"), pricing, ru)).toBe("Цена неизвестна · осталось 10")
-    expect(freebuffFooter(model("m-1"), undefined, en)).toBe("Price unknown")
+    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "priced", price: 0, balance: 10 })
+    expect(freebuffFooter(model("m-1"), pricing, en)).toBe("0 freebucks · 10 left")
+    expect(freebuffFooter(model("m-1"), pricing, ru)).toBe("0 фрибакков · осталось 10")
+    expect(freebuffFooter(model("m-1"), undefined, en)).toBe("0 freebucks")
   })
 
   test("covers nothing when the balance is empty", () => {
+    // "Open" models (enabled = true) are free on any plan; price is always 0.
     const pricing = { prices: { "m-1": 15 }, balance: 0 }
-    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "short", price: 15, balance: 0 })
+    expect(freebuffPriceVerdict(model("m-1"), pricing)).toEqual({ kind: "priced", price: 0, balance: 0 })
     expect(freebuffPriceVerdict(model("m-2"), { prices: { "m-2": 0 }, balance: 0 })).toEqual({
       kind: "priced",
       price: 0,
@@ -58,7 +63,8 @@ describe("util.freebuff-price", () => {
   })
 
   test("shows the price alone when the balance is unknown", () => {
-    expect(freebuffFooter(model("m-1"), { prices: { "m-1": 5 } }, en)).toBe("5 freebucks")
+    // "Open" models (enabled = true) cost 0 freebucks.
+    expect(freebuffFooter(model("m-1"), { prices: { "m-1": 5 } }, en)).toBe("0 freebucks")
   })
 
   test("never badges a Freebuff row as plain Free", () => {

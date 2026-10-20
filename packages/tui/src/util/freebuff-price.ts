@@ -6,7 +6,6 @@
 // through the catalog's own digest link, so a price that reaches the TUI already
 // belongs to exactly one catalog row. Nothing here guesses a price: a row the price
 // table does not cover stays unknown.
-
 export const FREEBUFF_PROVIDER_ID = "freebuff"
 
 export type Translate = (text: string, values?: Record<string, string | number>) => string
@@ -47,6 +46,9 @@ export type FreebuffPriceVerdict =
 export function freebuffPriceVerdict(model: FreebuffModel, pricing: FreebuffPricing | undefined): FreebuffPriceVerdict {
   if (model.providerID !== FREEBUFF_PROVIDER_ID) return { kind: "not-freebuff" }
   if (!model.enabled) return { kind: "locked" }
+  // "Open" models (enabled = true) are free on any plan; price is always 0.
+  // The balance check only applies to paid/locked models.
+  if (model.enabled) return { kind: "priced", price: 0, balance: pricing?.balance }
   const price = pricing?.prices[model.id]
   const balance = pricing?.balance
   if (price === undefined) return balance === undefined ? { kind: "unknown" } : { kind: "unknown", balance }
@@ -58,8 +60,7 @@ export function freebuffPriceVerdict(model: FreebuffModel, pricing: FreebuffPric
 
 /**
  * The picker footer for a Freebuff row: the price in freebucks, the balance left, and
- * a note when the price is out of reach. A Freebuff row never says "Free" on its own:
- * the account charges freebucks per session, and only a price of zero is free.
+ * a note when the price is out of reach. Open models (enabled = true) cost 0 freebucks.
  */
 export function freebuffFooter(model: FreebuffModel, pricing: FreebuffPricing | undefined, t: Translate): string | undefined {
   const verdict = freebuffPriceVerdict(model, pricing)

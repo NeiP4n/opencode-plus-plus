@@ -85,22 +85,26 @@ const rateLimit = new AIError({
 const retryBus = { publish: () => Effect.void } as unknown as Bus.Interface
 
 describe("SessionRunnerRetry shared rate-limit gate", () => {
-  it.effect("keeps retrying RateLimit after the ordinary retry budget is exhausted", () =>
+  it.effect("keeps retrying RateLimit past the ordinary schedule, then stops when the durable budget is spent", () =>
     Effect.gen(function* () {
       const sessionID = SessionSchema.ID.make("ses_rate_limit")
       const memory = memoryKV()
       const retry = yield* SessionRunnerRetry.make(retryBus, sessionID, memory.kv)
       const results = []
-      for (let i = 0; i < 12; i++) results.push(yield* retry.decide(input(rateLimit)))
+      for (let i = 0; i < 13; i++) results.push(yield* retry.decide(input(rateLimit)))
 
-      expect(results.every((result) => result.retry)).toBe(true)
-      const last = results[11]
+      // The generic schedule runs out after ten attempts; the durable rate-limit phase then keeps
+      // the task alive for one more full cooldown before it gives up instead of waiting for hours.
+      expect(results.slice(0, 11).every((result) => result.retry)).toBe(true)
+      expect(results[11]).toEqual({ retry: false })
+      const last = results[10]
       if (!last?.retry) throw new Error("Rate limits must remain retryable after the ordinary retry budget")
       expect(last.attempt).toBeGreaterThan(10)
+      expect(last.delay).toBe(Duration.toMillis("15 minutes"))
       const gates = [...memory.values.entries()].filter(([key]) =>
         key.startsWith("session-runner:rate-limit:v1:provider:"),
       )
-      expect(gates.length).toBe(12)
+      expect(gates.length).toBe(13)
       const now = yield* Clock.currentTimeMillis
       const retryAt = gates.map(([, value]) => {
         if (!isJsonObject(value)) return 0
@@ -179,6 +183,48 @@ describe("SessionRunnerRetry shared rate-limit gate", () => {
       const result = yield* retry.decide(input(rateLimit))
       if (!result.retry) throw new Error("Rate limits must remain retryable")
       expect(result.delay).toBeGreaterThanOrEqual(512_000)
+    }),
+  )
+
+  it.effect("spreads sessions that share one provider gate instead of waking together", () =>
+    Effect.sync(() => {
+      const sessions = ["ses_a", "ses_b", "ses_c", "ses_d", "ses_e", "ses_f", "ses_g", "ses_h"]
+      const offsets = sessions.map(SessionRunnerRetry.stagger)
+      // Stable per session, so a retry loop does not jump around.
+      for (const id of sessions) expect(SessionRunnerRetry.stagger(id)).toBe(SessionRunnerRetry.stagger(id))
+      // At least some sessions land on different milliseconds inside the one-second window.
+      expect(new Set(offsets).size).toBeGreaterThan(1)
+      for (const offset of offsets) {
+        expect(offset).toBeGreaterThanOrEqual(0)
+        expect(offset).toBeLessThan(750)
+      }
+    }),
+  )
+
+  it.effect("stops waiting on a gate that a sibling keeps renewing instead of sleeping for hours", () =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis
+      const memory = memoryKV()
+      const gate = (retryAt: number) => ({
+        version: 1,
+        providerID: "provider",
+        sessionID: "ses_other",
+        retryAt,
+        updatedAt: now,
+        consecutive: 2,
+      })
+      yield* memory.kv.set("session-runner:rate-limit:v1:provider:first", gate(now + Duration.toMillis("15 minutes")))
+      const retry = yield* SessionRunnerRetry.make(retryBus, SessionSchema.ID.make("ses_gate_budget"), memory.kv)
+
+      const first = yield* retry.waitForGate("provider").pipe(Effect.forkChild)
+      yield* TestClock.adjust(Duration.minutes(15))
+      expect(yield* Fiber.join(first)).toBe(true)
+
+      // A sibling extends the gate again. The step has already spent its budget, so it must not
+      // sleep another full cooldown; the next request reports the limit instead.
+      const next = yield* Clock.currentTimeMillis
+      yield* memory.kv.set("session-runner:rate-limit:v1:provider:second", gate(next + Duration.toMillis("15 minutes")))
+      expect(yield* retry.waitForGate("provider")).toBe(false)
     }),
   )
 

@@ -1,10 +1,29 @@
 import type { JsonValue } from "@opencode/client"
 import { Plugin } from "@opencode/plugin/tui"
-import { createSignal, onCleanup } from "solid-js"
+import { useTerminalDimensions } from "@opentui/solid"
+import { createMemo, createSignal, onCleanup } from "solid-js"
 import { useT } from "../../util/i18n"
+import { Locale } from "../../util/locale"
+import { stringWidth } from "../../util/string-width"
+import { dialogWidth } from "../../ui/dialog"
 
 // Mirrors the core contract in `@opencode/core/plugin/provider/freebuff-rpc`.
 const RPC_ID = "opencode.freebuff"
+
+/**
+ * The price table needs more room than a medium dialog gives: the catalog
+ * name, the price, the warning marker and the gateway model id have to sit on
+ * one line each. A large dialog fills an 80 column terminal (78 columns wide)
+ * and keeps 86 columns in a 120 column terminal, so the table still fits
+ * everywhere a terminal is usable.
+ */
+const STATUS_DIALOG_SIZE = "large" as const
+
+/** Pads to a display width, so columns of any script stay aligned. */
+function padTo(text: string, width: number) {
+  const missing = width - stringWidth(text)
+  return missing > 0 ? text + " ".repeat(missing) : text
+}
 
 interface FreebuffModelPrice {
   /** Catalog row key. */
@@ -105,6 +124,7 @@ function StatusDialog(props: {
 }) {
   const theme = props.context.theme
   const t = useT()
+  const dimensions = useTerminalDimensions()
   const base = Date.now()
   const [now, setNow] = createSignal(base)
   const timer = setInterval(() => setNow(Date.now()), 1_000)
@@ -135,6 +155,9 @@ function StatusDialog(props: {
       ...(status.tier !== undefined ? [{ label: t("Tier"), value: status.tier }] : []),
     ]
   }
+  // The label column is as wide as the widest label plus one space, so the
+  // value never touches the label ("Сброс за сутки" is wider than 13 columns).
+  const labelWidth = () => rows().reduce((max, row) => Math.max(max, stringWidth(row.label)), 0) + 1
   // The price table is the account's own: what a session on each model costs in
   // freebucks. A row the price table does not cover says so instead of guessing.
   const priceRows = () =>
@@ -145,30 +168,93 @@ function StatusDialog(props: {
         props.status.balance !== undefined &&
         entry.price > props.status.balance,
     }))
+  const priceLabel = (entry: FreebuffModelPrice) =>
+    entry.price === undefined ? t("Price unknown") : `${entry.price} ${t("freebucks")}`
+  // The width the table may use: the dialog box minus the padding around it.
+  const innerWidth = () => Math.min(dialogWidth(STATUS_DIALOG_SIZE), dimensions().width - 2) - 2
+  /**
+   * Column widths of the price table. Every column is padded to its own width
+   * and the row is a single line of text, so the columns cannot overlap and no
+   * cell wraps into the row below. The gateway model id gives up room first
+   * and disappears when nothing is left for it; the name and the price are the
+   * last to be cut.
+   */
+  const priceLayout = createMemo(() => {
+    const entries = priceRows()
+    const warnWidth = entries.some((row) => row.short) ? stringWidth(`· ${t("not enough")}`) : 0
+    const paidWidth = entries.some((row) => row.entry.access === "locked")
+      ? stringWidth(`· ${t("paid plan")}`)
+      : 0
+    const nameWidth = entries.reduce((max, row) => Math.max(max, stringWidth(row.entry.name)), 0)
+    const priceWidth = entries.reduce((max, row) => Math.max(max, stringWidth(priceLabel(row.entry))), 0)
+    const modelWidth = entries.reduce((max, row) => Math.max(max, stringWidth(row.entry.modelID ?? "")), 0)
+    // One space separates the name from the price, the price from the marker
+    // and the marker from the model id.
+    const fixed = priceWidth + warnWidth + paidWidth
+    const fixedColumns = 1 + (warnWidth > 0 ? 1 : 0) + (paidWidth > 0 ? 1 : 0)
+    const nameBudget = Math.max(0, innerWidth() - fixed - fixedColumns - 1)
+    const name = Math.min(nameWidth, nameBudget)
+    const modelSpace = nameBudget - name
+    const model = modelSpace > 0 ? Math.min(modelWidth, modelSpace) : 0
+    const last = model > 0 ? "model" : paidWidth > 0 ? "paid" : warnWidth > 0 ? "warn" : "price"
+    return { name, price: priceWidth, warn: warnWidth, paid: paidWidth, model, last }
+  })
+  // The dialog opens a quarter down the terminal (that is the dialog's own
+  // padding), so the price list only gets what is left of the screen and the
+  // rest of it scrolls. The chrome is everything around the list: the dialog
+  // padding, the title, the gaps, the prices title, the footer and the padding
+  // around the content, which is nine rows besides the status rows.
+  const priceListHeight = createMemo(() => {
+    const chrome = Math.floor(dimensions().height / 4) + 9 + rows().length
+    return Math.max(1, Math.min(priceRows().length, dimensions().height - chrome))
+  })
   return (
     <box flexDirection="column" gap={1} padding={1}>
       <text fg={theme.text.base}>Freebuff</text>
       <box flexDirection="column">
         {rows().map((row) => (
-          <box flexDirection="row">
-            <text fg={theme.text.muted}>{row.label.padEnd(13)}</text>
-            <text fg={theme.text.base}>{row.value}</text>
-          </box>
+          <text wrapMode="none" truncate>
+            <span style={{ fg: theme.text.muted }}>{padTo(row.label, labelWidth())}</span>
+            <span style={{ fg: theme.text.base }}>{row.value}</span>
+          </text>
         ))}
       </box>
       <box flexDirection="column">
         <text fg={theme.text.base}>{t("Prices")}</text>
-        {priceRows().map((row) => (
-          <box flexDirection="row">
-            <text fg={theme.text.base}>{row.entry.name.padEnd(30)}</text>
-            <text fg={theme.text.base}>
-              {row.entry.price === undefined ? t("Price unknown") : `${row.entry.price} ${t("freebucks")}`}
-            </text>
-            {row.short ? <text fg={theme.text.feedback.warning.base}>{` · ${t("not enough")}`}</text> : undefined}
-            {row.entry.access === "locked" ? <text fg={theme.text.muted}>{` · ${t("paid plan")}`}</text> : undefined}
-            {row.entry.modelID ? <text fg={theme.text.muted}>{`  ${row.entry.modelID}`}</text> : undefined}
-          </box>
-        ))}
+        {priceRows().length > 0 ? (
+          <scrollbox height={priceListHeight()} scrollbarOptions={{ visible: false }}>
+            <box flexDirection="column">
+              {priceRows().map((row) => {
+                const layout = priceLayout()
+                const gap = (column: "name" | "price" | "warn" | "paid" | "model") =>
+                  layout.last === column || layout[column] === 0 ? "" : " "
+                return (
+                  <text wrapMode="none" truncate>
+                    <span style={{ fg: theme.text.base }}>
+                      {padTo(Locale.truncateWidth(row.entry.name, layout.name), layout.name)}
+                      {gap("name")}
+                    </span>
+                    <span style={{ fg: theme.text.base }}>
+                      {padTo(Locale.truncateWidth(priceLabel(row.entry), layout.price), layout.price)}
+                      {gap("price")}
+                    </span>
+                    <span style={{ fg: theme.text.feedback.warning.base }}>
+                      {padTo(row.short ? `· ${t("not enough")}` : "", layout.warn)}
+                      {gap("warn")}
+                    </span>
+                    <span style={{ fg: theme.text.muted }}>
+                      {padTo(row.entry.access === "locked" ? `· ${t("paid plan")}` : "", layout.paid)}
+                      {gap("paid")}
+                    </span>
+                    <span style={{ fg: theme.text.muted }}>
+                      {Locale.truncateWidth(row.entry.modelID ?? "", layout.model)}
+                    </span>
+                  </text>
+                )
+              })}
+            </box>
+          </scrollbox>
+        ) : undefined}
       </box>
       <text fg={theme.text.muted}>{t("c accounts · a add account · r refresh · esc close")}</text>
     </box>
@@ -281,6 +367,9 @@ export default Plugin.define({
           }}
         />
       ))
+      // The price table does not fit a medium dialog, so the status dialog
+      // opens wider. `show` resets the size, hence the call after it.
+      context.ui.dialog.set({ size: STATUS_DIALOG_SIZE })
     }
 
     // /freebuff-use [email|#] — switch by argument, or open the picker without one.

@@ -96,6 +96,11 @@ export const policy = (sessionID: SessionSchema.ID) =>
 const GATE_PREFIX = "session-runner:rate-limit:v1:"
 const RATE_LIMIT_COOLDOWN_MAX = Duration.toMillis("15 minutes")
 const RATE_LIMIT_STREAK_WINDOW = Duration.toMillis("6 hours")
+// A rate limit is a durable pause, but not an unbounded one: a provider that keeps refusing a
+// session must fail the step instead of holding the task open for hours. The shared-gate and
+// durable cooldown phases may wait at most this long in total; one provider cooldown is always
+// honored so an explicit Retry-After is never discarded.
+const RATE_LIMIT_WAIT_BUDGET = Duration.toMillis("15 minutes")
 
 type SharedRateLimit = {
   readonly version: 1
@@ -195,6 +200,19 @@ function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
   })
 }
 
+/**
+ * Spread the sessions that share one provider cooldown. The gate is per provider, so without a
+ * per-session offset every waiting session wakes on the same millisecond, they all spend a request
+ * at once and earn the next 429. Deterministic (no randomness) so runs and tests stay reproducible.
+ */
+export function stagger(sessionID: string) {
+  let hash = 0
+  for (let index = 0; index < sessionID.length; index++) {
+    hash = (Math.imul(hash, 31) + sessionID.charCodeAt(index)) | 0
+  }
+  return Math.abs(hash) % 750
+}
+
 function rateLimitBackoff(consecutive: number) {
   return Math.min(RATE_LIMIT_COOLDOWN_MAX, 2_000 * 2 ** Math.min(Math.max(0, consecutive - 1), 10))
 }
@@ -202,6 +220,9 @@ function rateLimitBackoff(consecutive: number) {
 export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInterface) =>
   Effect.gen(function* () {
     const scheduledDecision = yield* policy(sessionID)
+    // Total time this step has already spent waiting on provider rate limits, whether on the
+    // shared provider gate or in the durable cooldown phase.
+    let rateLimitWaited = 0
     const decide = (input: Parameters<typeof scheduledDecision>[0]) =>
       Effect.gen(function* () {
         let hookRejected = false
@@ -245,7 +266,15 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInte
         if (hookRejected || !input.retry) return decision
         // A rate limit is a durable pause, not a finite retry budget. Once the short generic
         // schedule is exhausted, the session keeps its recorded history and retries with capped
-        // exponential cooldown instead of reporting the whole task as failed.
+        // exponential cooldown. The durable phase is bounded so a provider that never recovers
+        // surfaces its error instead of holding the step open for hours.
+        // The short generic schedule has its own bounded allowance; the budget covers the
+        // durable phase and shared-gate waits, which are the ones that can last for hours.
+        if (!decision.retry) {
+          if (rateLimitWaited > 0 && rateLimitWaited + effectiveDelay > RATE_LIMIT_WAIT_BUDGET)
+            return { retry: false as const }
+          rateLimitWaited += effectiveDelay
+        }
         return {
           retry: true as const,
           attempt: decision.retry ? decision.attempt : Math.max(11, consecutive + 1),
@@ -267,6 +296,8 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInte
           consecutive: 0,
           outcome: "success",
         })
+        // The provider answered again, so the rate-limit wait budget starts fresh.
+        rateLimitWaited = 0
       })
 
     const gateUntil = (providerID: string) =>
@@ -282,8 +313,13 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInte
           const retryAt = yield* gateUntil(providerID)
           const now = yield* Clock.currentTimeMillis
           if (retryAt === undefined || retryAt <= now) return waited
+          const remaining = retryAt - now
+          // A sibling can keep extending the gate. Stop sleeping once this step has spent its
+          // rate-limit budget and let the next request report the limit instead of blocking here.
+          if (rateLimitWaited > 0 && rateLimitWaited + remaining > RATE_LIMIT_WAIT_BUDGET) return waited
+          rateLimitWaited += remaining
           waited = true
-          yield* Effect.sleep(Duration.millis(retryAt - now))
+          yield* Effect.sleep(Duration.millis(remaining))
         }
       })
 
@@ -296,7 +332,12 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInte
       Effect.gen(function* () {
         const scheduled = yield* Clock.currentTimeMillis
         const sharedUntil = yield* gateUntil(input.providerID)
-        const at = Math.max(scheduled + input.decision.delay, sharedUntil ?? 0)
+        // Ordinary retries already carry schedule jitter. The stampede risk is a session waiting on
+        // another session's provider gate: only then does a per-session offset spread the wake-ups.
+        // A session's own retry keeps its exact delay, so its provider Retry-After is still honored.
+        const own = scheduled + input.decision.delay
+        const sharedWait = sharedUntil !== undefined && sharedUntil > own ? stagger(String(sessionID)) : 0
+        const at = Math.max(own, sharedUntil ?? 0) + sharedWait
         yield* bus.publish(SessionEvent.RetryScheduled, {
           sessionID,
           assistantMessageID: input.assistantMessageID,
