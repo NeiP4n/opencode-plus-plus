@@ -183,6 +183,18 @@ const ruExtra: Record<string, string> = {
   "Previous tool": "Предыдущий инструмент",
   "Next tool": "Следующий инструмент",
   "Previous page": "Предыдущая страница",
+
+  // Session cleanup
+  "Clear all sessions": "Очистить все сессии",
+  "Clearing…": "Очищаю…",
+  "Delete all": "Удалить все",
+  "No sessions to delete": "Нет сессий для удаления",
+  "Delete {count} sessions on this machine, in every project? The current session is closed too. This cannot be undone.":
+    "Удалить {count} сессий на этой машине, во всех проектах? Текущая сессия тоже будет закрыта. Отменить будет нельзя.",
+  "Deleted {count} sessions.": "Удалено сессий: {count}.",
+  "Deleted {removed} of {total} sessions; {failed} could not be deleted.":
+    "Удалено {removed} из {total} сессий; {failed} удалить не удалось.",
+  "Failed to clear sessions: {error}": "Не удалось очистить сессии: {error}",
 }
 
 function interpolate(template: string, values?: Record<string, string | number>) {

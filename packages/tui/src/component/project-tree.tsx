@@ -24,6 +24,8 @@ import { DialogGroups } from "./dialog-groups"
 import { openProjectDialog } from "./dialog-project"
 import { useProjects } from "../context/projects"
 import { DialogPrompt } from "../ui/dialog-prompt"
+import { DialogConfirm } from "../ui/dialog-confirm"
+import { ClearSessionsAction } from "./clear-sessions"
 import { useNotes, type NotesTab } from "../context/notes"
 import { NotesPanel } from "./notes-panel"
 import { Row } from "./panel-row"
@@ -301,6 +303,33 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
       .then(() => refreshMesh())
       .catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
+
+  // The answer settles once: the dialog can be confirmed, cancelled or closed.
+  const confirmClear = (options: {
+    title: string
+    message: string
+    label: { confirm: string; cancel: string }
+  }) =>
+    new Promise<boolean | undefined>((resolve) => {
+      let answered = false
+      const done = (value: boolean | undefined) => {
+        if (answered) return
+        answered = true
+        resolve(value)
+      }
+      dialog.replace(
+        () => (
+          <DialogConfirm
+            title={options.title}
+            message={options.message}
+            label={options.label}
+            onConfirm={() => done(true)}
+            onCancel={() => done(false)}
+          />
+        ),
+        () => done(undefined),
+      )
+    })
 
   const sessionsOf = (project: OrchestraProject) =>
     data.session
@@ -696,6 +725,13 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
             </Show>
           </Section>
         </scrollbox>
+        <ClearSessionsAction
+          api={client.api.session}
+          confirm={confirmClear}
+          notify={(options) => toast.show(options)}
+          currentSessionID={route.data.type === "session" ? route.data.sessionID : undefined}
+          leaveCurrentSession={() => route.navigate({ type: "home" })}
+        />
       </box>
     </Show>
   )
