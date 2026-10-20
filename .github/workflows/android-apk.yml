@@ -1,0 +1,84 @@
+name: android-apk
+
+on:
+  push:
+    branches: [apk]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  apk:
+    name: Assemble debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      # AGP 9.4.0 requires JDK 17 or newer; 21 is what the local toolchain uses.
+      - name: Setup JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # cmdline-tools 16111833 is build 23.0, which ships the `android` CLI that replaced
+      # the deprecated sdkmanager. Same build the local setup script installs.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          cmdline-tools-version: 16111833
+          accept-android-sdk-licenses: true
+          packages: |
+            platform-tools
+            platforms;android-36
+            build-tools;36.0.0
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4.4.3
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      # Builds the web bundle with VITE_OPENCODE_SERVER_MODE=none, copies it into the app
+      # assets and runs :app:assembleDebug. Debug-signed only: the release keystore and the
+      # GitHub release are a separate step once the APK has been reviewed on a device.
+      - name: Assemble debug APK
+        run: ./packages/android/scripts/build-apk.sh
+
+      - name: Publish APK details
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=packages/android/app/build/outputs/apk/debug/app-debug.apk
+          sha="$(sha256sum "$apk" | cut -d' ' -f1)"
+          size="$(du -h "$apk" | cut -f1)"
+          {
+            echo "## Android debug APK"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Commit | ${GITHUB_SHA} |"
+            echo "| Artifact | \`app-debug.apk\` |"
+            echo "| Size | ${size} |"
+            echo "| sha256 | \`${sha}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: app-debug-apk
+          path: packages/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
