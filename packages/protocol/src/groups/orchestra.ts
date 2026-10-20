@@ -306,6 +306,25 @@ export const OrchestraGroup = HttpApiGroup.make("server.orchestra")
     ),
   )
   .add(
+    HttpApiEndpoint.post("orchestra.group.chat", "/api/orchestra/group/:name/chat", {
+      params: { name: Schema.String },
+      payload: Schema.Struct({ mode: Federation.CoordinationMode.pipe(Schema.optional) }),
+      success: Schema.Struct({
+        sessionID: Session.ID,
+        title: Schema.String,
+        directory: Schema.String,
+      }),
+      error: InvalidRequestError,
+    }).annotateMerge(
+      OpenApi.annotations({
+        identifier: "orchestra.group.chat",
+        summary: "Open group chat",
+        description:
+          "Create the group's own chat, or return the one it already has. The chat lives in the group's directory, outside every member project's tree. The mode is the group's saved one; it is changed in the group dialog, not here.",
+      }),
+    ),
+  )
+  .add(
     HttpApiEndpoint.post("orchestra.link.set", "/api/orchestra/link", {
       payload: Schema.Struct({ a: Orchestra.ProjectID, b: Orchestra.ProjectID, linked: Schema.Boolean }),
       success: HttpApiSchema.NoContent,

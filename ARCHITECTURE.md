@@ -181,4 +181,135 @@ sources and a spot check with `--sample` confirm the factual accuracy of a descr
 6. **`packages/core/test/` is 96.5 thousand lines out of 162.7 thousand in `core`.** The
    core `src/` is 65 thousand lines; the rest is tests. Do not look for logic in tests.
 7. **Documentation boundaries:** new files in this repository will show up in someone
-   else's `git status` as untracked. No commits are made.
+   else's `git status` as untracked. No commits are made.# Enhanced Architecture (Target)
+
+## Clean Architecture Layers (Target)
+
+```mermaid
+graph TB
+    subgraph "Presentation (L6)"
+        CLI[cli]
+        TUI[tui]
+        Desktop[desktop]
+        SDK[sdk]
+        App[app]
+        Storybook[storybook]
+    end
+    
+    subgraph "Transport/API (L5)"
+        Server[server]
+        SessionUI[session-ui]
+    end
+    
+    subgraph "Core Business Logic (L4)"
+        Core[core]
+        Simulation[simulation]
+    end
+    
+    subgraph "Plugin System (L3)"
+        Plugin[plugin]
+    end
+    
+    subgraph "Infrastructure Services (L2)"
+        Client[client]
+        PluginBrowser[plugin-browser]
+    end
+    
+    subgraph "Domain Models & Protocols (L1)"
+        Protocol[protocol]
+        AI[ai]
+        Latex[latex]
+        Merman[merman]
+    end
+    
+    subgraph "Foundations (L0)"
+        Schema[schema]
+        Util[util]
+        Codemode[codemode]
+        Theme[theme]
+        UI[ui]
+        HTTPRec[http-recorder]
+        HTTPCodegen[httpapi-codegen]
+        Web[web]
+        Script[script]
+        Function[function]
+        Posts[posts]
+    end
+    
+    %% Dependencies flow downward (L0 -> up)
+    Protocol --> Schema
+    AI --> Schema
+    Latex --> Schema
+    Merman --> Schema
+    
+    Client --> Protocol
+    Client --> Schema
+    PluginBrowser --> Protocol
+    
+    Plugin --> AI
+    Plugin --> Client
+    Plugin --> Protocol
+    Plugin --> Schema
+    Plugin --> Util
+    
+    Core --> Plugin
+    Core --> Schema
+    Core --> Util
+    Core --> AI
+    Core --> Codemode
+    Simulation --> Core
+    
+    Server --> Core
+    Server --> Protocol
+    Server --> Schema
+    SessionUI --> Core
+    SessionUI --> UI
+    
+    CLI --> Server
+    TUI --> Server
+    TUI --> SessionUI
+    SDK --> Client
+    App --> Server
+    Desktop --> Server
+    
+    classDef l0 fill:#e1f5fe
+    classDef l1 fill:#f3e5f5
+    classDef l2 fill:#e8f5e8
+    classDef l3 fill:#fff3e0
+    classDef l4 fill:#fce4ec
+    classDef l5 fill:#e0f2f1
+    classDef l6 fill:#f5f5f5
+    
+    class Schema,Util,Codemode,Theme,UI,HTTPRec,HTTPCodegen,Web,Script,Function,Posts l0
+    class Protocol,AI,Latex,Merman l1
+    class Client,PluginBrowser l2
+    class Plugin l3
+    class Core,Simulation l4
+    class Server,SessionUI l5
+    class CLI,TUI,Desktop,SDK,App,Storybook l6
+```
+
+## Dependency Constraints (Enforced)
+- No upward dependencies: packages at lower layers must not depend on higher layers
+- Schema is the only true leaf - everything else builds on it
+- Protocol defines contracts; implementations follow them
+- Client is the only transport client boundary (TUI should go through client, not core directly)
+
+## Cycle Prevention
+- Use dependency-cruiser to detect circular dependencies (`bun run check:cycles`)
+- All new dependencies must respect the layer boundaries
+- Shared utilities go to `util`, shared types to `schema`
+
+## Clean Boundaries
+- **API Boundary**: protocol (types + contracts) ↔ server (implementation)
+- **Client Boundary**: client package abstracts server communication
+- **Plugin Boundary**: plugin package defines extension points, core hosts them
+- **Data Boundary**: schema defines all cross-cutting types
+
+## Module Cohesion Principles
+- High cohesion within packages, low coupling between
+- Feature code belongs in appropriate layer
+- Infrastructure concerns separated from business logic
+
+To apply these improvements, run: `bun run check:cycles` to identify violations.
+```

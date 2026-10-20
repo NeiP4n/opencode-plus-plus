@@ -71,6 +71,27 @@ export const OrchestraHandler = HttpApiBuilder.group(Api, "server.orchestra", (h
         ),
       )
       .handle(
+        "orchestra.group.chat",
+        Effect.fn(function* (ctx) {
+          const group = (yield* federation.groups()).find((item) => item.name === ctx.params.name.trim())
+          if (!group)
+            return yield* new InvalidRequestError({ message: `No group named ${ctx.params.name}`, field: "name" })
+          // The chat follows the group's saved mode. Changing the mode is the group dialog's job,
+          // because it drops the chat of the old mode.
+          const mode = Federation.modeOf(group)
+          if (ctx.payload.mode && ctx.payload.mode !== mode)
+            return yield* new InvalidRequestError({
+              message: `Group "${group.name}" is in ${mode} mode. Change the mode in the group dialog first.`,
+              field: "mode",
+            })
+          return yield* federation
+            .ensureGroupChat({ name: group.name, projects: group.projects, mode })
+            .pipe(
+              Effect.catchTag("Federation.Error", (error) => Effect.fail(new InvalidRequestError({ message: error.message }))),
+            )
+        }),
+      )
+      .handle(
         "orchestra.link.set",
         Effect.fn(function* (ctx) {
           if (ctx.payload.linked)

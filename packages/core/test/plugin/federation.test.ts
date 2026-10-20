@@ -7,6 +7,9 @@ describe("group-bound federation sessions", () => {
     expect(groupActionAllowed("lead", "send")).toBe(false)
     expect(groupActionAllowed("lead", "consult_all")).toBe(false)
     expect(groupActionAllowed("lead", "decide")).toBe(false)
+    expect(groupActionAllowed("lead", "projects")).toBe(true)
+    expect(groupActionAllowed("lead", "group_create")).toBe(false)
+    expect(groupActionAllowed("lead", "group_chat")).toBe(false)
   })
 
   it("lets Society consult every member only through the explicit council action", () => {
@@ -15,6 +18,9 @@ describe("group-bound federation sessions", () => {
     expect(groupActionAllowed("council", "send")).toBe(false)
     expect(groupActionAllowed("council", "link_group")).toBe(false)
     expect(groupActionAllowed("council", "set_policy")).toBe(false)
+    expect(groupActionAllowed("council", "projects")).toBe(true)
+    expect(groupActionAllowed("council", "group_add")).toBe(false)
+    expect(groupActionAllowed("council", "group_delete")).toBe(false)
   })
 
   it("only authorizes a Council round from the operator's latest user message", () => {
@@ -26,7 +32,11 @@ describe("group-bound federation sessions", () => {
     expect(
       hasExplicitCouncilTask([
         { type: "user", text: "previous task" },
-        { type: "user", text: "internal result", metadata: { federation: { group: "Shop", councilRound: "council_1", complete: true } } },
+        {
+          type: "user",
+          text: "internal result",
+          metadata: { federation: { group: "Shop", councilRound: "council_1", complete: true } },
+        },
       ]),
     ).toBe(false)
     expect(

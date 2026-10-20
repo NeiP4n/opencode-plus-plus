@@ -36,99 +36,34 @@ export function DialogGroups(props: { onClose?: () => void }) {
     })
   const listed = () => (groups.error ? undefined : groups.latest) ?? []
   const nameOf = (id: string) => projects.list().find((project) => project.id === id)?.name ?? id
-  const supervisorOf = (group: { name: string; projects: readonly string[]; supervisor?: string }) => group.supervisor
 
   const act = (action: () => Promise<unknown>) =>
     void action().then(() => refetch()).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
 
   const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
 
-  const supervisorSessionID = (name: string, mode: "lead" | "council") => {
-    let hash = 2166136261
-    for (const char of `${mode}:${name}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619)
-    return `ses_group_${(hash >>> 0).toString(36)}`
-  }
+  type GroupToStart = { name: string; supervisor?: string; mode?: "lead" | "council" }
 
-  type GroupToStart = { name: string; projects: readonly string[]; supervisor?: string; mode?: "lead" | "council" }
-
-  const createSupervisor = async (group: GroupToStart, openAfterCreate = true) => {
+  const createSupervisor = async (group: GroupToStart) => {
     const mode = group.mode ?? "lead"
-    const existing = supervisorOf(group)
-    if (existing) {
-      if (openAfterCreate) {
-        route.navigate({ type: "session", sessionID: existing })
-        props.onClose?.()
-      }
-      return
-    }
-    const leaderID = group.projects[0]
-    const leader = projects.list().find((project) => project.id === leaderID)
-    if (!leaderID || !leader) {
-      toast.show({ message: t("The group's coordinator project is not available on this device."), variant: "error" })
+    // A group that already has a chat opens it. The server keeps one chat per group,
+    // so there is nothing left to dedupe on the client.
+    if (group.supervisor) {
+      route.navigate({ type: "session", sessionID: group.supervisor })
+      props.onClose?.()
       return
     }
     setOpening(group.name)
     try {
-      const response = await client.api.session.list({ directory: leader.directory, parentID: null, limit: 500, order: "asc" })
-      const matches = response.data
-        .filter((session) => {
-          const marker = session.metadata?.["opencode-pp:group-supervisor"]
-          if (!marker || typeof marker !== "object" || Array.isArray(marker)) return false
-          const value = marker as Record<string, unknown>
-          return value.groupName === group.name && value.leader === leaderID && (value.mode === "council" ? "council" : "lead") === mode
-        })
-        .sort((a, b) => new Date(a.time.created).getTime() - new Date(b.time.created).getTime())
-
-      const sessionID = matches[0]?.id ?? supervisorSessionID(group.name, mode)
-      const created = matches[0] ?? await client.api.session.create({
-        id: sessionID,
-        title: mode === "council" ? "Общество" : "Президент",
-        // A Council chat is a shared Orchestrator session; a President chat sits one
-        // level above the member Orchestrators and runs its own agent.
-        agent: mode === "council" ? "orchestrator" : "president",
-        location: { directory: leader.directory },
-        metadata: { "opencode-pp:group-supervisor": { groupName: group.name, leader: leaderID, mode } },
-        permissions: [
-          { action: "edit", resource: "*", effect: "deny" },
-          { action: "shell", resource: "*", effect: "deny" },
-          { action: "sessions", resource: "*", effect: "deny" },
-          { action: "dod", resource: "*", effect: "deny" },
-          { action: "federation", resource: "*", effect: "ask" },
-        ],
-      })
-
-      await client.api.orchestra.group.save({ name: group.name, projects: group.projects, supervisor: created.id, mode })
-      for (const duplicate of matches.slice(1)) {
-        if (duplicate.id === created.id) continue
-        await client.api.session.remove({ sessionID: duplicate.id }).catch(() => {})
-      }
-
-      const bootstrap = [
-        "This message initializes the group-bound chat; it is not an operator task.",
-        mode === "council"
-          ? `You are Society, the Orchestrator Council chat for group "${group.name}". Members: ${group.projects.join(", ")}.`
-          : `You are President, the group-bound chat for "${group.name}". The coordinator project is "${leader.name}" (${leaderID}); members: ${group.projects.join(", ")}.`,
-        mode === "council"
-          ? "When the operator later asks a question or gives a task that needs the member projects' perspectives, call federation action=consult_all with a short subject and the full task. Wait for all proposals to arrive in this chat, then compare them and provide one synthesis."
-          : "Use federation action=group_status only when the operator asks for the group's status or a coordination recommendation. Summarize the sanitized status here; do not send tickets, messages, or work to any project.",
-        "Do not contact or send anything to member projects in response to this initialization message or on your own. Never call federation action=send from this group-bound chat. The Council may use consult_all only after an explicit task or question from the operator.",
-        "Do not edit files, run shell commands, change project settings, or approve work on behalf of a member project. Each project keeps its own rules and approvals.",
-        "Acknowledge the setup briefly and wait for the operator's next message. Do not call tools for this initialization.",
-      ].join("\n")
-      await client.api.session.prompt({
-        sessionID: created.id,
-        text: bootstrap,
-        // Setup is context, not a task: store it without waking the model.
-        resume: false,
-        metadata: { "opencode-pp:group-supervisor-bootstrap": true },
-      })
-      if (openAfterCreate) {
-        route.navigate({ type: "session", sessionID: created.id })
-        props.onClose?.()
-      }
+      // The server owns the group chat: it creates the chat inside the group's own
+      // directory, registers the supervisor on the group and sends the bootstrap.
+      const chat = await client.api.orchestra.group.chat({ name: group.name, mode })
+      // A failed refresh must not hide the chat that was just created.
+      await Promise.resolve(refetch?.()).catch(() => {})
+      route.navigate({ type: "session", sessionID: chat.sessionID })
+      props.onClose?.()
     } catch (error) {
-      if (openAfterCreate) toast.show({ message: errorMessage(error), variant: "error" })
-      else throw error
+      toast.show({ message: errorMessage(error), variant: "error" })
     } finally {
       setOpening(undefined)
     }
@@ -161,7 +96,9 @@ export function DialogGroups(props: { onClose?: () => void }) {
       try {
         // Changing a mode only changes the group's configuration. It must never
         // create/open a session or send anything to member projects implicitly.
-        if (group.supervisor) await client.api.session.remove({ sessionID: group.supervisor }).catch(() => {})
+        // A chat that cannot be removed keeps its old mode, so the failure is reported
+        // instead of leaving the group in a state the operator did not ask for.
+        if (group.supervisor) await client.api.session.remove({ sessionID: group.supervisor })
         await client.api.orchestra.group.save({ name: group.name, projects: group.projects as never, mode, supervisor: undefined })
       } catch (error) {
         toast.show({ message: errorMessage(error), variant: "error" })
@@ -170,10 +107,6 @@ export function DialogGroups(props: { onClose?: () => void }) {
         clearModeOverride(group.name)
       }
     })()
-  }
-
-  const openSupervisor = (group: GroupToStart) => {
-    void createSupervisor(group, true).catch((error: unknown) => toast.show({ message: errorMessage(error), variant: "error" }))
   }
 
   const link = (name: string) => act(async () => {
@@ -229,7 +162,7 @@ export function DialogGroups(props: { onClose?: () => void }) {
 
               <box flexDirection="row" gap={1}>
                 <text fg={theme.text.muted}>{t("Group chat") + ":"}</text>
-                <Button variant="primary" disabled={opening() === group.name} onClick={() => openSupervisor({ name: group.name, projects: group.projects, supervisor: group.supervisor, mode: modeOf(group) })}>
+                <Button variant="primary" disabled={opening() === group.name} onClick={() => void createSupervisor({ name: group.name, supervisor: group.supervisor, mode: modeOf(group) })}>
                   {opening() === group.name
                     ? t("Creating...")
                     : group.supervisor

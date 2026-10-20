@@ -1,9 +1,10 @@
 export * as Federation from "./federation.js"
 
-import { Schema } from "effect"
+import { Option, Schema } from "effect"
 import { ascending } from "./identifier.js"
 import { ProjectID } from "./orchestra.js"
 import { SessionID } from "./session-id.js"
+import type { SessionMetadata } from "./session-metadata.js"
 import { statics } from "./schema.js"
 
 // A federation is a room whose members are projects. Each project keeps its own rules and
@@ -70,6 +71,28 @@ export interface Group extends Schema.Schema.Type<typeof Group> {}
 export function modeOf(group: Pick<Group, "mode">): CoordinationMode {
   return group.mode ?? "lead"
 }
+
+// The marker a group-bound chat carries in its session metadata. It names the group the chat
+// belongs to, the coordinator project and the coordination mode, so any reader can tell a
+// group's chat from a project's own session without asking the group registry.
+export const GroupSupervisorMetadataKey = "opencode-pp:group-supervisor"
+export const GroupSupervisorMetadata = Schema.Struct({
+  groupName: Schema.String,
+  leader: ProjectID,
+  mode: CoordinationMode,
+}).annotate({ identifier: "Federation.GroupSupervisorMetadata" })
+export interface GroupSupervisorMetadata extends Schema.Schema.Type<typeof GroupSupervisorMetadata> {}
+
+const decodeGroupSupervisor = Schema.decodeUnknownOption(GroupSupervisorMetadata)
+
+export function groupSupervisor(metadata?: SessionMetadata) {
+  if (!metadata) return undefined
+  return Option.getOrUndefined(decodeGroupSupervisor(metadata[GroupSupervisorMetadataKey]))
+}
+
+// The marker of the message that sets a group chat up. It tells the Council that the message is
+// context, not a task the operator gave.
+export const GroupBootstrapMetadataKey = "opencode-pp:group-supervisor-bootstrap"
 
 // Every unordered pair of a group's projects.
 export function pairs<T>(items: ReadonlyArray<T>): ReadonlyArray<readonly [T, T]> {

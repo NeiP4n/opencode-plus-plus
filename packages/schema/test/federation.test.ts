@@ -79,3 +79,30 @@ test("legacy groups default to the single coordinator mode", () => {
 test("groups can select the council coordination mode", () => {
   expect(Federation.modeOf({ mode: "council" })).toBe("council")
 })
+
+test("a group chat is recognized by its marker", () => {
+  const metadata = {
+    [Federation.GroupSupervisorMetadataKey]: { groupName: "Shop", leader: a, mode: "council" },
+  }
+  expect(Federation.groupSupervisor(metadata)).toEqual({ groupName: "Shop", leader: a, mode: "council" })
+  expect(Federation.groupSupervisor(undefined)).toBeUndefined()
+  expect(Federation.groupSupervisor({})).toBeUndefined()
+  // The marker of another group still decodes; the caller compares the group name itself.
+  expect(
+    Federation.groupSupervisor({
+      [Federation.GroupSupervisorMetadataKey]: { groupName: "Other", leader: a, mode: "council" },
+    })?.groupName,
+  ).toBe("Other")
+  // A marker of a foreign shape is not a group chat at all.
+  expect(
+    Federation.groupSupervisor({
+      [Federation.GroupSupervisorMetadataKey]: { groupName: "Shop", leader: "not-a-project" },
+    }),
+  ).toBeUndefined()
+})
+
+test("the group chat marker keeps a stable public identifier", () => {
+  expect(Federation.GroupSupervisorMetadata.ast.annotations?.identifier).toBe("Federation.GroupSupervisorMetadata")
+  expect(Federation.GroupSupervisorMetadataKey).toBe("opencode-pp:group-supervisor")
+  expect(Federation.GroupBootstrapMetadataKey).toBe("opencode-pp:group-supervisor-bootstrap")
+})

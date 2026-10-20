@@ -1,8 +1,10 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
+import path from "node:path"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Global } from "@opencode/util/global"
+import { FSUtil } from "@opencode/util/fs-util"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { Database } from "@opencode/core/database/database"
 import { Bus } from "@opencode/core/bus"
@@ -52,6 +54,7 @@ const it = testEffect(
       Orchestra.node,
       Federation.node,
       Agent.node,
+      FSUtil.node,
     ]),
     [
       SessionExecution.node.replace(idleExecution),
@@ -104,9 +107,17 @@ describe("Federation", () => {
         visibility: "summary",
         grants: [{ peer: a.id, allow: ["question"], autoAnswer: true }],
       })
-      const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "API?", body: "Which route lists users?" })
+      const ticket = yield* federation.send({
+        from: a.id,
+        to: b.id,
+        kind: "question",
+        subject: "API?",
+        body: "Which route lists users?",
+      })
       expect(ticket.status).toBe("accepted")
-      expect((yield* texts(b)).some((text) => text.includes("<peer-ticket") && text.includes("Which route lists users?"))).toBe(true)
+      expect(
+        (yield* texts(b)).some((text) => text.includes("<peer-ticket") && text.includes("Which route lists users?")),
+      ).toBe(true)
 
       yield* federation.reply({ id: ticket.id, project: b.id, answer: "GET /users" })
       expect((yield* federation.outbox(a.id))[0]?.status).toBe("answered")
@@ -138,13 +149,25 @@ describe("Federation", () => {
     Effect.gen(function* () {
       const { a, b } = yield* setup
       const federation = yield* Federation.Service
-      yield* federation.setPolicy({ project: b.id, visibility: "summary", grants: [{ peer: a.id, allow: ["contract"] }] })
-      const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "contract", subject: "Users API", body: "{}" })
+      yield* federation.setPolicy({
+        project: b.id,
+        visibility: "summary",
+        grants: [{ peer: a.id, allow: ["contract"] }],
+      })
+      const ticket = yield* federation.send({
+        from: a.id,
+        to: b.id,
+        kind: "contract",
+        subject: "Users API",
+        body: "{}",
+      })
       yield* federation.decide({ id: ticket.id, project: b.id, accept: false })
       expect((yield* federation.outbox(a.id))[0]?.status).toBe("rejected")
       expect((yield* texts(a)).some((text) => text.includes('status="rejected"'))).toBe(true)
       // A decided ticket cannot be decided again.
-      expect((yield* federation.decide({ id: ticket.id, project: b.id, accept: true }).pipe(Effect.flip)).message).toContain("rejected")
+      expect(
+        (yield* federation.decide({ id: ticket.id, project: b.id, accept: true }).pipe(Effect.flip)).message,
+      ).toContain("rejected")
     }),
   )
 
@@ -152,9 +175,16 @@ describe("Federation", () => {
     Effect.gen(function* () {
       const { a, b } = yield* setup
       const federation = yield* Federation.Service
-      yield* federation.setPolicy({ project: b.id, visibility: "summary", grants: [{ peer: a.id, allow: ["request"] }], maxOpen: 1 })
+      yield* federation.setPolicy({
+        project: b.id,
+        visibility: "summary",
+        grants: [{ peer: a.id, allow: ["request"] }],
+        maxOpen: 1,
+      })
       yield* federation.send({ from: a.id, to: b.id, kind: "request", subject: "one", body: "" })
-      const error = yield* federation.send({ from: a.id, to: b.id, kind: "request", subject: "two", body: "" }).pipe(Effect.flip)
+      const error = yield* federation
+        .send({ from: a.id, to: b.id, kind: "request", subject: "two", body: "" })
+        .pipe(Effect.flip)
       expect(error.message).toContain("too-many-open")
     }),
   )
@@ -163,7 +193,11 @@ describe("Federation", () => {
     Effect.gen(function* () {
       const { a, b } = yield* setup
       const federation = yield* Federation.Service
-      yield* federation.setPolicy({ project: b.id, visibility: "summary", grants: [{ peer: a.id, allow: ["request"] }] })
+      yield* federation.setPolicy({
+        project: b.id,
+        visibility: "summary",
+        grants: [{ peer: a.id, allow: ["request"] }],
+      })
       const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "request", subject: "x", body: "" })
       const error = yield* federation.decide({ id: ticket.id, project: a.id, accept: true }).pipe(Effect.flip)
       expect(error.message).toContain("No ticket")
@@ -180,12 +214,18 @@ describe("Federation", () => {
       expect((yield* texts(a)).some((text) => text.includes("<peer-link>") && text.includes("Backend"))).toBe(true)
       const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "hi", body: "" })
       expect(ticket.status).toBe("pending")
-      const refused = yield* federation.send({ from: a.id, to: b.id, kind: "request", subject: "do it", body: "" }).pipe(Effect.flip)
+      const refused = yield* federation
+        .send({ from: a.id, to: b.id, kind: "request", subject: "do it", body: "" })
+        .pipe(Effect.flip)
       expect(refused.message).toContain("kind-not-allowed")
 
       yield* federation.unlink(a.id, b.id)
       expect(yield* federation.linked(a.id)).toEqual([])
-      expect((yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "again", body: "" }).pipe(Effect.flip)).message).toContain("no-grant")
+      expect(
+        (yield* federation
+          .send({ from: a.id, to: b.id, kind: "question", subject: "again", body: "" })
+          .pipe(Effect.flip)).message,
+      ).toContain("no-grant")
     }),
   )
 
@@ -236,13 +276,23 @@ describe("Federation", () => {
       })
       yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], supervisor: supervisor.id })
 
-      const ticket = yield* federation.send({ from: a.id, to: b.id, kind: "question", subject: "API status", body: "Is the route ready?" })
+      const ticket = yield* federation.send({
+        from: a.id,
+        to: b.id,
+        kind: "question",
+        subject: "API status",
+        body: "Is the route ready?",
+      })
       expect(ticket.status).toBe("pending")
-      expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "pending")).toBe(true)
+      expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "pending")).toBe(
+        true,
+      )
       expect((yield* supervisorTexts).some((text) => text.includes("<federation-event"))).toBe(false)
 
       yield* federation.decide({ id: ticket.id, project: b.id, accept: false })
-      expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "rejected")).toBe(true)
+      expect((yield* federation.outbox(a.id)).some((item) => item.id === ticket.id && item.status === "rejected")).toBe(
+        true,
+      )
       expect((yield* supervisorTexts).some((text) => text.includes("<federation-event"))).toBe(false)
     }),
   )
@@ -330,6 +380,142 @@ describe("Federation", () => {
       expect(yield* federation.peers(a.id)).toEqual([])
       yield* federation.setPolicy({ project: b.id, visibility: "summary", grants: [] })
       expect((yield* federation.peers(a.id)).map((peer) => peer.id)).toEqual([b.id])
+    }),
+  )
+
+  it.live("creates the group chat in the group's own directory, outside every member project", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      const fs = yield* FSUtil.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+
+      const chat = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      expect(chat.title).toBe("Президент")
+      // The chat lives in the group's own folder under the data root, never in a member project.
+      expect(path.basename(path.dirname(chat.directory))).toBe("group")
+      expect(path.basename(chat.directory)).toStartWith("shop-")
+      expect(chat.directory).not.toBe(a.directory)
+      expect(chat.directory).not.toBe(b.directory)
+      expect(yield* fs.isDir(chat.directory)).toBe(true)
+
+      const session = yield* sessions.get(chat.sessionID)
+      expect(String(session.location.directory)).toBe(chat.directory)
+      expect(session.agent).toBe(Orchestra.president)
+    }),
+  )
+
+  it.live("gives every group its own stable directory", () =>
+    Effect.sync(() => {
+      expect(Federation.groupChatDirectory("Shop", "/data")).toBe(Federation.groupChatDirectory("Shop", "/data"))
+      expect(Federation.groupChatDirectory("Shop", "/data")).not.toBe(
+        Federation.groupChatDirectory("Shop Two", "/data"),
+      )
+      expect(Federation.groupChatDirectory("Shop", "/data")).toContain(path.join("group", "shop-"))
+    }),
+  )
+
+  it.live("keeps the group chat out of the coordinator project's own sessions", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+
+      const chat = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      const session = yield* sessions.get(chat.sessionID)
+      expect(yield* orchestra.owns(a, session)).toBe(false)
+      expect((yield* orchestra.sessions(a.id)).map((item) => item.id)).not.toContain(chat.sessionID)
+    }),
+  )
+
+  it.live("returns the same group chat when it is asked for again", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+
+      const first = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      const second = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      expect(second.sessionID).toBe(first.sessionID)
+      expect(second.directory).toBe(first.directory)
+
+      const group = (yield* federation.groups()).find((item) => item.name === "Shop")
+      expect(group?.supervisor).toBe(first.sessionID)
+    }),
+  )
+
+  it.live("gives the group a new chat when its coordinator changes", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      const first = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+
+      // The coordinator changes, so the saved group drops the old chat and the new leader needs its own.
+      yield* federation.setGroup({ name: "Shop", projects: [b.id, a.id], mode: "lead" })
+      expect((yield* federation.groups()).find((item) => item.name === "Shop")?.supervisor).toBeUndefined()
+      const second = yield* federation.ensureGroupChat({ name: "Shop", projects: [b.id, a.id], mode: "lead" })
+
+      expect(second.sessionID).not.toBe(first.sessionID)
+      expect(second.directory).toBe(first.directory)
+      expect((yield* federation.groups()).find((item) => item.name === "Shop")?.supervisor).toBe(second.sessionID)
+    }),
+  )
+
+  it.live("creates a President in lead mode and a separate Society in council mode", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+
+      const president = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      expect(president.title).toBe("Президент")
+      expect((yield* sessions.get(president.sessionID)).agent).toBe(Orchestra.president)
+
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "council" })
+      const society = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "council" })
+      expect(society.title).toBe("Общество")
+      expect((yield* sessions.get(society.sessionID)).agent).toBe(Orchestra.agent)
+      expect(society.sessionID).not.toBe(president.sessionID)
+      expect(society.directory).toBe(president.directory)
+    }),
+  )
+
+  it.live("does not count a legacy group chat left in the coordinator's directory as its session", () =>
+    Effect.gen(function* () {
+      const { a } = yield* setup
+      const orchestra = yield* Orchestra.Service
+      const sessions = yield* Session.Service
+      const legacy = yield* sessions.create({
+        title: "Президент",
+        agent: Orchestra.president,
+        location: { directory: AbsolutePath.make(a.directory) },
+        metadata: { "opencode-pp:group-supervisor": { groupName: "Shop", leader: a.id, mode: "lead" } },
+      })
+      expect(yield* orchestra.owns(a, legacy)).toBe(false)
+      expect((yield* orchestra.sessions(a.id)).map((item) => item.id)).not.toContain(legacy.id)
+    }),
+  )
+
+  it.live("delivers a member's report to the group chat that lives in the group directory", () =>
+    Effect.gen(function* () {
+      const { a, b } = yield* setup
+      const federation = yield* Federation.Service
+      const sessions = yield* Session.Service
+      yield* federation.setGroup({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+
+      const chat = yield* federation.ensureGroupChat({ name: "Shop", projects: [a.id, b.id], mode: "lead" })
+      yield* federation.reportToPresident({ project: b.id, subject: "API status", body: "The route is deployed." })
+
+      const inbox = yield* sessions.inbox(chat.sessionID)
+      const text = inbox.flatMap((item) => ("text" in item.payload ? [item.payload.text] : [])).join("\n")
+      expect(text).toContain("<president-report")
+      expect(text).toContain("API status")
+      expect(yield* federation.outbox(b.id)).toEqual([])
     }),
   )
 })

@@ -6,6 +6,7 @@ import path from "node:path"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Orchestra } from "@opencode/schema/orchestra"
+import { Federation } from "@opencode/schema/federation"
 import { Form } from "@opencode/schema/form"
 import { Model } from "@opencode/schema/model"
 import { SessionID } from "@opencode/schema/session-id"
@@ -29,6 +30,7 @@ import type { Permission } from "@opencode/schema/permission"
 export const agent = Orchestra.agent
 export const president = Orchestra.president
 export const role = Orchestra.role
+export const groupSupervisorPermissions = Orchestra.groupSupervisorPermissions
 export const toolGroups = Orchestra.toolGroups
 export const Access = Orchestra.Access
 export type Access = Orchestra.Access
@@ -334,9 +336,16 @@ const layer: Layer.Layer<
       )
     })
 
+    // A group-bound chat belongs to the group, not to the project whose directory happens to
+    // hold it. Legacy chats created in the coordinator's tree stay out of that project's
+    // sessions, unless a project claimed the session explicitly.
+    const isGroupChat = (session: SessionSchema.Info, claimed?: Orchestra.ProjectID) =>
+      claimed === undefined && Federation.groupSupervisor(session.metadata) !== undefined
+
     const owns = Effect.fn("Orchestra.owns")(function* (project: Project, session: SessionSchema.Info) {
       const claimed =
         Option.getOrUndefined(decodeProjectID(yield* kv.get(OWNER + session.id))) ?? Orchestra.sessionOwner(session.metadata)
+      if (isGroupChat(session, claimed)) return false
       return Orchestra.ownerOf(yield* projects(), session.location.directory, claimed)?.id === project.id
     })
 
@@ -376,6 +385,7 @@ const layer: Layer.Layer<
       // Another project in the same directory has its own orchestrator; it never joins this team.
       return recent.filter((session) => {
         const claimed = claims[session.id] ?? Orchestra.sessionOwner(session.metadata)
+        if (isGroupChat(session, claimed)) return false
         return (
           session.id !== project.main &&
           session.agent !== Orchestra.agent &&

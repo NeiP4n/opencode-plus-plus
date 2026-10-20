@@ -16,6 +16,7 @@ import { TestTuiContexts } from "../fixture/tui-environment"
 import { createTuiResolvedConfig } from "../fixture/tui-runtime"
 
 const directory = "/tmp/opencode/packages/tui"
+const groupDirectory = "/tmp/opencode/groups/Games"
 const projects = [
   { id: "prj_a", name: "Frontend", directory },
   { id: "prj_b", name: "Backend", directory },
@@ -63,139 +64,93 @@ function groups(mode: "lead" | "council", supervisor?: string) {
   return [{ name: "Games", projects: ["prj_a", "prj_b"], mode, ...(supervisor ? { supervisor } : {}) }]
 }
 
-test("a lead group creates one President chat on request", async () => {
-  let createdID: string | undefined
-  let creates = 0
-  let saves = 0
-  let prompts = 0
-  let createBody: Record<string, unknown> | undefined
-  let savedGroup: Record<string, unknown> | undefined
-  let promptBody: Record<string, unknown> | undefined
+test("a lead group asks the group endpoint for its President chat", async () => {
+  let chatCalls = 0
+  let chatBody: Record<string, unknown> | undefined
+  let supervisor: string | undefined
   const app = await renderDialog(async (url, request) => {
     if (url.pathname === "/api/orchestra/project") return json(projects)
     if (url.pathname === "/api/orchestra/owner") return json({})
-    if (url.pathname === "/api/orchestra/group" && request.method === "GET") return json(groups("lead", createdID))
-    if (url.pathname === "/api/orchestra/group" && request.method === "PUT") {
-      saves += 1
-      savedGroup = (await request.json()) as Record<string, unknown>
-      return new Response(null, { status: 204 })
-    }
-    if (url.pathname === "/api/session" && request.method === "POST") {
-      creates += 1
-      createBody = (await request.json()) as Record<string, unknown>
-      createdID = "ses_president_games"
-      return json({
-        data: {
-          id: createdID,
-          title: "Президент",
-          projectID: "prj_a",
-          agent: "president",
-          location: { directory },
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          time: { created: 1, updated: 1 },
-        },
-      })
-    }
-    if (createdID !== undefined && url.pathname === `/api/session/${createdID}/prompt`) {
-      prompts += 1
-      promptBody = (await request.json()) as Record<string, unknown>
-      return json({
-        data: {
-          id: "msg_bootstrap",
-          sessionID: createdID,
-          time: { created: 1 },
-          type: "user",
-          payload: { text: "bootstrap" },
-          delivery: "queue",
-        },
-      })
+    if (url.pathname === "/api/orchestra/group" && request.method === "GET") return json(groups("lead", supervisor))
+    if (url.pathname === "/api/orchestra/group/Games/chat" && request.method === "POST") {
+      chatCalls += 1
+      chatBody = (await request.json()) as Record<string, unknown>
+      supervisor = "ses_group_games"
+      return json({ sessionID: supervisor, title: "Президент", directory: groupDirectory })
     }
     return undefined
   })
 
   try {
     await createChat(app, "Создать Президента")
-    await app.waitForFrame(() => creates === 1 && saves >= 1 && prompts === 1)
-    expect(creates).toBe(1)
-    expect(saves).toBeGreaterThanOrEqual(1)
-    // A lead-mode group chat runs the President agent, one level above the Orchestrators.
-    expect(createBody?.agent).toBe("president")
-    expect(createBody?.title).toBe("Президент")
-    // The created chat is adopted by the group under the mode it was made for.
-    expect(savedGroup?.supervisor).toBe(createdID)
-    expect(savedGroup?.mode).toBe("lead")
-    // Initialization is admitted without spending a model call.
-    expect(prompts).toBe(1)
-    expect(promptBody?.resume).toBe(false)
-    expect(promptBody?.metadata).toEqual({ "opencode-pp:group-supervisor-bootstrap": true })
+    await app.waitForFrame(() => chatCalls === 1)
+    // The group endpoint creates the chat; the client sends only the mode it needs.
+    expect(chatCalls).toBe(1)
+    expect(chatBody?.mode).toBe("lead")
 
     // Give any accidental retry loop a chance to run before asserting the count is stable.
     await app.renderOnce()
     await app.renderOnce()
-    expect(creates).toBe(1)
-    expect(prompts).toBe(1)
+    expect(chatCalls).toBe(1)
   } finally {
     app.renderer.destroy()
   }
 })
 
-test("a council group creates one shared Orchestrator chat", async () => {
-  let createdID: string | undefined
-  let creates = 0
-  let createBody: Record<string, unknown> | undefined
-  let savedGroup: Record<string, unknown> | undefined
+test("a council group asks the group endpoint for its shared chat", async () => {
+  let chatCalls = 0
+  let chatBody: Record<string, unknown> | undefined
   const app = await renderDialog(async (url, request) => {
     if (url.pathname === "/api/orchestra/project") return json(projects)
     if (url.pathname === "/api/orchestra/owner") return json({})
-    if (url.pathname === "/api/orchestra/group" && request.method === "GET") return json(groups("council", createdID))
-    if (url.pathname === "/api/orchestra/group" && request.method === "PUT") {
-      savedGroup = (await request.json()) as Record<string, unknown>
-      return new Response(null, { status: 204 })
+    if (url.pathname === "/api/orchestra/group" && request.method === "GET") return json(groups("council"))
+    if (url.pathname === "/api/orchestra/group/Games/chat" && request.method === "POST") {
+      chatCalls += 1
+      chatBody = (await request.json()) as Record<string, unknown>
+      return json({ sessionID: "ses_group_games", title: "Общество", directory: groupDirectory })
     }
-    if (url.pathname === "/api/session" && request.method === "POST") {
-      creates += 1
-      createBody = (await request.json()) as Record<string, unknown>
-      createdID = "ses_council_games"
-      return json({
-        data: {
-          id: createdID,
-          title: "Совет",
-          projectID: "prj_a",
-          agent: "orchestrator",
-          location: { directory },
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          time: { created: 1, updated: 1 },
-        },
-      })
-    }
-    if (createdID !== undefined && url.pathname === `/api/session/${createdID}/prompt`)
-      return json({
-        data: {
-          id: "msg_bootstrap",
-          sessionID: createdID,
-          time: { created: 1 },
-          type: "user",
-          payload: { text: "bootstrap" },
-          delivery: "queue",
-        },
-      })
     return undefined
   })
 
   try {
     await createChat(app, "Создать Общество")
-    await app.waitForFrame(() => creates === 1 && savedGroup !== undefined)
-    expect(creates).toBe(1)
-    // The Council is one shared, ordinary-looking Orchestrator session the member
-    // Orchestrators talk in; it is not the President above them.
-    expect(createBody?.agent).toBe("orchestrator")
-    expect(createBody?.title).toBe("Общество")
-    expect(savedGroup?.mode).toBe("council")
-    expect(savedGroup?.supervisor).toBe(createdID)
+    await app.waitForFrame(() => chatCalls === 1)
+    // The Council is one shared chat in the group's own directory, not a session of a project.
+    expect(chatCalls).toBe(1)
+    expect(chatBody?.mode).toBe("council")
     await app.renderOnce()
-    expect(creates).toBe(1)
+    expect(chatCalls).toBe(1)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("the group chat is created through the group endpoint and never as a session of the coordinator", async () => {
+  const seen: string[] = []
+  let chatCalls = 0
+  const app = await renderDialog(async (url, request) => {
+    seen.push(`${request.method} ${url.pathname}${url.search}`)
+    if (url.pathname === "/api/orchestra/project") return json(projects)
+    if (url.pathname === "/api/orchestra/owner") return json({})
+    if (url.pathname === "/api/orchestra/group" && request.method === "GET") return json(groups("lead"))
+    if (url.pathname === "/api/orchestra/group/Games/chat" && request.method === "POST") {
+      chatCalls += 1
+      return json({ sessionID: "ses_group_games", title: "Президент", directory: groupDirectory })
+    }
+    // A session in the coordinator's directory is what the client must not create.
+    if (url.pathname === "/api/session" && request.method === "POST")
+      return json({ data: { id: "ses_in_coordinator", location: { directory } } })
+    return undefined
+  })
+
+  try {
+    await createChat(app, "Создать Президента")
+    await app.waitForFrame(() => chatCalls === 1)
+
+    // The chat belongs to the group, so it is created through the group endpoint.
+    expect(seen).toContain("POST /api/orchestra/group/Games/chat")
+    // No session is listed or created in the coordinator's directory any more.
+    expect(seen.filter((entry) => entry.includes("/api/session"))).toEqual([])
   } finally {
     app.renderer.destroy()
   }

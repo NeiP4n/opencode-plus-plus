@@ -3,6 +3,7 @@ export * as Orchestra from "./orchestra.js"
 import { Option, Schema } from "effect"
 import { Agent } from "./agent.js"
 import { ascending } from "./identifier.js"
+import { Permission } from "./permission.js"
 import { statics } from "./schema.js"
 import { SessionID } from "./session-id.js"
 import type { SessionMetadata } from "./session-metadata.js"
@@ -32,6 +33,17 @@ export const agent = Agent.ID.make("orchestrator")
 // sits above the member Orchestrators: they report to it, and it coordinates the
 // group without owning any project's files or sessions.
 export const president = Agent.ID.make("president")
+
+// The permission rules of a group-bound chat (President or Society). The chat belongs to the
+// group, not to a project, so it may not touch files, run commands or reach other sessions.
+// Federation stays behind the operator's approval, and asking the operator a question stays open.
+export function groupSupervisorPermissions(): Permission.Ruleset {
+  return [
+    { action: "*", resource: "*", effect: "deny" },
+    { action: "federation", resource: "*", effect: "ask" },
+    { action: "question", resource: "*", effect: "allow" },
+  ]
+}
 
 // Team roles are built-in agents with a "team-" prefix, so an operator's own
 // agents of the same name (often subagents) never replace them.
