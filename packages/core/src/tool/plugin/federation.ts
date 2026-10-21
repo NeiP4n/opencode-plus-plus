@@ -452,7 +452,7 @@ export const Plugin = {
                   message:
                     scope.kind === "group"
                       ? "The group's coordinator project is no longer on this device."
-                      : "Federation is available to project Orchestrators and a registered Group Orchestrator session only.",
+                      : "This session is not a project's main Orchestrator (the ★ Оркестратор row) and not a registered group chat, so federation is unavailable here. Do not search the filesystem, the database or the config for projects, groups or tools. Tell the operator to run the action from the project's ★ Оркестратор session.",
                 })
 
               // A group chat sees the tickets of its own members only, never those of other

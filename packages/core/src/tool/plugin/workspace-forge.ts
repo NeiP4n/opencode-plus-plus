@@ -105,7 +105,8 @@ export const Plugin = {
             const mainSession = yield* orchestra.mainOf(context.sessionID)
             if (!mainSession)
               return yield* new ToolFailure({
-                message: "workspace_forge is available only to a project's main Orchestrator. Ask the current Orchestrator to perform this action.",
+                message:
+                  "workspace_forge is available only to a project's main Orchestrator session (the ★ Оркестратор row). Do not search the filesystem, the database or the config for these tools. Tell the operator to run /forge-group from that session.",
               })
 
             const assertExternalDirectories = (directories: readonly string[]) =>

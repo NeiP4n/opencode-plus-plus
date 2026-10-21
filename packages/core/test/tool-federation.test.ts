@@ -153,6 +153,24 @@ describe("FederationTool group configuration", () => {
     }),
   )
 
+  it.live("refuses federation outside an Orchestrator without sending the model hunting for tools", () =>
+    Effect.gen(function* () {
+      const { a } = yield* setup
+      const tools = yield* Tool.Service
+      const sessions = yield* Session.Service
+      const plain = yield* sessions.create({
+        title: "Plain session",
+        agent: Agent.ID.make("build"),
+        location: { directory: AbsolutePath.make(a.directory) },
+      })
+
+      const refused = yield* run(tools, plain.id, "plain", { action: "groups" })
+      const reason = JSON.stringify(refused.error)
+      expect(reason).toContain("not a project's main Orchestrator")
+      expect(reason).toContain("Do not search the filesystem")
+    }),
+  )
+
   it.live("edits project membership without rebinding the chat and creates Общество for council mode", () =>
     Effect.gen(function* () {
       const { a, b, c } = yield* setup
