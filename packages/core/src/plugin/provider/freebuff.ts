@@ -116,6 +116,10 @@ const AdmissionResponse = Schema.Struct({
   status: Schema.optional(Schema.String),
   instanceId: Schema.optional(Schema.String),
   message: Schema.optional(Schema.String),
+  // Present when the one-session rule refuses a second model.
+  requestedModel: Schema.optional(Schema.String),
+  currentModel: Schema.optional(Schema.String),
+  currentInstanceId: Schema.optional(Schema.String),
   resetAt: Schema.optional(Schema.String),
   retryAfterMs: Schema.optional(Schema.Number),
   recentCount: Schema.optional(Schema.Number),
@@ -286,7 +290,8 @@ export const FreebuffPlugin = define({
       surface: "cli",
     })
     const openAdmission = Effect.fnUntraced(function* (token: string, model: string) {
-      const fetchId = yield* Ref.get(catalogFetch)
+      let fetchId = yield* Ref.get(catalogFetch)
+      if (!fetchId) fetchId = (yield* refreshCatalog())?.fetchId
       const instanceId = `cli:${crypto.randomUUID()}`
       const headers: Record<string, string> = {
         Authorization: `Bearer ${token}`,
@@ -350,6 +355,19 @@ export const FreebuffPlugin = define({
         }),
       )
     })
+    // The gateway rejects a chat whose catalog snapshot it cannot place, so a
+    // request must always carry a fetch id. A failed startup load leaves that id
+    // empty; reload it here instead of sending a request the gateway answers as
+    // `freebuff_update_required` (which reads like an outdated build).
+    const refreshCatalog = Effect.fnUntraced(function* () {
+      const access = yield* activeToken
+      if (!access) return undefined
+      const catalog = yield* fetchCatalog(http, agent, access).pipe(Effect.orElseSucceed(() => undefined))
+      if (!catalog || catalog.rows.length === 0) return undefined
+      yield* Ref.set(catalogRows, catalog.rows)
+      yield* Ref.set(catalogFetch, catalog.fetchId)
+      return catalog
+    })
     // The openai-compatible package goes through the native loadPackage path,
     // and every request passes this hook, which injects the account token.
     yield* ctx.session.hook(
@@ -362,6 +380,8 @@ export const FreebuffPlugin = define({
           if (!token) return
           evt.request.headers.set("Authorization", `Bearer ${token}`)
           evt.request.headers.set("User-Agent", agent)
+          let fetchId = yield* Ref.get(catalogFetch)
+          if (!fetchId) fetchId = (yield* refreshCatalog())?.fetchId
           // The gateway bills every completion against an agent run and rejects
           // bodies without one, so the first request of a session opens a run
           // and the rest of the session reuses it.
@@ -393,10 +413,12 @@ export const FreebuffPlugin = define({
                 }),
               })
               if (session.instanceId) evt.request.headers.set("x-freebuff-instance-id", session.instanceId)
-              const fetchId = yield* Ref.get(catalogFetch)
-              if (fetchId) evt.request.headers.set("x-freebuff-catalog-fetch", fetchId)
             }
           }
+          // The catalog protocol pairs with the fetch id; the gateway ignores a
+          // fetch id sent without it and answers as if no catalog was offered.
+          evt.request.headers.set("x-freebuff-catalog-protocol", "1")
+          if (fetchId) evt.request.headers.set("x-freebuff-catalog-fetch", fetchId)
         }),
       { providerID },
     )
@@ -420,8 +442,16 @@ export const FreebuffPlugin = define({
             evt.response = quotaResponse(text)
             return
           }
+          // A 409 `freebuff_catalog_stale` names a snapshot the gateway dropped;
+          // a 410 `freebuff_update_required` is what it says when no usable
+          // snapshot arrived at all. Neither is fixed by buying another session,
+          // so refresh the catalog first and retry with the same instance. A 426
+          // with the same code is the older missing-session refusal.
+          const catalogFailure =
+            code === "freebuff_catalog_stale" || (status === 410 && code === "freebuff_update_required")
           const recoverable =
             status === 426 ||
+            catalogFailure ||
             (status === 428 && code === "waiting_room_required") ||
             (status === 409 &&
               (code === "session_superseded" ||
@@ -429,6 +459,7 @@ export const FreebuffPlugin = define({
                 code === "session_limit_reached")) ||
             (status === 410 && code === "session_expired")
           if (!recoverable) return
+          if (catalogFailure) yield* refreshCatalog()
           const saved = yield* activeToken
           const token =
             saved ??
@@ -441,12 +472,17 @@ export const FreebuffPlugin = define({
           const used = isRecord(requestBody.codebuff_metadata)
             ? requestBody.codebuff_metadata.freebuff_instance_id
             : undefined
-          const session = yield* ensureSession(
-            token,
-            model,
-            true,
-            typeof used === "string" ? used : undefined,
-          )
+          // A catalog refresh keeps the admitted window the request already
+          // names, even when this process did not open it.
+          const session: SessionResult =
+            catalogFailure && typeof used === "string"
+              ? { instanceId: used }
+              : yield* ensureSession(
+                  token,
+                  model,
+                  !catalogFailure,
+                  typeof used === "string" ? used : undefined,
+                )
           if (!session.instanceId) {
             if (session.failure) evt.response = sessionFailureResponse(session.failure)
             return
@@ -454,6 +490,7 @@ export const FreebuffPlugin = define({
           const metadata = isRecord(requestBody.codebuff_metadata) ? requestBody.codebuff_metadata : {}
           const headers = new Headers(evt.request.headers)
           headers.set("x-freebuff-instance-id", session.instanceId)
+          headers.set("x-freebuff-catalog-protocol", "1")
           const fetchId = yield* Ref.get(catalogFetch)
           if (fetchId) headers.set("x-freebuff-catalog-fetch", fetchId)
           const body = JSON.stringify({
@@ -481,12 +518,8 @@ export const FreebuffPlugin = define({
     // reloads whenever accounts change (login, switch, disconnect) or the server
     // announces a newer one through `refreshAt`.
     const loadModels = Effect.gen(function* () {
-      const access = yield* activeToken
-      if (!access) return catalogRefreshMs
-      const catalog = yield* fetchCatalog(http, agent, access).pipe(Effect.orElseSucceed(() => undefined))
-      if (!catalog || catalog.rows.length === 0) return catalogRefreshMs
-      yield* Ref.set(catalogRows, catalog.rows)
-      yield* Ref.set(catalogFetch, catalog.fetchId)
+      const catalog = yield* refreshCatalog()
+      if (!catalog) return catalogRefreshMs
       yield* ctx.provider.transform((providers) => {
         providers.models.set(
           providerID,
@@ -665,6 +698,8 @@ function fetchCatalog(http: HttpClient.HttpClient, agent: string, token: string)
     HttpClientRequest.acceptJson,
     HttpClientRequest.bearerToken(token),
     HttpClientRequest.setHeader("User-Agent", agent),
+    HttpClientRequest.setHeader("x-freebuff-catalog-protocol", "1"),
+    HttpClientRequest.setHeader("x-freebuff-client", "cli"),
     http.execute,
     Effect.flatMap((response) =>
       response.status >= 200 && response.status < 300
@@ -724,8 +759,11 @@ function legacyModelDigest(modelID: string) {
 // that matches none, or more than one, keeps an unknown price instead of a guessed one.
 function resolvePrices(rows: readonly CatalogRowInfo[], prices: Record<string, number> | undefined) {
   return rows.map((row) => {
-    const matches = Object.entries(prices ?? {}).filter(([modelID]) =>
-      row.legacyDigests?.includes(legacyModelDigest(modelID)),
+    // Newer catalogs list the gateway model id itself in `legacyDigests` for
+    // rows whose price is fixed (Glyph Cluster and Solar Pro 4), while older
+    // rows carry its hash. Accept both or those rows look unpriced.
+    const matches = Object.entries(prices ?? {}).filter(
+      ([modelID]) => row.legacyDigests?.includes(legacyModelDigest(modelID)) || row.legacyDigests?.includes(modelID),
     )
     const match = matches.length === 1 ? matches[0] : undefined
     return {
@@ -836,9 +874,23 @@ function quotaResponse(text: string) {
 }
 
 function sessionFailureResponse(failure: SessionFailure) {
-  if (failure.status === 429) {
-    const body = parseBody(failure.body)
-    if (isQuotaCode(bodyCode(body))) return quotaResponse(failure.body)
+  const parsed = parseBody(failure.body)
+  const code = bodyCode(parsed)
+  if (failure.status === 429 && isQuotaCode(code)) return quotaResponse(failure.body)
+  // Limited accounts get one free session shared by CLI, Desktop and the
+  // editor; the gateway names the session holding the slot.
+  if (code === "premium_slot_taken" || code === "purchase_in_use" || code === "purchase_capacity") {
+    const current = typeof parsed?.currentModel === "string" ? parsed.currentModel : undefined
+    return Response.json(
+      {
+        error: {
+          message: `Freebuff allows one session at a time. Another session${current ? ` (${current})` : ""} is using this account; close it or wait for it to end.`,
+          type: "session_in_use",
+          code,
+        },
+      },
+      { status: 409 },
+    )
   }
   const detail =
     sessionMessage(parseBody(failure.body)) ??
@@ -848,7 +900,7 @@ function sessionFailureResponse(failure: SessionFailure) {
       error: {
         message: `Freebuff could not open a free session: ${detail}`,
         type: "session_admission_failed",
-        code: bodyCode(parseBody(failure.body)) ?? "session_admission_failed",
+        code: code ?? "session_admission_failed",
       },
     },
     { status: failure.status === 403 || failure.status === 409 ? failure.status : 503 },

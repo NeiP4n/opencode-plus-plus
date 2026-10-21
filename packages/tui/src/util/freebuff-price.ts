@@ -46,11 +46,11 @@ export type FreebuffPriceVerdict =
 export function freebuffPriceVerdict(model: FreebuffModel, pricing: FreebuffPricing | undefined): FreebuffPriceVerdict {
   if (model.providerID !== FREEBUFF_PROVIDER_ID) return { kind: "not-freebuff" }
   if (!model.enabled) return { kind: "locked" }
-  // "Open" models (enabled = true) are free on any plan; price is always 0.
-  // The balance check only applies to paid/locked models.
-  if (model.enabled) return { kind: "priced", price: 0, balance: pricing?.balance }
   const price = pricing?.prices[model.id]
   const balance = pricing?.balance
+  // "Open" means no paid plan is needed, not that the session is free: the
+  // price table still charges freebucks for models like GLM or DeepSeek. A row
+  // the table omits stays unknown instead of guessing zero.
   if (price === undefined) return balance === undefined ? { kind: "unknown" } : { kind: "unknown", balance }
   // The balance grows during the day, so a model out of reach now may be reachable
   // after the next reset: it stays listed and is marked, never hidden.
@@ -60,7 +60,8 @@ export function freebuffPriceVerdict(model: FreebuffModel, pricing: FreebuffPric
 
 /**
  * The picker footer for a Freebuff row: the price in freebucks, the balance left, and
- * a note when the price is out of reach. Open models (enabled = true) cost 0 freebucks.
+ * a note when the price is out of reach. An "open" row still pays its listed price;
+ * a row the price table omits shows as unknown.
  */
 export function freebuffFooter(model: FreebuffModel, pricing: FreebuffPricing | undefined, t: Translate): string | undefined {
   const verdict = freebuffPriceVerdict(model, pricing)

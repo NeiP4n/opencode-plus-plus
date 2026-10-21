@@ -363,6 +363,126 @@ it.live("attaches an agent run to the chat body and reuses it per session", () =
   }),
 )
 
+it.live("reloads the catalog before a chat that has no fetch id", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    // A failed startup load leaves the fetch id empty; the gateway would answer
+    // the chat with `freebuff_update_required` instead of naming the real cause.
+    test.replies.push(Response.json({ error: "unavailable" }, { status: 503 }))
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "catalog-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email: "user@example.com" },
+      }),
+    })
+    yield* Effect.sleep("200 millis")
+    test.replies.push(
+      Response.json({
+        rows: [{ key: "m-1", handle: "fbm1-handle", displayName: "Glyph Cluster", access: "open" }],
+        fetchId: "fetch-1",
+      }),
+    )
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:lazy", model: "fbm1-handle" }))
+    const event = yield* test.hooks.trigger("session", "http.request", {
+      sessionID: Session.ID.make("ses_lazy"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+        body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+      }),
+    })
+    expect(event.request.headers.get("x-freebuff-catalog-protocol")).toBe("1")
+    expect(event.request.headers.get("x-freebuff-catalog-fetch")).toBe("fetch-1")
+    expect(event.request.headers.get("x-freebuff-instance-id")).toBe("cli:lazy")
+    // The lazy refresh went out with the new catalog protocol rather than a bare GET.
+    const catalog = test.requests.filter((item) => item.url.endsWith("/freebuff/models")).at(-1)
+    expect(catalog?.headers.get("x-freebuff-catalog-protocol")).toBe("1")
+    expect(catalog?.headers.get("x-freebuff-client")).toBe("cli")
+  }),
+)
+
+it.live("refreshes the catalog and replays a chat the gateway calls update required", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json({
+        rows: [{ key: "m-1", handle: "fbm1-handle", displayName: "Glyph Cluster", access: "open" }],
+        fetchId: "fetch-1",
+      }),
+    )
+    yield* test.credentials.create({
+      integrationID,
+      value: Credential.OAuth.make({
+        type: "oauth",
+        methodID,
+        access: "catalog-token",
+        refresh: "",
+        expires: Date.now() + 3_600_000,
+        metadata: { email: "user@example.com" },
+      }),
+    })
+    yield* Effect.sleep("200 millis")
+    const chat = () =>
+      test.hooks.trigger("session", "http.request", {
+        sessionID: Session.ID.make("ses_update"),
+        agent: Agent.ID.make("build"),
+        model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+        kind: "primary",
+        request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": "run-token" },
+          body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+        }),
+      })
+    test.replies.push(Response.json({ runId: "run-1" }))
+    test.replies.push(Response.json({ status: "active", instanceId: "cli:update", model: "fbm1-handle" }))
+    const first = yield* chat()
+    // Simulate a window opened by a different process: the adapter remembers
+    // only the instance in the body, not this plugin's session map.
+    const carried = JSON.parse(yield* Effect.promise(() => first.request.clone().text()))
+    carried.codebuff_metadata.freebuff_instance_id = "cli:adopted"
+    const request = new Request(first.request.url, {
+      method: "POST",
+      headers: first.request.headers,
+      body: JSON.stringify(carried),
+    })
+    test.replies.push(
+      Response.json({
+        rows: [{ key: "m-1", handle: "fbm1-handle", displayName: "Glyph Cluster", access: "open" }],
+        fetchId: "fetch-2",
+      }),
+    )
+    test.replies.push(Response.json({ ok: true }))
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_update"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request,
+      response: Response.json({ error: { code: "freebuff_update_required" } }, { status: 410 }),
+    })
+    // The catalog is refreshed instead of buying another hour.
+    expect(event.response.status).toBe(200)
+    expect(test.requests.filter((item) => item.url.endsWith("/session/admission"))).toHaveLength(1)
+    const retried = test.requests.find((item) => item.url.endsWith("/chat/completions"))
+    expect(retried).toBeDefined()
+    expect(retried?.headers.get("x-freebuff-catalog-fetch")).toBe("fetch-2")
+    expect(retried?.headers.get("x-freebuff-catalog-protocol")).toBe("1")
+    expect(JSON.parse(yield* Effect.promise(() => retried!.text()))).toMatchObject({
+      codebuff_metadata: { freebuff_instance_id: "cli:adopted" },
+    })
+  }),
+)
+
 it.live("keeps the free cost mode when the run cannot be opened", () =>
   Effect.gen(function* () {
     const test = yield* fixture
@@ -505,6 +625,40 @@ it.effect("reports an exhausted freebucks wallet instead of update required", ()
   }),
 )
 
+it.effect("names the session that holds the only free slot", () =>
+  Effect.gen(function* () {
+    const test = yield* fixture
+    test.replies.push(
+      Response.json(
+        {
+          status: "premium_slot_taken",
+          accessTier: "limited",
+          requestedModel: "m-1",
+          currentModel: "m-other",
+          currentInstanceId: "cli:other",
+        },
+        { status: 409 },
+      ),
+    )
+    const event = yield* test.hooks.trigger("session", "http.response", {
+      sessionID: Session.ID.make("ses_slot"),
+      agent: Agent.ID.make("build"),
+      model: Model.Ref.make({ providerID, id: Model.ID.make("m-1") }),
+      kind: "primary",
+      request: new Request("https://www.codebuff.com/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer slot-token" },
+        body: JSON.stringify({ model: "fbm1-handle", messages: [{ role: "user", content: "hi" }] }),
+      }),
+      response: Response.json({ error: { code: "freebuff_update_required" } }, { status: 410 }),
+    })
+    expect(event.response.status).toBe(409)
+    const body = (yield* Effect.promise(() => event.response.json())) as { error: { message: string } }
+    expect(body.error.message).toContain("one session at a time")
+    expect(body.error.message).toContain("m-other")
+  }),
+)
+
 it.live("pairs catalog rows with the account price table over RPC", () =>
   Effect.gen(function* () {
     const test = yield* fixture
@@ -533,6 +687,14 @@ it.live("pairs catalog rows with the account price table over RPC", () =>
             access: "open",
             legacyDigests: ["0000000000000000"],
           },
+          {
+            key: "m-glyph",
+            handle: "fbm1-glyph",
+            displayName: "Glyph Cluster",
+            access: "open",
+            // Newer catalogs name the gateway id instead of hashing it.
+            legacyDigests: ["fbc/glyph-cluster"],
+          },
         ],
       }),
     )
@@ -554,7 +716,7 @@ it.live("pairs catalog rows with the account price table over RPC", () =>
         freebucks: {
           balance: 10,
           daily: { spent: 15, limit: 25 },
-          prices: { "deepseek/deepseek-v4-flash": 15, "other/model": 99 },
+          prices: { "deepseek/deepseek-v4-flash": 15, "other/model": 99, "fbc/glyph-cluster": 0 },
         },
       }),
     )
@@ -582,6 +744,7 @@ it.live("pairs catalog rows with the account price table over RPC", () =>
       },
       { key: "m-ambiguous", name: "Mystery Model", access: "open" },
       { key: "m-unpriced", name: "Unpriced Model", access: "open" },
+      { key: "m-glyph", name: "Glyph Cluster", price: 0, modelID: "fbc/glyph-cluster", access: "open" },
     ])
   }),
 )
