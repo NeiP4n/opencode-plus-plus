@@ -28,17 +28,6 @@ export interface Decision {
   readonly delay: number
 }
 
-/** Bound provider-requested delays so a hostile or buggy retry-after cannot stall a session for hours. */
-const RETRY_AFTER_MAX = Duration.toMillis("15 minutes")
-
-const retryAfter = (input: Input) => {
-  if (input.cause.reason._tag !== "RateLimit" && input.cause.reason._tag !== "ProviderInternal") return undefined
-  const value = input.cause.reason.retryAfterMs
-  // Provider metadata is untrusted: NaN or negative delays must not poison Effect durations.
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return undefined
-  return Math.min(value, RETRY_AFTER_MAX)
-}
-
 // Exponential from 2s capped at 10s per gap, for 10 retries: 2, 4, 8, then 10 × 7, about 84s of
 // waiting when every attempt fails (67–101s with jitter). `min` takes the faster schedule, so the
 // cap applies per gap; `max` with `recurs` bounds the count.
@@ -48,11 +37,6 @@ const schedule = Schedule.max([
 ]).pipe(
   Schedule.jittered,
   Schedule.setInputType<Input>(),
-  Schedule.modifyDelay(({ input, duration: delay }) => {
-    const minimum = retryAfter(input)
-    const duration = minimum === undefined ? delay : Duration.max(delay, Duration.millis(minimum))
-    return Effect.succeed(Duration.millis(Math.ceil(Duration.toMillis(duration))))
-  }),
 )
 
 // A timed-out attempt already waited minutes before failing, so the general allowance would let a
@@ -93,6 +77,8 @@ export const policy = (sessionID: SessionSchema.ID) =>
 
 // Retry state is per Session. A 429 observed by one Session must not install a provider-wide
 // cooldown that other Sessions inherit, so there is deliberately no shared journal or gate here.
+// A rate limit is an ordinary failure: the provider's own retry-after hint is ignored, so every
+// retry of every error follows the same bounded schedule.
 export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID) =>
   Effect.gen(function* () {
     const decide = yield* policy(sessionID)

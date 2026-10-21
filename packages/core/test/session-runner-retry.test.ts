@@ -51,19 +51,21 @@ describe("SessionRunnerRetry.policy", () => {
     }),
   )
 
-  it.effect("ignores invalid Retry-After values from provider metadata", () =>
+  it.effect("ignores the provider retry-after hint and keeps the ordinary delay", () =>
     Effect.gen(function* () {
-      for (const retryAfterMs of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      for (const retryAfterMs of [Duration.toMillis("15 minutes"), Number.NaN, Number.POSITIVE_INFINITY, -1]) {
         const cause = new AIError({
           reason: new RateLimitError({ message: "Too many requests", retryAfterMs }),
         })
-        const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_invalid_retry_after"))
+        const policy = yield* SessionRunnerRetry.policy(SessionSchema.ID.make("ses_retry_after"))
         const decision = yield* policy(input(cause))
         expect(decision.retry).toBe(true)
         if (decision.retry) {
           expect(Number.isFinite(decision.delay)).toBe(true)
           expect(decision.delay).toBeGreaterThanOrEqual(0)
-          expect(decision.delay).toBeLessThanOrEqual(Duration.toMillis("15 minutes"))
+          // The schedule caps a gap at 10s and jitter scales it by at most 1.2, so a provider
+          // hint can never turn one failure into a long wait.
+          expect(decision.delay).toBeLessThanOrEqual(Duration.toMillis("12 seconds"))
         }
       }
     }),

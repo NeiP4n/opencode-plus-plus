@@ -2695,7 +2695,12 @@ describe("SessionRunnerLLM", () => {
     for (const request of s.requests) expect(request).toEqual(s.requests[0])
     expect(retries.map((event) => event.attempt)).toEqual([2, 3, 4, 5])
     expect(retries.every((event) => event.sessionID === sessionID && event.agent === "build")).toBe(true)
-    expect(retries[3].decision).toEqual({ retry: true, delay: 60_000 })
+    const lastDecision = retries[3].decision
+    expect(lastDecision.retry).toBe(true)
+    if (!lastDecision.retry) throw new Error("A rate limit must stay retryable")
+    // The provider's one-minute hint is ignored, so the gap stays inside the shared schedule.
+    expect(lastDecision.delay).toBeGreaterThanOrEqual(RETRY_GAPS[3] * 0.8)
+    expect(lastDecision.delay).toBeLessThanOrEqual(RETRY_GAPS_MAX[3])
     expect((yield* s.messages).find((message) => message.id === compaction.id)).toMatchObject({
       status: "completed",
       summary: "## Objective\n- Accepted summary",
@@ -5519,7 +5524,7 @@ describe("SessionRunnerLLM", () => {
     ])
   })
 
-  scenario("uses a larger provider retry-after delay", function* (s) {
+  scenario("ignores a larger provider retry-after delay", function* (s) {
     yield* s.admit("Retry rate limit")
     yield* s.llm.push(Stream.fail(rateLimited(5_000)))
     yield* s.llm.push(TestLLM.text("Recovered", "retry-after-success"))
@@ -5527,14 +5532,16 @@ describe("SessionRunnerLLM", () => {
     const scheduled = yield* subscribeRetries(s)
     const run = yield* s.resume.pipe(Effect.forkChild)
     yield* Queue.take(scheduled)
-    yield* TestClock.adjust("4999 millis")
+    // The provider asked for five seconds, but a rate limit is an ordinary failure: the retry
+    // follows the shared schedule and fires within the first gap.
+    yield* TestClock.adjust("1599 millis")
     expect(s.requests).toHaveLength(1)
-    yield* TestClock.adjust("1 millis")
+    yield* TestClock.adjust("1201 millis")
     yield* Fiber.join(run)
     expect(s.requests).toHaveLength(2)
   })
 
-  scenario("caps an excessive provider retry-after delay at fifteen minutes", function* (s) {
+  scenario("ignores an excessive provider retry-after delay", function* (s) {
     yield* s.admit("Retry capped rate limit")
     yield* s.llm.push(Stream.fail(rateLimited(3_600_000)))
     yield* s.llm.push(TestLLM.text("Recovered", "retry-cap-success"))
@@ -5542,9 +5549,10 @@ describe("SessionRunnerLLM", () => {
     const scheduled = yield* subscribeRetries(s)
     const run = yield* s.resume.pipe(Effect.forkChild)
     yield* Queue.take(scheduled)
-    yield* TestClock.adjust("899999 millis")
+    // An hour-long hint cannot stretch a single failure into an hour-long wait.
+    yield* TestClock.adjust("1599 millis")
     expect(s.requests).toHaveLength(1)
-    yield* TestClock.adjust("1 millis")
+    yield* TestClock.adjust("1201 millis")
     yield* Fiber.join(run)
     expect(s.requests).toHaveLength(2)
   })
@@ -5631,7 +5639,7 @@ describe("SessionRunnerLLM", () => {
     ])
   })
 
-  scenario("continues after a mid-stream rate limit honoring retry-after", function* (s) {
+  scenario("continues after a mid-stream rate limit without the provider hint", function* (s) {
     yield* s.admit("Continue after rate limit")
     yield* s.llm.push(
       TestLLM.failAfter(
@@ -5646,9 +5654,10 @@ describe("SessionRunnerLLM", () => {
     const scheduled = yield* subscribeRetries(s)
     const run = yield* s.resume.pipe(Effect.forkChild)
     yield* Queue.take(scheduled)
-    yield* TestClock.adjust("4999 millis")
+    // The provider asked for five seconds; the continuation follows the shared schedule.
+    yield* TestClock.adjust("1599 millis")
     expect(s.requests).toHaveLength(1)
-    yield* TestClock.adjust("1 millis")
+    yield* TestClock.adjust("1201 millis")
     yield* Fiber.join(run)
 
     expect(s.requests).toHaveLength(2)
