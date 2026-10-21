@@ -81,6 +81,8 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
     const seen = new Set<string>()
     const named = (groups.latest ?? []).map((group) => ({
       name: group.name as string | undefined,
+      supervisor: group.supervisor as string | undefined,
+      chat: ((group.mode ?? "lead") === "council" ? "Общество" : "Президент") as string | undefined,
       projects: group.projects.flatMap((id) => {
         const project = projects().find((item) => item.id === id)
         if (!project || seen.has(id)) return []
@@ -88,7 +90,15 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
         return [project]
       }),
     }))
-    return [...named, { name: undefined as string | undefined, projects: projects().filter((item) => !seen.has(item.id)) }]
+    return [
+      ...named,
+      {
+        name: undefined as string | undefined,
+        supervisor: undefined as string | undefined,
+        chat: undefined as string | undefined,
+        projects: projects().filter((item) => !seen.has(item.id)),
+      },
+    ]
   })
   const [joined, updateJoined] = useJoinedRooms()
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({})
@@ -440,6 +450,26 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                   </Row>
                 </Show>
                 <Show when={!section.name || !groupClosed[section.name]}>
+                  {/* The group's own chat lives outside every project, so the group is the only
+                      place the left panel can show it. */}
+                  <Show when={section.supervisor}>
+                    <box paddingLeft={2}>
+                      <Row
+                        id={`group-chat:${section.name}`}
+                        hover={hover}
+                        setHover={setHover}
+                        selected={section.supervisor === current()?.id}
+                        onClick={() => route.navigate({ type: "session", sessionID: section.supervisor! })}
+                      >
+                        <text flexShrink={0} fg={theme.text.action.primary.base}>
+                          {"  ★ "}
+                        </text>
+                        <text fg={theme.text.base} wrapMode="none" truncate>
+                          {section.chat}
+                        </text>
+                      </Row>
+                    </box>
+                  </Show>
                   <For each={section.projects}>
                     {(project) => (
                       <box paddingLeft={section.name ? 2 : 0}>

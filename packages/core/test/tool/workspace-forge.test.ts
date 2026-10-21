@@ -10,6 +10,8 @@ describe("workspace forge input", () => {
     expect(Orchestra.groupSupervisorPermissions()).toEqual([
       { action: "*", resource: "*", effect: "deny" },
       { action: "federation", resource: "*", effect: "ask" },
+      // The chat may ask its own operator a question; everything else still goes through federation approval.
+      { action: "question", resource: "*", effect: "allow" },
     ])
   })
 
@@ -31,6 +33,7 @@ describe("workspace forge input", () => {
       decode({
         action: "create_group",
         name: "mobile-platform",
+        mode: "council",
         members: [
           { projectID: "prj_existing" },
           { name: "Android app", directory: "/work/android", team: "mobile-app", sandbox: "strict" },
@@ -41,6 +44,7 @@ describe("workspace forge input", () => {
     ).toMatchObject({
       action: "create_group",
       name: "mobile-platform",
+      mode: "council",
       members: [
         { projectID: "prj_existing" },
         { name: "Android app", directory: "/work/android", team: "mobile-app", sandbox: "strict" },
@@ -64,5 +68,11 @@ describe("workspace forge input", () => {
         { directory: "/work/new-project" },
       ]),
     ).toBeUndefined()
+  })
+
+  test("requires the operator's coordination mode before creating a group", () => {
+    expect(WorkspaceForgeTool.groupModeError(undefined)).toContain("needs mode")
+    expect(WorkspaceForgeTool.groupModeError("lead")).toBeUndefined()
+    expect(WorkspaceForgeTool.groupModeError("council")).toBeUndefined()
   })
 })

@@ -63,6 +63,22 @@ function render(
       layout,
     },
     fetch: async (url, request) => {
+      // The left panel polls Mesh status next to the group list; an unmocked route would
+      // otherwise reject and leak into whichever test renders the panel next.
+      if (url.pathname === "/api/room/mesh")
+        return json({
+          nodeID: "node",
+          status: "unconfigured",
+          currentTerm: 0,
+          members: [],
+          voters: [],
+          voter: false,
+          logIndex: 0,
+          commitIndex: 0,
+          quorum: 0,
+          leader: false,
+          writable: false,
+        })
       if (url.pathname === "/api/orchestra/group") {
         if (request.method === "GET") return json(groupData)
         if (request.method === "PUT") {
@@ -275,6 +291,26 @@ test("the orchestrator council mode button saves the group mode when clicked", a
       frame.includes("To use the council, open Society above") &&
       frame.includes("Changing the mode alone does not send tasks"),
   )
+})
+
+test("a group's own chat is listed under the group, not under a member project", async () => {
+  await using state = await tmpdir()
+  const calls: Call[] = []
+  await using setup = await render(state.path, calls, [project], worker, "full", {
+    width: 140,
+    groups: [{ name: "Games", projects: [project.id], mode: "council", supervisor: "ses_society" }],
+  })
+
+  const frame = await setup.waitForFrame(
+    (frame) => frame.includes("Games") && frame.includes("★ Общество") && frame.includes("Worker task"),
+    { maxPasses: 100 },
+  )
+  const lines = frame.split("\n")
+  const group = lines.findIndex((line) => line.includes("Games"))
+  const chat = lines.findIndex((line) => line.includes("★ Общество"))
+  const projectRow = lines.findIndex((line) => line.includes("Demo"))
+  expect(chat).toBeGreaterThan(group)
+  expect(chat).toBeLessThan(projectRow)
 })
 
 test("deleting a session takes two clicks on its ×", async () => {

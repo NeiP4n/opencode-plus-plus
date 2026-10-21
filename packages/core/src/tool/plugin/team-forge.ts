@@ -420,16 +420,25 @@ export const Plugin = {
     yield* ctx.command.transform((editor) =>
       editor.add({
         name: "forge-group",
-        description: "Create a federation group from existing projects: roles, then the group, its projects and its one chat (Президент or Общество). [group name] [projects] [lead|council]",
+        description: "Create a federation group end to end: its member projects with their role sessions, the group itself and its one chat (Президент or Общество). [group name] [projects] [lead|council]",
         execute: (input) =>
-          ctx.session
-            .prompt({
+          Effect.gen(function* () {
+            // Creating projects is the Orchestrator's job. Anywhere else the model would try to
+            // satisfy the request with worker sessions inside the current project.
+            const main = yield* orchestra.mainOf(input.sessionID)
+            yield* ctx.session.prompt({
               ...input.prompt,
               sessionID: input.sessionID,
-              text: groupPrompt(input.prompt.text.trim()),
+              text: main
+                ? groupPrompt(input.prompt.text.trim())
+                : [
+                    "Stop: /forge-group creates and groups projects, so it can only run in a project's main Orchestrator session (the row marked ★ Orchestrator).",
+                    "This session is not an Orchestrator. Tell the operator to open the project's Orchestrator and run /forge-group there.",
+                    "Do not create any project, group, team or session from this session.",
+                  ].join("\n"),
               delivery: input.delivery,
             })
-            .pipe(Effect.asVoid),
+          }).pipe(Effect.asVoid),
       }),
     )
 
@@ -477,18 +486,23 @@ export const Plugin = {
 
 function groupPrompt(request: string) {
   return [
-    "You are configuring one federation group of existing OpenCode projects for the operator. You have every tool this needs: team_forge for roles and teams, and the federation tool for projects, groups and the group's chat.",
-    request ? `Operator request: ${request}` : "The operator did not provide a group name or project list yet. Ask one concise question for the group name, the exact projects and the coordination mode.",
+    "You are building one federation group for the operator, end to end: its member projects, their role sessions, the group itself and the group's single chat. You have every tool this needs: workspace_forge for projects and teams, team_forge for roles and team templates, and federation for an existing group and its chat.",
+    request ? `Operator request: ${request}` : "The operator did not provide a group name, member projects or coordination mode yet. Ask one concise question for the group name, the members and the mode.",
     "",
     "Workflow, in this order:",
-    "1. Roles first. Call team_forge action=list and read the current roles, teams and tool groups. Reuse an existing role whenever it can do the work; add a role only for work no role covers, with action=role: a precise description, concrete one-line rules and the minimum tools (reviewers are read-only without edit or shell; research roles get read plus web; build roles get write tools only when the work needs them). If the projects need a reusable team, add it with action=team using exact role ids, titles and a playbook. Never edit or delete an existing role or team during this run.",
-    "2. Resolve projects. Call federation action=projects to get the exact id of every requested project. Never invent an id or create a project record. Every project already has its own Orchestrator session, created together with the project: do not create orchestrator sessions and do not open or message sessions in member projects.",
-    "3. Create the group. Work out the mode: lead means one coordinator above the member Orchestrators (Президент); council means every member Orchestrator contributes to one shared chat (Общество). If the request does not say, ask. Then call federation action=group_create with the group name, the exact project ids in coordinator-first order and the mode.",
-    "4. Adjust membership as requested with federation action=group_add (append projects) or action=group_remove (take projects out); action=group_edit renames the group or changes its mode. Changing the name, the mode or the first (coordinator) project unbinds the existing chat, so create the chat again after that.",
-    "5. Create exactly one chat for the group with federation action=group_chat. In lead mode it creates Президент, which reads status and receives reports from the member Orchestrators; in council mode it creates Общество, which can call consult_all after an explicit operator task. Never create a President or Society session inside a project, and never create both chats for one group.",
-    "6. Report what was done: roles and teams added, group name, mode, projects in coordinator-first order, the chat session id and title, and any project whose Orchestrator session is missing (report it; do not create one).",
+    "1. Read the registry. Call team_forge action=list for the current roles, teams and tool groups, and workspace_forge action=list for the exact project, team-template and role ids. Never invent an id or a path.",
+    "2. Decide the members. A member is one project. For a member the operator names as a directory that already exists, the project is created here. For an existing project, reuse its exact project id. Do not add several role sessions of one team to a single project to imitate several projects: a team belongs to the project it was created for.",
+    "3. Add a role or team only when the registry cannot serve the work. Reuse an existing role whenever it can do the job; add a role with action=role (description, concrete one-line rules, minimum tools) and a team with action=team (exact role ids, titles, playbook). At most two new roles per team. Never edit or delete an existing role or team during this run.",
+    "4. Create the whole federation in one call: workspace_forge action=create_group with the group name, the required mode, the ordered members and the sandbox choice. Each member is either {projectID} or {directory, name, team or role, sandbox}. Each new project gets its own Orchestrator and, with team, exactly one session per template role; the group then gets exactly one chat: Президент for lead, council for Общество. Pass link=false unless the operator explicitly asked to link every pair. Use this instead of creating sessions in the current project.",
+    "5. Only when every member project already exists may you use federation instead: action=group_create with the exact project ids in coordinator-first order and the mode, then action=group_chat for the same name. Changing the name, the mode or the first project unbinds the chat, so create it again afterwards. Never create a second chat for one group.",
+    "6. Report what was done: the group name, mode, projects in coordinator-first order, each project's team and role sessions, the chat session id and title, and anything the operator still has to decide. State plainly any step that did not complete.",
     "",
     "Rules:",
+    "- If workspace_forge reports that only a project's main Orchestrator may use it, stop and tell the operator to run /forge-group from that project's Orchestrator. Do not fall back to creating sessions in this one.",
+    "- The mode is the operator's choice: lead creates one Президент chat above the member Orchestrators; council creates one Общество chat all member Orchestrators contribute to. If the request does not say, ask and wait; never guess.",
+    "- Never create a team or role session in the current project with the sessions tool to test, to prepare, or to work around a failed create_group. A project's roles come only from its own template; extra sessions there are the failure this command exists to prevent.",
+    "- Never create a President or Society session inside a project, and never open or message sessions in member projects. Each project's own Orchestrator already exists from creation.",
+    "- A new member directory must already exist and be named by the operator or found on disk. Do not invent directories, and do not silently fall back from a sandboxed mode to none.",
     "- Do not call link_group unless the operator explicitly asks to link every pair; linking changes communication policy.",
     "- Delete a group, role or team only when the operator explicitly asks for that exact deletion, and then use group_delete or the team_forge delete actions.",
     "- A group chat is not a project session: it owns no files, cannot edit project code, cannot dispatch tasks and does not change project permissions or approvals.",

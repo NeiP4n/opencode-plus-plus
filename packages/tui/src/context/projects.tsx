@@ -23,7 +23,14 @@ export const { use: useProjects, provider: ProjectsProvider } = createSimpleCont
     // Claims made here, kept apart so a refetch racing the server write cannot drop them.
     const [claimed, setClaimed] = createStore<Record<string, string>>({})
     // A project's orchestrator claims its new sessions before creating them, so the claim is already readable.
-    onCleanup(client.event.on("session.created", () => void owner.refetch()))
+    // Creating a project also creates its Orchestrator, so the same event brings a project created
+    // by an AI tool into the list instead of leaving its group with zero visible members.
+    onCleanup(
+      client.event.on("session.created", () => {
+        void owner.refetch()
+        void refetch()
+      }),
+    )
     return {
       list: () => list() ?? [],
       loaded: () => list() !== undefined,
