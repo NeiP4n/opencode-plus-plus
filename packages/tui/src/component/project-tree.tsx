@@ -10,6 +10,7 @@ import type {
   SessionInfo,
 } from "@opencode/client/promise"
 import { Orchestra } from "@opencode/schema/orchestra"
+import { Mode } from "@opencode/schema/mode"
 import { useClient } from "../context/client"
 import { useData } from "../context/data"
 import { useRoute } from "../context/route"
@@ -31,6 +32,7 @@ import { NotesPanel } from "./notes-panel"
 import { Row } from "./panel-row"
 import { RoomDodRows } from "./room-dod"
 import { HoverAction } from "./hover-action"
+import { DialogMode } from "./dialog-mode"
 import { useNow } from "./note-canvas"
 import { useT } from "../util/i18n"
 import { tint } from "../theme/color"
@@ -510,6 +512,16 @@ export function ProjectTree(props: { width: number; collapsed?: boolean; onHide?
                                 </text>
                               </box>
                               <Show when={!narrow() || hover() === session.id}>
+                                <HoverAction
+                                  id={`session-mode:${session.id}`}
+                                  onMouseEnter={() => setHover(session.id)}
+                                  onMouseLeave={() => setHover(session.id)}
+                                  onClick={() => DialogMode.show(dialog, session.id)}
+                                >
+                                  <text fg={theme.text.action.primary.base}>
+                                    {` ${Mode.fromMetadata(session.metadata)?.id ?? "auto"} `}
+                                  </text>
+                                </HoverAction>
                                 <HoverAction
                                   id={`session-category:${session.id}`}
                                   onMouseEnter={() => setHover(session.id)}

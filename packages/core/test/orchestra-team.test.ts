@@ -1,8 +1,11 @@
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Schedule, Schema, Scope, Stream } from "effect"
+import { Mode } from "@opencode/schema/mode"
 import { Money } from "@opencode/schema/money"
 import { Event } from "@opencode/schema/event"
 import { Form } from "@opencode/schema/form"
+import { Tool } from "@opencode/schema/tool"
+import { OrchestraTool } from "@opencode/core/tool/plugin/orchestra"
 import { AppNodeBuilder } from "@opencode/core/effect/app-node-builder"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { Global } from "@opencode/util/global"
@@ -26,6 +29,7 @@ import { SessionExecution } from "@opencode/core/session/execution"
 import { SessionMessage } from "@opencode/core/session/message"
 import { SessionStore } from "@opencode/core/session/store"
 import { KV } from "@opencode/core/kv"
+import { Form as FormService } from "@opencode/core/form"
 import { tmpdir } from "./fixture/tmpdir"
 import { tempGlobalLayer } from "./fixture/global"
 import { offlineModels } from "./fixture/models"
@@ -168,6 +172,7 @@ const it = testEffect(
       Orchestra.node,
       Federation.node,
       Agent.node,
+      FormService.node,
     ]),
     [
       // Keep durable event rows in this suite so recovery can prove whether the
@@ -1625,11 +1630,40 @@ describe("Orchestra team", () => {
           },
         }),
       )
+      const tools = new Map<string, Tool.Info>()
+      yield* OrchestraTool.Plugin.effect(
+        host({
+          session: { hook: () => Effect.succeed({ dispose: Effect.void }) },
+          tool: {
+            transform: (callback) =>
+              Effect.sync(() => {
+                callback({
+                  list: () => [],
+                  get: () => undefined,
+                  namespace: () => {},
+                  add: (tool) => {
+                    tools.set(tool.name, tool)
+                  },
+                  update: () => {},
+                  remove: () => {},
+                })
+              }).pipe(Effect.as({ dispose: Effect.void })),
+            reload: () => Effect.void,
+            list: () => Effect.succeed([]),
+            hook: () => Effect.succeed({ dispose: Effect.void }),
+          },
+        }),
+      )
       // What the permission service passes to plugins once every agent and config rule allowed the edit.
-      const evaluate = (agent: Agent.ID, action: string, effect: PermissionEvaluation["effect"] = "allow") =>
+      const evaluate = (
+        agent: Agent.ID,
+        action: string,
+        effect: PermissionEvaluation["effect"] = "allow",
+        sessionID: Session.ID = Session.ID.create(),
+      ) =>
         Effect.gen(function* () {
           const event: PermissionEvaluation = {
-            sessionID: Session.ID.create(),
+            sessionID,
             agent,
             action,
             resources: ["/project/file.txt"],
@@ -1730,6 +1764,52 @@ describe("Orchestra team", () => {
       yield* Effect.promise(() => Bun.write(path.join(tmp.path, ".opencode", "team-notes.md"), "Build: bun run build"))
       expect(yield* context(Orchestra.agent)).toContain("Build: bun run build")
       expect(yield* context(Agent.ID.make("build"))).toBe("")
+
+      const sessionService = yield* Session.Service
+      // The tool's own path: the orchestrator calls sessions set_mode on a worker, and the
+      // worker's stored metadata changes for its next task.
+      const modeWorker = yield* sessionService.create({
+        location: { directory: AbsolutePath.make(project.directory) },
+        title: "Mode worker",
+      })
+      yield* orchestra.claim(modeWorker.id, project.id)
+      yield* orchestra.setAccess(modeWorker.id, "write")
+      const sessionsTool = tools.get("sessions")
+      if (!sessionsTool) return yield* Effect.die("sessions tool was not registered")
+      const setModeResult = yield* sessionsTool.execute(
+        { action: "set_mode", sessionID: modeWorker.id, mode: "planning" },
+        {
+          sessionID: project.main!,
+          agent: Orchestra.agent,
+          messageID: SessionMessage.ID.create(),
+          id: Tool.CallID.make("call_set_mode"),
+          progress: () => Effect.void,
+        },
+      )
+      expect(setModeResult.content).toContain("Planning")
+      expect((yield* sessionService.get(modeWorker.id))?.metadata?.[Mode.MetadataKey]).toBe("planning")
+
+      // A mode narrows how a session works without changing its role. Planning removes the
+      // editing tools from the request and still denies an edit that reaches the permission
+      // hook; explicit `auto` restores the developer's normal working set.
+      const modeSession = project.main!
+      yield* sessionService.setMetadata({ sessionID: modeSession, metadata: { [Mode.MetadataKey]: "planning" } })
+      const modeEvent = {
+        sessionID: modeSession,
+        agent: Orchestra.role("developer"),
+        system: [],
+        tools: { edit: {}, write: {}, patch: {} },
+      } as unknown as SessionContext
+      yield* Effect.forEach(contexts, (hook) => hook(modeEvent), { discard: true })
+      const modeText = modeEvent.system.map((part) => (part.type === "text" ? part.text : "")).join(" ")
+      expect(modeText).toContain("Work mode: Planning")
+      expect(modeEvent.tools.edit).toBeUndefined()
+      expect(modeEvent.tools.write).toBeUndefined()
+      expect(modeEvent.tools.patch).toBeUndefined()
+      expect(yield* evaluate(Orchestra.role("developer"), "edit", "allow", modeSession)).toBe("deny")
+
+      yield* sessionService.setMetadata({ sessionID: modeSession, metadata: { [Mode.MetadataKey]: "auto" } })
+      expect(yield* evaluate(Orchestra.role("developer"), "edit", "allow", modeSession)).toBe("allow")
     }).pipe(Effect.scoped),
   )
 })

@@ -1,6 +1,7 @@
 export * as SessionRunnerLLM from "./llm.js"
 
 import { Message } from "@opencode/ai"
+import { Mode } from "@opencode/schema/mode"
 import { and, desc, eq, sql } from "drizzle-orm"
 import { Cause, Effect, Exit, FiberMap, Layer } from "effect"
 import { Database } from "../../database/database.js"
@@ -229,7 +230,12 @@ const layer = Layer.effect(
           assistantMessageID = SessionMessage.ID.create()
           continue
         }
-        const stepLimitReached = loaded.agent.info.steps !== undefined && step >= loaded.agent.info.steps
+        // The agent's own ceiling and the mode's soft ceiling both apply; the smaller one wins.
+        const agentSteps = loaded.agent.info.steps
+        const modeSteps = Mode.stepsOf(loaded.session.metadata)
+        const stepLimit =
+          agentSteps === undefined ? modeSteps : modeSteps === undefined ? agentSteps : Math.min(agentSteps, modeSteps)
+        const stepLimitReached = stepLimit !== undefined && step >= stepLimit
         const transcript = SessionModelRequest.baseTranscript({
           agent: loaded.agent.info,
           model: loaded.model,

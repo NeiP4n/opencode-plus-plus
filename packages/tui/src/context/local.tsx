@@ -1,13 +1,14 @@
 import { createStore } from "solid-js/store"
 import { dedupeWith } from "effect/Array"
 import { createSimpleContext } from "./helper"
-import { batch, createMemo, onCleanup } from "solid-js"
+import { batch, createMemo, createSignal, onCleanup } from "solid-js"
 import { useEvent } from "./event"
 import path from "path"
 import { useTuiPaths } from "./runtime"
 import { useArgs } from "./args"
 import { RGBA } from "@opentui/core"
 import { Orchestra } from "@opencode/schema/orchestra"
+import { Mode } from "@opencode/schema/mode"
 import { Note } from "@opencode/schema/note"
 import { readJson, writeJsonAtomic } from "../util/persistence"
 import {
@@ -23,6 +24,7 @@ import {
 import { useTheme } from "./theme"
 import { useToast } from "../ui/toast"
 import { useRoute } from "./route"
+import { useClient } from "./client"
 import { useData } from "./data"
 import { usePermission } from "./permission"
 import { useLocation } from "./location"
@@ -31,6 +33,7 @@ import { parse } from "../util/model"
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
+    const client = useClient()
     const data = useData()
     const toast = useToast()
     const theme = useTheme()
@@ -148,6 +151,49 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const agent = createAgent()
+
+    function createMode() {
+      // A new chat keeps its mode as a draft until creation; an existing chat stores it in
+      // session metadata, the same place the orchestrator writes it.
+      const [draft, setDraft] = createSignal("auto")
+      const currentFor = (sessionID: string) => String(Mode.fromMetadata(data.session.get(sessionID)?.metadata)?.id ?? "auto")
+      const setFor = (sessionID: string, id: string) => {
+        const mode = Mode.of(id)
+        const session = data.session.get(sessionID)
+        if (!mode || !session) return
+        const metadata = { ...(session.metadata ?? {}) }
+        if (mode.id === "auto") delete metadata[Mode.MetadataKey]
+        else metadata[Mode.MetadataKey] = mode.id
+        void client.api.session
+          .update({ sessionID, metadata })
+          .catch(() => toast.show({ variant: "error", message: "Failed to set the work mode", duration: 4000 }))
+      }
+      const current = () => {
+        if (route.data.type !== "session") return draft()
+        return currentFor(route.data.sessionID)
+      }
+      const set = (id: string) => {
+        if (route.data.type !== "session") {
+          const mode = Mode.of(id)
+          if (mode) setDraft(String(mode.id))
+          return
+        }
+        setFor(route.data.sessionID, id)
+      }
+      return {
+        current,
+        currentFor,
+        set,
+        setFor,
+        list: () => Mode.builtins,
+        cycle: () => {
+          const ids = Mode.list()
+          const index = ids.indexOf(current())
+          const next = ids[(index + 1) % ids.length]
+          if (next) set(next)
+        },
+      }
+    }
 
     function createModel() {
       type ModelSelection = ModelPreferenceModel & { variant?: string }
@@ -515,6 +561,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     }
 
     const model = createModel()
+    const mode = createMode()
 
     function createSession() {
       const [sessionStore, setSessionStore] = createStore<{
@@ -618,6 +665,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const result = {
       model,
       agent,
+      mode,
       session,
       permission,
     }

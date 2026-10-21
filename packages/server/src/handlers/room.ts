@@ -300,8 +300,8 @@ function hideDodExecution<T extends Room.Dod>(dod: T): T {
     }),
   }
   // The most recent check output is execution data too, not merely the verification command.
-  delete safe.check
-  return safe as T
+  const { check: _check, ...result } = safe
+  return result as T
 }
 
 // The handover note of a DoD item: L-003 keeps its notes in dod-l-003.
@@ -809,6 +809,8 @@ export const RoomHandler = HttpApiBuilder.group(Api, "server.room", (handlers) =
               // cannot leak through replay merely because they are durable. Rebuild the public
               // envelope as the live path does, omitting host-only location and metadata fields.
               // Decode once per event; this runs for every record in the guest replay.
+              // Replay markers carry no event envelope and are not guest-visible events.
+              Stream.filter((event) => event.type !== "log.synced"),
               Stream.map((event) => ({ decoded: decodeGuestRoomEvent(event) })),
               Stream.filter((item) => Option.isSome(item.decoded)),
               Stream.map((item) => Option.getOrUndefined(item.decoded)!),

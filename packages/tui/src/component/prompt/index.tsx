@@ -67,6 +67,7 @@ import {
   promptAttachmentLabel,
 } from "../../prompt/attachment"
 import { DialogImagePreview } from "../dialog-image-preview"
+import { DialogMode } from "../dialog-mode"
 import { useDirectoryRecents } from "../../prompt/directory-recents"
 import { directoryRecentValue } from "../../prompt/directory-completion"
 import { useWorkingDirectoryActions } from "../../ui/working-directory-actions"
@@ -1898,6 +1899,8 @@ export function Prompt(props: PromptProps) {
                 model={promptDisplay().modelLabel}
                 provider={promptDisplay().providerLabel}
                 variant={promptDisplay().variant}
+                workMode={store.mode === "normal" ? `mode:${local.mode.current()}` : undefined}
+                onModeClick={() => DialogMode.show(dialog)}
                 muted={!!muted()}
                 highlight={highlight()}
                 agentAlpha={agentMetaAlpha()}

@@ -162,6 +162,7 @@ export const Definitions = {
   "model.dialog.provider": keybind("ctrl+a", "Open provider list from model dialog"),
   "model.dialog.favorite": keybind("ctrl+f", "Toggle model favorite status"),
   "model.list": keybind("<leader>m", "List available models"),
+  "mode.list": keybind("<leader>o", "Switch work mode"),
   "model.cycle_recent": keybind("f2", "Next recently used model"),
   "model.cycle_recent_reverse": keybind("shift+f2", "Previous recently used model"),
   "model.cycle_favorite": keybind("none", "Next favorite model"),

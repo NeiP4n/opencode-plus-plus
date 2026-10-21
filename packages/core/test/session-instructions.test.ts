@@ -16,6 +16,7 @@ import { FileAccess } from "@opencode/core/file-access"
 import { Model } from "@opencode/core/model"
 import { Permission } from "@opencode/core/permission"
 import { Project } from "@opencode/core/project"
+import { Room } from "@opencode/core/room"
 import { Provider } from "@opencode/core/provider"
 import { ReadTool } from "@opencode/core/tool/plugin/read"
 import { ReadToolFileSystem } from "@opencode/core/tool/read-filesystem"
@@ -33,6 +34,7 @@ import { tempLocationLayer } from "./fixture/location"
 import { makeLocationNode } from "@opencode/util/effect/app-node"
 import { testEffect } from "./lib/effect"
 import { permissionLayer } from "./lib/permission"
+import { roomLayer } from "./lib/room"
 import { globalProjectNode } from "./lib/project"
 import { executeTool, registerToolPlugin } from "./lib/tool"
 
@@ -48,6 +50,8 @@ const readToolNode = makeLocationNode({
     SessionInstructions.node,
     FSUtil.node,
     Location.node,
+    Room.node,
+    Session.node,
   ],
 })
 
@@ -72,6 +76,7 @@ const testLayer = AppNodeBuilder.build(
     SessionInstructions.node,
     Global.node,
     Image.node,
+    Room.node,
   ]),
   [
     Project.node.replace(globalProjectNode),
@@ -80,6 +85,7 @@ const testLayer = AppNodeBuilder.build(
     Permission.node.replace(permission),
     Config.node.replace(config),
     Image.node.replace(imageLayer),
+    Room.node.replace(roomLayer()),
   ],
 )
 

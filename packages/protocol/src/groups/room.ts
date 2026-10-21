@@ -444,7 +444,7 @@ export const RoomGroup = HttpApiGroup.make("server.room")
       params: { roomID: Room.ID },
       query: FeedQuery,
       success: Room.Feed,
-      error: [UnauthorizedError, RoomNotFoundError],
+      error: [UnauthorizedError, RoomNotFoundError, SessionNotFoundError],
     }).annotateMerge(
       OpenApi.annotations({
         identifier: "room.guest.feed",

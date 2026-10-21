@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { define } from "@opencode/plugin/effect/plugin"
 import { modeOf } from "@opencode/schema/federation"
+import { Mode } from "@opencode/schema/mode"
 import { Model } from "@opencode/schema/model"
 import type { SessionID } from "@opencode/schema/session-id"
 import { Effect, Option, Stream } from "effect"
@@ -48,6 +49,7 @@ How to work:
 - Work only in your assigned file scope. Another worker may be editing other files at the same time; if your task needs a change outside your scope, describe it in the report instead of making it.
 - Do not spawn subagents; the Orchestrator tracks the team through this session. Do not commit, push, publish, deploy or delete user data unless the task says so.
 - Keep effort proportional: a small task gets a small, direct answer. Do not pad reports or invent extra work.
+- A work mode may be attached to this task. It changes how you work and may make you read-only; it never widens your permissions or the tools your role already has.
 - The project's DoD is owned by the Orchestrator. Do not create new DoD items and never call \`dod add\`. If the existing board does not contain the work you were assigned, report that gap to the Orchestrator instead of creating another item. You may use the existing DoD item assigned to you (for example \`dod take\`, \`dod check\`, \`dod block\`, and verification when appropriate) but do not expand the board yourself.
 - Project notes (.opencode/team-notes.md) are attached to every request and shared by the whole team. If you can edit files and learned something durable — how to build, test or run the project, a stack decision, a trap — add or fix one short line there under a fitting heading (this file is the one exception to your file scope). Keep the file short and factual; no task logs. Read-only roles put such facts under NOTES in the report instead.
 
@@ -92,6 +94,14 @@ export const Plugin = define({
     const federation = yield* Federation.Service
     const sessions = yield* Session.Service
     const team ={ roles: yield* orchestra.roles() }
+    // A session's stored mode wins; without one, the role's default applies. `auto` is an
+    // explicit cancellation of the default, not a missing value to replace.
+    const modeFor = Effect.fnUntraced(function* (sessionID: SessionID, role: Orchestra.Role) {
+      const current = yield* sessions.get(sessionID).pipe(Effect.option)
+      return (
+        (Option.isSome(current) ? Mode.fromMetadata(current.value.metadata) : undefined) ?? Mode.defaultForRole(role)
+      )
+    })
     // The project a team session works for: the one it is the Orchestrator of, or the one that opened it.
     const projectDirectory = Effect.fnUntraced(function* (sessionID: SessionID) {
       const main = yield* orchestra.mainOf(sessionID)
@@ -133,7 +143,17 @@ export const Plugin = define({
       Effect.gen(function* () {
         const role = team.roles.find((item) => item.agent === event.agent)
         if (!role && event.agent !== Orchestra.agent) return
-        if (role) event.system.push({ type: "text", text: toolkit(role, Object.keys(event.tools)) })
+        if (role) {
+          const mode = yield* modeFor(event.sessionID, role)
+          if (mode && mode.id !== "auto") {
+            // The model should not see a tool the mode forbids: a read-only mode removes the
+            // editing tools before the toolkit line is rendered, and the permission hook below
+            // still denies an edit that arrives some other way.
+            if (mode.readOnly) for (const tool of ["edit", "write", "patch"]) delete event.tools[tool]
+            event.system.push({ type: "text", text: Mode.guidanceBlock(mode) })
+          }
+          event.system.push({ type: "text", text: toolkit(role, Object.keys(event.tools)) })
+        }
         // Validate the special supervisor marker against the live registry before changing its instructions.
         if (event.agent === Orchestra.agent) {
           const current = yield* sessions.get(event.sessionID).pipe(Effect.option)
@@ -211,7 +231,7 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
     // Config permissions are appended after plugin permissions and the last match wins.
     // Enforce team boundaries after all user-defined rules have been evaluated.
     yield* ctx.permission.hook("evaluate", (event) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         if (event.action === "subagent") {
           if (event.agent !== Orchestra.agent && !team.roles.some((role) => role.agent === event.agent)) return
           event.effect = "deny"
@@ -229,6 +249,15 @@ ${linked.map((item) => `- ${item.name} (${item.id})`).join("\n")}`,
         ) {
           event.effect = "allow"
           return
+        }
+        const modeRole = team.roles.find((item) => item.agent === event.agent)
+        if (modeRole && event.action === "edit") {
+          const mode = yield* modeFor(event.sessionID, modeRole)
+          if (mode?.readOnly) {
+            event.effect = "deny"
+            event.message = `${modeRole.name} is working in the read-only ${mode.name} mode`
+            return
+          }
         }
         const limited = team.roles.find((role) => role.tools && role.agent === event.agent)
         if (limited?.tools && TOOL_ACTIONS.has(event.action) && !Orchestra.toolAllowed(limited.tools, event.action)) {

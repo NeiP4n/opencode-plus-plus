@@ -28,12 +28,30 @@ import { executeTool, registerToolPlugin, toolIdentity } from "./lib/tool"
 const globToolNode = makeLocationNode({
   name: "test/glob-tool-plugin",
   layer: Layer.effectDiscard(registerToolPlugin(GlobTool.Plugin)),
-  deps: [Tool.node, Environment.node, Ripgrep.node, Location.node, FileAccess.node, Permission.node, Room.node],
+  deps: [
+    Tool.node,
+    Environment.node,
+    Ripgrep.node,
+    Location.node,
+    FileAccess.node,
+    Permission.node,
+    Room.node,
+    Session.node,
+  ],
 })
 const grepToolNode = makeLocationNode({
   name: "test/grep-tool-plugin",
   layer: Layer.effectDiscard(registerToolPlugin(GrepTool.Plugin)),
-  deps: [Tool.node, Environment.node, Ripgrep.node, Location.node, FileAccess.node, Permission.node, Room.node],
+  deps: [
+    Tool.node,
+    Environment.node,
+    Ripgrep.node,
+    Location.node,
+    FileAccess.node,
+    Permission.node,
+    Room.node,
+    Session.node,
+  ],
 })
 const sessionID = Session.ID.make("ses_search_tool_test")
 
@@ -172,6 +190,14 @@ const withTools = <A, E, R>(
         ),
         Ripgrep.node.replace(fakeRipgrep),
         Room.node.replace(roomLayer()),
+        // Read, glob and grep consult room rules for the calling session; these tests
+        // use no sessions, so an empty lookup is the honest stub.
+        Session.node.replace(
+          Layer.succeed(
+            Session.Service,
+            Session.Service.of({ get: () => Effect.succeed(undefined) } as unknown as Session.Interface),
+          ),
+        ),
         Permission.node.replace(
           permissionLayer({
             assert: (input) =>

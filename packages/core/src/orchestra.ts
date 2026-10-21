@@ -6,6 +6,7 @@ import path from "node:path"
 import { makeGlobalNode } from "@opencode/util/effect/app-node"
 import { FSUtil } from "@opencode/util/fs-util"
 import { Orchestra } from "@opencode/schema/orchestra"
+import { Mode } from "@opencode/schema/mode"
 import { Federation } from "@opencode/schema/federation"
 import { Form } from "@opencode/schema/form"
 import { Model } from "@opencode/schema/model"
@@ -2110,6 +2111,12 @@ function freeID(name: string, taken: ReadonlyArray<{ id: string }>) {
 const requireRole = Effect.fnUntraced(function* (input: RoleSpec) {
   const name = input.name.trim()
   if (!name) return yield* new TeamError({ message: "Enter the role's name", field: "name" })
+  const mode = input.mode?.trim()
+  if (mode && !Mode.of(mode))
+    return yield* new TeamError({
+      message: `Unknown work mode: ${mode}. Modes: ${Mode.list().join(", ")}`,
+      field: "mode",
+    })
   const model = input.model?.trim()
   const models = unique(input.models)
   // Parsed the way the agent plugin parses it, so a saved model never breaks agent loading.
@@ -2127,6 +2134,7 @@ const requireRole = Effect.fnUntraced(function* (input: RoleSpec) {
     rules: input.rules.trim(),
     category: input.category.trim() || "Team",
     readOnly: input.readOnly,
+    ...(mode ? { mode } : {}),
     ...(model ? { model } : {}),
     ...(models.length > 0 ? { models } : {}),
     ...(tools ? { tools } : {}),

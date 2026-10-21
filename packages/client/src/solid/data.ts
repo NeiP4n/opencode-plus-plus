@@ -703,6 +703,12 @@ export function createData(config: CreateDataInput) {
         if (store.session.info[event.data.sessionID])
           setStore("session", "info", event.data.sessionID, "permissions", event.data.permissions)
         return
+      case "session.metadata.updated":
+        // Work modes and other host annotations live in metadata; the event is the only
+        // update path after a PATCH, so the picker and roster must track it live.
+        if (store.session.info[event.data.sessionID])
+          setStore("session", "info", event.data.sessionID, "metadata", event.data.metadata)
+        return
       case "session.moved": {
         const current = store.session.info[event.data.sessionID]
         if (current) {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { Mode } from "@opencode/schema/mode"
 import { playbookOf, role, roles, templates, toolGroups } from "@opencode/schema/orchestra"
 import { Hub } from "@opencode/core/hub/index"
 import { PROMPT_ORCHESTRATOR, PROMPT_PRESIDENT } from "@opencode/core/plugin/agent"
@@ -184,6 +185,42 @@ describe("shared team prompt", () => {
   test("still ends with the report contract the Orchestrator parses", () => {
     expect(TeamPlugin.TEAM).toContain("DONE, PARTLY DONE, NOT DONE")
     expect(TeamPlugin.TEAM).toContain("CHECKS:")
+  })
+
+  test("tells a worker that a mode narrows how it works, never what it may do", () => {
+    expect(TeamPlugin.TEAM).toContain("A work mode may be attached to this task")
+    expect(TeamPlugin.TEAM).toContain("it never widens your permissions")
+  })
+})
+
+describe("orchestrator triage and modes", () => {
+  test("sizes the task before it dispatches a team", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("Task size — decide before you dispatch")
+    expect(PROMPT_ORCHESTRATOR).toContain("Quick: one file or one obvious change")
+    expect(PROMPT_ORCHESTRATOR).toContain("Default to the smaller size")
+  })
+
+  test("has stop rules against stalling and endless planning", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("Stop rules")
+    expect(PROMPT_ORCHESTRATOR).toContain("Never end a turn with only a promise")
+    expect(PROMPT_ORCHESTRATOR).toContain("Do not keep planning after that; dispatch it")
+    expect(PROMPT_ORCHESTRATOR).toContain("After two failed rounds on the same problem")
+  })
+
+  test("names the modes and keeps a planner read-only in coding mode", () => {
+    expect(PROMPT_ORCHESTRATOR).toContain("auto, fast, coding, research, planning, review, debug, design, ops")
+    expect(PROMPT_ORCHESTRATOR).toContain("A planner in coding mode still cannot edit")
+    expect(PROMPT_ORCHESTRATOR).toContain("set_mode")
+  })
+
+  test("every built-in role gets a default mode that matches its job", () => {
+    expect(String(Mode.defaultForRole(findRole("developer")!)?.id)).toBe("coding")
+    expect(String(Mode.defaultForRole(findRole("architect")!)?.id)).toBe("planning")
+    expect(String(Mode.defaultForRole(findRole("researcher")!)?.id)).toBe("research")
+    expect(String(Mode.defaultForRole(findRole("reviewer")!)?.id)).toBe("review")
+    expect(String(Mode.defaultForRole(findRole("debugger")!)?.id)).toBe("debug")
+    expect(String(Mode.defaultForRole(findRole("designer")!)?.id)).toBe("design")
+    expect(String(Mode.defaultForRole(findRole("devops")!)?.id)).toBe("ops")
   })
 })
 

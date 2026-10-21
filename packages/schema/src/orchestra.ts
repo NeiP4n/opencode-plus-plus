@@ -150,6 +150,10 @@ export const RoleSpec = Schema.Struct({
   rules: Schema.String,
   category: Schema.String,
   readOnly: Schema.Boolean,
+  // The work mode a session of this role starts in. Absent means the mode inferred from the
+  // category (Planning -> planning, Quality -> review, otherwise coding), with a few
+  // specialist ids mapped explicitly in @opencode/schema/mode.
+  mode: Schema.String.pipe(Schema.optional),
   model: Schema.String.pipe(Schema.optional),
   models: Schema.Array(Schema.String).pipe(Schema.optional),
   tools: Schema.Array(Schema.String).pipe(Schema.optional),

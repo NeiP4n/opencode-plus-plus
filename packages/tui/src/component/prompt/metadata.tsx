@@ -12,6 +12,8 @@ export function PromptMetadataRow(props: {
   model: string
   provider: string
   variant?: string
+  workMode?: string
+  onModeClick?: () => void
   muted: boolean
   highlight: RGBA
   agentAlpha: number
@@ -30,6 +32,7 @@ export function PromptMetadataRow(props: {
       model: props.model,
       provider: props.provider,
       variant: props.variant,
+      workMode: props.workMode,
     })
   })
 
@@ -51,9 +54,24 @@ export function PromptMetadataRow(props: {
             auto
           </text>
         </Show>
+        <Show when={props.mode === "normal" && layout().workMode}>
+          {(workMode) => (
+            <box
+              flexShrink={0}
+              onMouseDown={(event: { stopPropagation(): void }) => {
+                event.stopPropagation()
+                props.onModeClick?.()
+              }}
+            >
+              <text flexShrink={0} wrapMode="none" fg={fade(theme.text.feedback.warning.base, props.agentAlpha)}>
+                {workMode()}
+              </text>
+            </box>
+          )}
+        </Show>
         <Show when={props.mode === "normal" && layout().model}>
           <box flexDirection="row" gap={1} flexGrow={1} flexShrink={1} minWidth={0}>
-            <Show when={layout().agent}>
+            <Show when={layout().agent || layout().workMode}>
               <text flexShrink={0} wrapMode="none" fg={fade(theme.text.muted, props.modelAlpha)}>
                 ·
               </text>
@@ -108,6 +126,7 @@ type Layout = {
   model: string
   provider?: string
   variant?: string
+  workMode?: string
 }
 
 function promptMetadataLayout(input: {
@@ -118,19 +137,22 @@ function promptMetadataLayout(input: {
   model: string
   provider: string
   variant?: string
+  workMode?: string
 }) {
   const agent = input.terminalWidth < 44 ? undefined : input.agent
   const provider = input.terminalWidth < 44 ? "" : input.provider
+  const workMode = input.terminalWidth < 44 ? undefined : input.workMode
   const candidates: Layout[] = [
-    { agent, auto: input.auto, model: input.model, provider, variant: input.variant },
-    { agent, model: input.model, provider, variant: input.variant },
+    { agent, auto: input.auto, model: input.model, provider, variant: input.variant, workMode },
+    { agent, model: input.model, provider, variant: input.variant, workMode },
     {
       agent,
       model: input.model,
       provider: provider.split(" / ").at(-1) ?? provider,
       variant: input.variant,
+      workMode,
     },
-    { agent, model: input.model, variant: input.variant },
+    { agent, model: input.model, variant: input.variant, workMode },
   ]
   const fit = candidates.find((candidate) => stringWidth(text(candidate)) <= input.width)
   if (fit) return fit
@@ -151,7 +173,8 @@ function text(input: Layout) {
   return [
     ...(input.agent ? [input.agent] : []),
     ...(input.auto ? ["auto"] : []),
-    ...(input.model ? [...(input.agent ? ["·"] : []), input.model] : []),
+    ...(input.workMode ? [input.workMode] : []),
+    ...(input.model ? [...(input.agent || input.workMode ? ["·"] : []), input.model] : []),
     ...(input.provider ? [input.provider] : []),
     ...(input.variant ? ["·", input.variant] : []),
   ].join(" ")

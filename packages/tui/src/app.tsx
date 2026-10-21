@@ -59,6 +59,7 @@ import { LocationProvider, useLocation } from "./context/location"
 import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
 import { DialogModel } from "./component/dialog-model"
+import { DialogMode } from "./component/dialog-mode"
 import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
 import { DialogCompat } from "./component/dialog-compat"
@@ -1007,6 +1008,16 @@ function App() {
         slash: { name: "models" },
         run: () => {
           dialog.replace(() => <DialogModel />)
+        },
+      },
+      {
+        name: "mode.list",
+        title: "Switch work mode",
+        suggested: true,
+        category: "Agent",
+        slash: { name: "mode" },
+        run: () => {
+          dialog.replace(() => <DialogMode />)
         },
       },
       {
