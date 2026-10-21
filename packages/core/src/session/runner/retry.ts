@@ -9,8 +9,6 @@ import { Bus } from "../../bus.js"
 import type { PluginHooks } from "../../plugin/hooks.js"
 import { SessionEvent } from "../event.js"
 import { SessionMessage } from "../message.js"
-import { randomUUID } from "node:crypto"
-import { KV, type Interface as KVInterface } from "../../kv.js"
 import { SessionSchema } from "../schema.js"
 
 export { isRetryable }
@@ -93,251 +91,19 @@ export const policy = (sessionID: SessionSchema.ID) =>
       })
   })
 
-const GATE_PREFIX = "session-runner:rate-limit:v1:"
-const RATE_LIMIT_COOLDOWN_MAX = Duration.toMillis("15 minutes")
-const RATE_LIMIT_STREAK_WINDOW = Duration.toMillis("6 hours")
-// A rate limit is a durable pause, but not an unbounded one: a provider that keeps refusing a
-// session must fail the step instead of holding the task open for hours. The shared-gate and
-// durable cooldown phases may wait at most this long in total; one provider cooldown is always
-// honored so an explicit Retry-After is never discarded.
-const RATE_LIMIT_WAIT_BUDGET = Duration.toMillis("15 minutes")
-
-type SharedRateLimit = {
-  readonly version: 1
-  readonly providerID: string
-  readonly sessionID: string
-  readonly retryAt: number
-  readonly updatedAt: number
-  readonly consecutive: number
-  readonly outcome: "rate-limit" | "success"
-}
-
-function providerPrefix(providerID: string) {
-  return GATE_PREFIX + encodeURIComponent(providerID) + ":"
-}
-
-type KVRecord = Extract<KV.Value, Readonly<Record<string, unknown>>>
-
-function isKVRecord(value: KV.Value | undefined): value is KVRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function decodeSharedRateLimit(value: KV.Value | undefined): SharedRateLimit | undefined {
-  if (!isKVRecord(value)) return
-  if (
-    value.version !== 1 ||
-    typeof value.providerID !== "string" ||
-    typeof value.sessionID !== "string" ||
-    typeof value.retryAt !== "number" ||
-    !Number.isFinite(value.retryAt) ||
-    typeof value.updatedAt !== "number" ||
-    !Number.isFinite(value.updatedAt) ||
-    typeof value.consecutive !== "number" ||
-    !Number.isInteger(value.consecutive) ||
-    value.consecutive < 0 ||
-    (value.outcome !== undefined && value.outcome !== "rate-limit" && value.outcome !== "success") ||
-    (value.outcome === "success" && value.consecutive !== 0) ||
-    (value.outcome !== "success" && value.consecutive < 1)
-  )
-    return
-  return {
-    version: 1,
-    providerID: value.providerID,
-    sessionID: value.sessionID,
-    retryAt: value.retryAt,
-    updatedAt: value.updatedAt,
-    consecutive: value.consecutive,
-    // Entries written before success markers were introduced are rate-limit events.
-    outcome: value.outcome === "success" ? "success" : "rate-limit",
-  }
-}
-
-function readSharedRateLimit(kv: KVInterface, providerID: string, now: number) {
-  const prefix = providerPrefix(providerID)
-  let lastSuccessAt = Number.NEGATIVE_INFINITY
-  const streaks: { updatedAt: number; consecutive: number; retryAt: number }[] = []
-  const scan = Effect.gen(function* () {
-    let after: string | undefined
-    while (true) {
-      const page = yield* kv.scan({ prefix, after, limit: 1000 })
-      // Bound temporary cleanup state to one page, even if a provider has millions of
-      // stale journal entries. KV scan cursors are key-based, so deleting this page is safe.
-      const stale: string[] = []
-      // Process each page before fetching the next. The previous implementation retained every
-      // raw KV entry and then allocated a second array of decoded states for the whole prefix.
-      for (const entry of page.entries) {
-        const state = decodeSharedRateLimit(entry.value)
-        if (!state || state.providerID !== providerID || now - state.updatedAt >= RATE_LIMIT_STREAK_WINDOW) {
-          // The success marker has a stable key and can be overwritten while this scan
-          // is in progress. Deleting it as stale could erase a concurrent fresh success.
-          if (entry.key !== prefix + "last-success") stale.push(entry.key)
-          continue
-        }
-        if (state.outcome === "success") lastSuccessAt = Math.max(lastSuccessAt, state.updatedAt)
-        if (state.outcome === "rate-limit") {
-          streaks.push({ updatedAt: state.updatedAt, consecutive: state.consecutive, retryAt: state.retryAt })
-        }
-      }
-      yield* Effect.forEach(stale, (key) => kv.remove(key), { concurrency: 32 })
-      if (!page.next) break
-      after = page.next
-    }
-  })
-  return Effect.gen(function* () {
-    yield* scan
-    let retryAt: number | undefined
-    let consecutive = 0
-    for (const state of streaks) {
-      // A successful provider request supersedes earlier 429s, including their still-future
-      // Retry-After deadlines. Only rate limits observed after the latest success remain active.
-      if (state.updatedAt <= lastSuccessAt) continue
-      consecutive = Math.max(consecutive, state.consecutive)
-      if (state.retryAt > now) retryAt = Math.max(retryAt ?? 0, state.retryAt)
-    }
-    // Each observation is independent and safe to remove after the streak window. New rate limits
-    // write unique keys, so cleaning an old entry cannot erase a concurrent provider cooldown.
-    return { retryAt, consecutive }
-  })
-}
-
-/**
- * Spread the sessions that share one provider cooldown. The gate is per provider, so without a
- * per-session offset every waiting session wakes on the same millisecond, they all spend a request
- * at once and earn the next 429. Deterministic (no randomness) so runs and tests stay reproducible.
- */
-export function stagger(sessionID: string) {
-  let hash = 0
-  for (let index = 0; index < sessionID.length; index++) {
-    hash = (Math.imul(hash, 31) + sessionID.charCodeAt(index)) | 0
-  }
-  return Math.abs(hash) % 750
-}
-
-function rateLimitBackoff(consecutive: number) {
-  return Math.min(RATE_LIMIT_COOLDOWN_MAX, 2_000 * 2 ** Math.min(Math.max(0, consecutive - 1), 10))
-}
-
-export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInterface) =>
+// Retry state is per Session. A 429 observed by one Session must not install a provider-wide
+// cooldown that other Sessions inherit, so there is deliberately no shared journal or gate here.
+export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID) =>
   Effect.gen(function* () {
-    const scheduledDecision = yield* policy(sessionID)
-    // Total time this step has already spent waiting on provider rate limits, whether on the
-    // shared provider gate or in the durable cooldown phase.
-    let rateLimitWaited = 0
-    const decide = (input: Parameters<typeof scheduledDecision>[0]) =>
-      Effect.gen(function* () {
-        let hookRejected = false
-        const decision = yield* scheduledDecision({
-          ...input,
-          hook: (event) =>
-            Effect.gen(function* () {
-              const proposed = event.decision.retry
-              yield* input.hook(event)
-              if (proposed && !event.decision.retry) hookRejected = true
-            }),
-        })
-        if (input.cause.reason._tag !== "RateLimit") return decision
-
-        const now = yield* Clock.currentTimeMillis
-        const providerID = String(input.model.providerID)
-        const previous = yield* readSharedRateLimit(kv, providerID, now)
-        const consecutive = previous.consecutive + 1
-        const retryAfterMs = input.cause.reason.retryAfterMs
-        const hintedDelay =
-          retryAfterMs !== undefined && Number.isFinite(retryAfterMs) && retryAfterMs > 0
-            ? Math.min(retryAfterMs, RATE_LIMIT_COOLDOWN_MAX)
-            : 0
-        const policyDelay = decision.retry ? decision.delay : 0
-        const delay = Math.max(rateLimitBackoff(consecutive), hintedDelay, policyDelay)
-        const retryAt = Math.max(now + delay, previous.retryAt ?? 0)
-        const effectiveDelay = Math.min(RATE_LIMIT_COOLDOWN_MAX, Math.max(0, retryAt - now))
-        const state: SharedRateLimit = {
-          version: 1,
-          providerID,
-          sessionID: String(sessionID),
-          retryAt: now + effectiveDelay,
-          updatedAt: now,
-          consecutive,
-          outcome: "rate-limit",
-        }
-        const key = providerPrefix(providerID) + now + ":" + encodeURIComponent(String(sessionID)) + ":" + randomUUID()
-        yield* kv.set(key, state)
-        // Persist the shared cooldown even if a hook vetoes this session's retry: sibling agents
-        // must still stop spending requests against a provider that has returned 429.
-        if (hookRejected || !input.retry) return decision
-        // A rate limit is a durable pause, not a finite retry budget. Once the short generic
-        // schedule is exhausted, the session keeps its recorded history and retries with capped
-        // exponential cooldown. The durable phase is bounded so a provider that never recovers
-        // surfaces its error instead of holding the step open for hours.
-        // The short generic schedule has its own bounded allowance; the budget covers the
-        // durable phase and shared-gate waits, which are the ones that can last for hours.
-        if (!decision.retry) {
-          if (rateLimitWaited > 0 && rateLimitWaited + effectiveDelay > RATE_LIMIT_WAIT_BUDGET)
-            return { retry: false as const }
-          rateLimitWaited += effectiveDelay
-        }
-        return {
-          retry: true as const,
-          attempt: decision.retry ? decision.attempt : Math.max(11, consecutive + 1),
-          delay: effectiveDelay,
-        }
-      })
-
-    const succeeded = (providerID: string) =>
-      Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis
-        // One overwritten success marker resets the backoff without growing the journal per
-        // successful turn. Existing future retry deadlines remain independent and are not cleared.
-        yield* kv.set(providerPrefix(providerID) + "last-success", {
-          version: 1,
-          providerID,
-          sessionID: String(sessionID),
-          retryAt: now,
-          updatedAt: now,
-          consecutive: 0,
-          outcome: "success",
-        })
-        // The provider answered again, so the rate-limit wait budget starts fresh.
-        rateLimitWaited = 0
-      })
-
-    const gateUntil = (providerID: string) =>
-      Effect.gen(function* () {
-        const now = yield* Clock.currentTimeMillis
-        return (yield* readSharedRateLimit(kv, providerID, now)).retryAt
-      })
-
-    const waitForGate = (providerID: string) =>
-      Effect.gen(function* () {
-        let waited = false
-        while (true) {
-          const retryAt = yield* gateUntil(providerID)
-          const now = yield* Clock.currentTimeMillis
-          if (retryAt === undefined || retryAt <= now) return waited
-          const remaining = retryAt - now
-          // A sibling can keep extending the gate. Stop sleeping once this step has spent its
-          // rate-limit budget and let the next request report the limit instead of blocking here.
-          if (rateLimitWaited > 0 && rateLimitWaited + remaining > RATE_LIMIT_WAIT_BUDGET) return waited
-          rateLimitWaited += remaining
-          waited = true
-          yield* Effect.sleep(Duration.millis(remaining))
-        }
-      })
-
+    const decide = yield* policy(sessionID)
     const wait = (input: {
       readonly decision: Decision
       readonly assistantMessageID: SessionMessage.ID
       readonly error: SessionError.Error
-      readonly providerID: string
     }) =>
       Effect.gen(function* () {
         const scheduled = yield* Clock.currentTimeMillis
-        const sharedUntil = yield* gateUntil(input.providerID)
-        // Ordinary retries already carry schedule jitter. The stampede risk is a session waiting on
-        // another session's provider gate: only then does a per-session offset spread the wake-ups.
-        // A session's own retry keeps its exact delay, so its provider Retry-After is still honored.
-        const own = scheduled + input.decision.delay
-        const sharedWait = sharedUntil !== undefined && sharedUntil > own ? stagger(String(sessionID)) : 0
-        const at = Math.max(own, sharedUntil ?? 0) + sharedWait
+        const at = scheduled + input.decision.delay
         yield* bus.publish(SessionEvent.RetryScheduled, {
           sessionID,
           assistantMessageID: input.assistantMessageID,
@@ -347,8 +113,6 @@ export const make = (bus: Bus.Interface, sessionID: SessionSchema.ID, kv: KVInte
         })
         const remaining = Math.max(0, at - (yield* Clock.currentTimeMillis))
         yield* Effect.sleep(Duration.millis(remaining))
-        // A concurrent agent may have extended the shared cooldown while we slept.
-        yield* waitForGate(input.providerID)
       })
-    return { decide, wait, waitForGate, succeeded }
+    return { decide, wait }
   })
