@@ -10,6 +10,7 @@ import type { PluginHooks } from "../../plugin/hooks.js"
 import { SessionEvent } from "../event.js"
 import { SessionMessage } from "../message.js"
 import { SessionSchema } from "../schema.js"
+import { isFreeTierAddressCap } from "../to-session-error.js"
 
 export { isRetryable }
 
@@ -65,7 +66,12 @@ export const policy = (sessionID: SessionSchema.ID) =>
           model: input.model,
           error: input.error,
           attempt,
-          decision: input.retry && timeouts <= MAX_TIMEOUT_RETRIES ? { retry: true, delay } : { retry: false },
+          // Another attempt from an address that spent its free-tier day is wasted, so the step stops
+          // at once; Auto IP resumes the chat after it has moved OpenCode to another address.
+          decision:
+            input.retry && timeouts <= MAX_TIMEOUT_RETRIES && !isFreeTierAddressCap(input.cause)
+              ? { retry: true, delay }
+              : { retry: false },
         }
         yield* input.hook(event)
         if (!event.decision.retry) return event.decision

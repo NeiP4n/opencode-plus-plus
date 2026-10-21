@@ -1,12 +1,12 @@
 import { describe, expect } from "bun:test"
-import { AIError, ProviderInternalError, RateLimitError, TransportError } from "@opencode/ai"
+import { AIError, ProviderInternalError, QuotaExceededError, RateLimitError, TransportError } from "@opencode/ai"
 import { Agent } from "@opencode/schema/agent"
 import { Model } from "@opencode/schema/model"
 import { Provider } from "@opencode/core/provider"
 import type { Bus } from "@opencode/core/bus"
 import { SessionSchema } from "@opencode/core/session/schema"
 import { SessionRunnerRetry } from "@opencode/core/session/runner/retry"
-import { toSessionError } from "@opencode/core/session/to-session-error"
+import { asRateLimit, toSessionError } from "@opencode/core/session/to-session-error"
 import { Duration, Effect } from "effect"
 import { it } from "./lib/effect"
 
@@ -42,6 +42,21 @@ describe("SessionRunnerRetry.policy", () => {
   it.effect("stops retrying transport timeouts after three attempts", () =>
     Effect.gen(function* () {
       expect(yield* decisions(timeout, 4)).toEqual([true, true, true, false])
+    }),
+  )
+
+  it.effect("does not resend from an address that spent its free tier day", () =>
+    Effect.gen(function* () {
+      const cap = asRateLimit(
+        new AIError({
+          reason: new QuotaExceededError({
+            message: "Rate limit exceeded. Please try again later.",
+            body: JSON.stringify({ type: "error", error: { type: "FreeUsageLimitError", message: "Rate limit exceeded." } }),
+          }),
+        }),
+      )
+      expect(yield* decisions(cap, 1)).toEqual([false])
+      expect(yield* decisions(rateLimit, 1)).toEqual([true])
     }),
   )
 

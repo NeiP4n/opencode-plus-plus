@@ -5,6 +5,7 @@ import {
   LLMEvent,
   LanguageModel,
   Message,
+  QuotaExceededError,
   SystemPart,
   TransportError,
   type LLMRequest,
@@ -341,6 +342,35 @@ it.effect("falls back to the primary model when the small model fails", () =>
     expect(attempted.map((model) => String(model.variant))).toEqual(["low", "high"])
     const store = yield* SessionStore.Service
     expect((yield* store.get(sessionID))?.title).toBe("Generated Title")
+  }),
+)
+
+it.effect("does not ask a second model after the free tier address cap", () =>
+  Effect.gen(function* () {
+    titleStream = () =>
+      Stream.fail(
+        new AIError({
+          reason: new QuotaExceededError({
+            message: "Rate limit exceeded. Please try again later.",
+            body: JSON.stringify({ type: "error", error: { type: "FreeUsageLimitError", message: "Rate limit exceeded." } }),
+          }),
+        }),
+      )
+    selectedSmall = lowSmall
+    yield* enableTitleAgent
+    const sessionID = Session.ID.make("ses_title_address_cap")
+    yield* insertSession(
+      sessionID,
+      undefined,
+      undefined,
+      Model.Ref.make({ providerID: Provider.ID.make("test"), id: Model.ID.make("title-model") }),
+    )
+    yield* prompt(sessionID, "Stop at the address cap")
+
+    const title = yield* SessionTitle.Service
+    yield* title.generate(sessionID)
+
+    expect(requests.map((request) => String(request.model.id))).toEqual(["title-small"])
   }),
 )
 

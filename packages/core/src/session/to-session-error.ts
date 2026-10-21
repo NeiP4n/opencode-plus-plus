@@ -33,9 +33,7 @@ const tokenSharingMessages = {
  * reclassified before anyone asks whether to send it again.
  */
 export function asRateLimit(cause: AIError): AIError {
-  if (cause.reason._tag !== "QuotaExceeded") return cause
-  const details = [cause.reason.message, cause.reason.body].filter(Boolean).join("\n")
-  if (!/freeusagelimiterror/i.test(details)) return cause
+  if (cause.reason._tag !== "QuotaExceeded" || !isFreeTierAddressCap(cause)) return cause
   return new AIError({
     reason: new RateLimitError({
       message: cause.reason.message,
@@ -44,6 +42,15 @@ export function asRateLimit(cause: AIError): AIError {
       cause: cause.reason.cause,
     }),
   })
+}
+
+/**
+ * The cap holds the address until the daily reset, so the same request from the same address cannot
+ * succeed however long the session waits; only another address clears it.
+ */
+export function isFreeTierAddressCap(cause: AIError): boolean {
+  if (cause.reason._tag !== "QuotaExceeded" && cause.reason._tag !== "RateLimit") return false
+  return /freeusagelimiterror/i.test([cause.reason.message, cause.reason.body].filter(Boolean).join("\n"))
 }
 
 export function toSessionError(cause: unknown): SessionError.Error {
@@ -125,7 +132,7 @@ function providerError(type: string, reason: AIError["reason"]): SessionError.Er
   const message = raw.includes(OPENCODE_FREE_TIER_ERROR)
     ? "Zen rejected this request. The provider refused the selected model/access. Retrying the identical request will not change that decision. Check the provider connection or select another currently available model."
     : raw.toLowerCase().includes(FREE_TIER_LIMIT_ERROR)
-      ? "Zen's free tier counts requests per IP address, and this address has used its daily allowance. Another address (Auto IP) has an allowance of its own, and the daily reset frees this one."
+      ? "Zen's free tier counts requests per IP address, and this address has used its daily allowance until the daily reset. Retrying from the same address cannot help: turn on OpenCode-only WARP routing and Auto IP to continue from another address, or choose another model."
       : (tokenSharing ?? reason.message)
   return {
     type,

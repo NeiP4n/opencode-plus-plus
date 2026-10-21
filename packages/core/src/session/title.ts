@@ -16,6 +16,7 @@ import type { SessionRunnerModel } from "./runner/model.js"
 import { SessionSchema } from "./schema.js"
 import { SessionUsage } from "./usage.js"
 import { SessionStore } from "./store.js"
+import { isFreeTierAddressCap } from "./to-session-error.js"
 
 const MAX_LENGTH = 100
 const MAX_CONTEXT_LENGTH = 8_000
@@ -53,6 +54,7 @@ export const layer = Layer.effect(
     }) {
       const chunks: string[] = []
       let failed = false
+      let capped = false
       let usage: SessionUsage.Recorded | undefined
       const recordUsage = Effect.suspend(() =>
         usage
@@ -70,7 +72,7 @@ export const layer = Layer.effect(
         system: input.agent.system ? [SystemPart.make(input.agent.system)] : [],
         messages: [Message.user(input.text)],
       })
-      if (prepared.event.result !== undefined) return prepared.event.result
+      if (prepared.event.result !== undefined) return { capped: false, title: prepared.event.result }
       yield* llm.stream(prepared.request, prepared.options).pipe(
         Stream.runForEach((event) => {
           if (LLMEvent.is.providerError(event)) failed = true
@@ -81,20 +83,24 @@ export const layer = Layer.effect(
           }
           return Effect.void
         }),
-        Effect.catchTag("AI.Error", () =>
+        Effect.catchTag("AI.Error", (error) =>
           Effect.sync(() => {
             failed = true
+            capped = isFreeTierAddressCap(error)
           }),
         ),
         Effect.onInterrupt(() => recordUsage.pipe(Effect.asVoid)),
       )
       yield* recordUsage
-      if (failed) return
-      return chunks
-        .join("")
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0)
+      if (failed) return { capped }
+      return {
+        capped,
+        title: chunks
+          .join("")
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => line.length > 0),
+      }
     })
 
     const generate = Effect.fn("SessionTitle.generate")(function* (sessionID: SessionSchema.ID) {
@@ -126,10 +132,13 @@ export const layer = Layer.effect(
         : firstUser.text
       const selection = yield* context.selectTitle(session)
       if (!selection) return
+      const first = yield* attempt({ session, agent: selection.agent, text, model: selection.selected })
+      // Zen counts every request against the daily free allowance, and an address that already hit its
+      // cap meets it again on the next model, so a second attempt only spends what is left of the day.
       const title =
-        (yield* attempt({ session, agent: selection.agent, text, model: selection.selected })) ??
-        (selection.primary && !isDeepStrictEqual(selection.selected.ref, selection.primary.ref)
-          ? yield* attempt({ session, agent: selection.agent, text, model: selection.primary })
+        first.title ??
+        (!first.capped && selection.primary && !isDeepStrictEqual(selection.selected.ref, selection.primary.ref)
+          ? (yield* attempt({ session, agent: selection.agent, text, model: selection.primary })).title
           : undefined)
       if (!title) return
       const expectedSequence = (yield* Bus.latestSequence(db, sessionID)) + 1
