@@ -48,15 +48,6 @@ const fallbackModels = new Set([
   "gpt-6.1-sol",
   "gpt-6.1-sol-fast",
 ])
-const nonRetryableSharingCodes = [
-  "subscription_sharing_usage_limit_exceeded",
-  "subscription_sharing_user_not_eligible",
-  "subscription_sharing_unsupported_capability",
-  "subscription_sharing_route_not_supported",
-  "subscription_sharing_invalid_user",
-  "chatpass_v2_scope_not_authorized",
-  "chatpass_v2_invalid_authorization_context",
-]
 type Pkce = {
   verifier: string
   challenge: string
@@ -384,15 +375,6 @@ export const ChatGPTPlugin = define({
       )
     yield* load()
     yield* ctx.session.hook(
-      "retry",
-      (event) =>
-        Effect.sync(() => {
-          if (!chatgpt || !nonRetryableSharingCodes.some((code) => event.error.response?.body.includes(code))) return
-          event.decision = { retry: false }
-        }),
-      { providerID },
-    )
-    yield* ctx.session.hook(
       "model.request",
       (evt) =>
         Effect.gen(function* () {
@@ -615,8 +597,6 @@ export function verifyIDToken(
 export function describeRequestFailure(url: string, status: number, headers: Headers, body: string) {
   const target = new URL(url)
   const contentType = headers.get("content-type")?.split(";")[0]?.trim().toLowerCase()
-  const server = headers.get("server")?.toLowerCase() ?? ""
-  const mitigated = headers.get("cf-mitigated")?.toLowerCase()
   const requestID = headers.get("x-request-id") ?? headers.get("cf-ray")
   let code: string | undefined
   let message: string | undefined
@@ -650,14 +630,9 @@ export function describeRequestFailure(url: string, status: number, headers: Hea
     .trim()
     .slice(0, 240)
   const isHTML = contentType === "text/html" || /^<!doctype html|<html\b/i.test(body.trim())
-  const combined = `${code ?? ""} ${message ?? ""} ${plainText}`.toLowerCase()
   let reason: string
 
-  if (/unsupported_country_region_territory|country,? region,? or territory (is )?not supported|region is not supported/.test(combined)) {
-    reason = "OpenAI says this country or region is not supported. The OAuth client cannot override that restriction."
-  } else if (mitigated === "challenge" || (server.includes("cloudflare") && isHTML)) {
-    reason = "Cloudflare blocked the token request with a security challenge. Check the network or proxy used by OpenCode++."
-  } else if (isHTML) {
+  if (isHTML) {
     reason = "The server returned an HTML block page instead of an OAuth response. This can be caused by a network proxy or security challenge."
   } else if (code || message) {
     reason = [code, message].filter(Boolean).join(": ").slice(0, 400)

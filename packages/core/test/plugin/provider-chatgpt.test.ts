@@ -294,8 +294,10 @@ describe("ChatGPTPlugin", () => {
           },
         }),
       )
-      expect(regionError).toContain("country or region is not supported")
+      // The provider's own words are reported verbatim; no geo-block interpretation is added.
+      expect(regionError).toContain("unsupported_country_region_territory")
       expect(regionError).toContain("req_region_test")
+      expect(regionError).not.toContain("OpenAI says this country or region is not supported")
 
       const challengeHTML = "<html><body>Just a moment. challenge-token=secret-value</body></html>"
       const challengeError = describeRequestFailure(
@@ -309,9 +311,10 @@ describe("ChatGPTPlugin", () => {
         }),
         challengeHTML,
       )
-      expect(challengeError).toContain("Cloudflare blocked the token request")
+      expect(challengeError).toContain("HTML block page")
       expect(challengeError).toContain("ray_test")
       expect(challengeError).not.toContain("secret-value")
+      expect(challengeError).not.toContain("Cloudflare")
 
       const plainError = describeRequestFailure(
         url,
@@ -378,7 +381,7 @@ describe("ChatGPTPlugin", () => {
   )
 
   for (const source of ["http", "stream"] as const) {
-    it.effect(`stops retries for ChatGPT usage limits from ${source} failures`, () =>
+    it.effect(`retries ChatGPT usage limits from ${source} failures`, () =>
       Effect.gen(function* () {
         const credentials = yield* Credential.Service
         yield* credentials.create({
@@ -422,7 +425,8 @@ describe("ChatGPTPlugin", () => {
         }
         expect(input.error.response?.body).toBe(body)
         expect(input.retry).toBe(true)
-        expect(yield* decide(input)).toEqual({ retry: false })
+        // A usage limit is an ordinary transient failure: it is retried like any other error.
+        expect(yield* decide(input)).toMatchObject({ retry: true })
 
         const other = new AIError({ reason: new RateLimitError({ message: "Rate limit exceeded", body: "{}" }) })
         expect(yield* decide({ ...input, cause: other, error: toSessionError(other) })).toMatchObject({ retry: true })
@@ -456,7 +460,7 @@ describe("ChatGPTPlugin", () => {
     }),
   )
 
-  it.effect("stops deterministic ChatGPT stream failures while retrying temporary unavailability", () =>
+  it.effect("retries every ChatGPT token-sharing failure", () =>
     Effect.gen(function* () {
       const credentials = yield* Credential.Service
       yield* credentials.create({
@@ -474,12 +478,12 @@ describe("ChatGPTPlugin", () => {
       const hooks = yield* PluginHooks.Service
       const decide = yield* SessionRunnerRetry.policy(Session.ID.make("ses_sharing_errors"))
       const cases = [
-        ["subscription_sharing_user_not_eligible", false],
-        ["subscription_sharing_unsupported_capability", false],
-        ["subscription_sharing_route_not_supported", false],
-        ["subscription_sharing_invalid_user", false],
-        ["chatpass_v2_scope_not_authorized", false],
-        ["chatpass_v2_invalid_authorization_context", false],
+        ["subscription_sharing_user_not_eligible", true],
+        ["subscription_sharing_unsupported_capability", true],
+        ["subscription_sharing_route_not_supported", true],
+        ["subscription_sharing_invalid_user", true],
+        ["chatpass_v2_scope_not_authorized", true],
+        ["chatpass_v2_invalid_authorization_context", true],
         ["subscription_sharing_usage_unavailable", true],
         ["subscription_sharing_user_unavailable", true],
       ] as const
