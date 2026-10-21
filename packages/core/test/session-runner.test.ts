@@ -14,6 +14,7 @@ import {
   TransportError,
   InvalidProviderOutputError,
   InvalidRequestError,
+  QuotaExceededError,
   RateLimitError,
   UnknownProviderError,
 } from "@opencode/ai"
@@ -699,6 +700,20 @@ const payloadTooLarge = () =>
 const rateLimited = (retryAfterMs?: number) =>
   new AIError({
     reason: new RateLimitError({ message: "Rate limited", retryAfterMs }),
+  })
+
+// The Zen console counts free-tier requests per address and answers its own daily cap with a
+// typed 429. The provider layer files that answer under the account quota.
+const freeTierCap = () =>
+  new AIError({
+    reason: new QuotaExceededError({
+      message: "Rate limit exceeded. Please try again later.",
+      body: JSON.stringify({
+        type: "error",
+        error: { type: "FreeUsageLimitError", message: "Rate limit exceeded. Please try again later." },
+      }),
+      http: new HttpContext({ url: "https://opencode.ai/zen/v1/messages", status: 429, headers: {} }),
+    }),
   })
 
 const setupOverflowRecovery = Effect.fnUntraced(function* (s: Scenario) {
@@ -5442,6 +5457,30 @@ describe("SessionRunnerLLM", () => {
       )
     })
   }
+
+  scenario("retries the per-address free tier cap and reports it as a rate limit", function* (s) {
+    const hooks = yield* PluginHooks.Service
+    const retries: PluginHooks.Domains["session"]["retry"][] = []
+    yield* hooks.register("session", "retry", (event) =>
+      Effect.sync(() => {
+        retries.push({ ...event })
+        event.decision = { retry: true, delay: 0 }
+      }),
+    )
+    yield* s.llm.push(Stream.fail(freeTierCap()), TestLLM.text("Recovered", "free-tier-recovered"))
+
+    yield* s.runPrompt("Retry after the free tier cap")
+
+    // The cap counts requests per address, so the turn waits for another attempt instead of dying
+    // on the first answer, and it is reported as the rate limit it is.
+    expect(retries).toHaveLength(1)
+    expect(retries[0]?.error.type).toBe("provider.rate-limit")
+    expect(s.requests).toHaveLength(2)
+    expect(yield* s.context).toMatchObject([
+      Expected.user("Retry after the free tier cap"),
+      Expected.assistant({ finish: "stop" }, [Expected.text("Recovered")]),
+    ])
+  })
 
   scenario("does not start another physical attempt after interruption during retry backoff", function* (s) {
     yield* s.admit("Interrupt retry backoff")

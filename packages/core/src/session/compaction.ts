@@ -35,7 +35,7 @@ import { SessionProviderContext } from "./provider-context.js"
 import { SessionRunnerModel } from "./runner/model.js"
 import { SessionRunnerRetry } from "./runner/retry.js"
 import { toLLMMessages } from "./runner/to-llm-message.js"
-import { contentFilterError, toSessionError } from "./to-session-error.js"
+import { asRateLimit, contentFilterError, toSessionError } from "./to-session-error.js"
 import { SessionUsage } from "./usage.js"
 
 export type Settings = {
@@ -422,8 +422,9 @@ export const layer = Layer.effect(
 
         const attempt = yield* Effect.result(send(request))
         if (Result.isSuccess(attempt)) return attempt.success
-        const cause = attempt.failure
-        if (!(cause instanceof AIError)) return yield* Effect.fail(cause)
+        const failure = attempt.failure
+        if (!(failure instanceof AIError)) return yield* Effect.fail(failure)
+        const cause = asRateLimit(failure)
         const error = toSessionError(cause)
         const tooLarge = cause.reason._tag === "InvalidRequest" && cause.reason.classification === "payload-too-large"
 
