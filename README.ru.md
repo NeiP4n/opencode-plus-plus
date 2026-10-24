@@ -19,6 +19,15 @@
 
 **Обновление:** `/update` в приложении или повторный запуск команды установки.
 
+**Удаление:**
+
+| Система | Команда |
+| --- | --- |
+| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/uninstall.sh \| sh` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-uninstall.ps1 \| iex` |
+
+Удаляется сама программа, команда `opencode-pp` и её запись в PATH. Сессии и настройки общие с обычным opencode и остаются; чтобы стереть и их, поставь `OPENCODE_PP_PURGE=1` перед `sh` (в Windows сначала выполни `$env:OPENCODE_PP_PURGE = "1"`).
+
 **Мультиплеер на Windows:** один раз нажми «Разрешить в брандмауэре Windows» в окне «Хост» или «Подключиться».
 
 ## Что внутри

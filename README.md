@@ -19,6 +19,15 @@ Then run `opencode-pp`. A regular opencode keeps the `opencode` command; setting
 
 **Updates:** `/update` inside the app, or run the install command again.
 
+**Uninstall:**
+
+| System | Command |
+| --- | --- |
+| Linux / macOS / Android (Termux) | `curl -fsSL https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/uninstall.sh \| sh` |
+| Windows (PowerShell) | `irm https://raw.githubusercontent.com/NeiP4n/opencode-plus-plus/lan-rooms/opencode-pp-uninstall.ps1 \| iex` |
+
+This removes the program, the `opencode-pp` command and its PATH entry. Sessions and settings are shared with a regular opencode and stay; to delete them as well, put `OPENCODE_PP_PURGE=1` before `sh` (Windows: run `$env:OPENCODE_PP_PURGE = "1"` first).
+
 ## What's inside
 
 - **LAN rooms** — host a session and let others on the network join with a code: members, roles, bans and a shared DoD. Works between Windows and Linux.
